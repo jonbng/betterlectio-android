@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BetterLectio</string>
+
+    <string name="tab_schedule">Skema</string>
+    <string name="tab_messages">Beskeder</string>
+    <string name="tab_homework">Lektier</string>
+    <string name="tab_assignments">Opgaver</string>
+    <string name="tab_more">Mere</string>
+
+    <string name="login_title">Log ind</string>
+    <string name="login_subtitle">Vælg dit gymnasium og log ind med MitID via Lectio.</string>
+    <string name="login_search_school">Søg gymnasium</string>
+    <string name="login_mitid">Log ind med MitID</string>
+    <string name="login_password">Log ind med brugernavn</string>
+    <string name="login_username">Brugernavn</string>
+    <string name="login_password_field">Adgangskode</string>
+    <string name="login_password_submit">Log ind</string>
+    <string name="login_demo">Prøv demo</string>
+    <string name="settings_sync_subjects">Synkroniser fagfarver (Supabase)</string>
+    <string name="studiekort_change_photo">Skift profilbillede</string>
+
+    <string name="placeholder_coming_soon">Kommer snart — under opbygning.</string>
+    <string name="loading">Indlæser…</string>
+    <string name="error_generic">Noget gik galt</string>
+    <string name="error_offline">Ingen internetforbindelse</string>
+    <string name="error_session_expired">Din session er udløbet. Log ind igen.</string>
+    <string name="error_robot">Robot-detektion — prøv igen om lidt.</string>
+    <string name="action_retry">Prøv igen</string>
+    <string name="action_logout">Log ud</string>
+
+    <string name="empty_schedule">Ingen skemadata</string>
+    <string name="empty_schedule_day">Ingen lektioner denne dag</string>
+    <string name="empty_messages">Ingen beskeder</string>
+    <string name="empty_homework">Ingen lektier</string>
+    <string name="empty_assignments">Ingen opgaver</string>
+
+    <string name="label_teacher">Lærer</string>
+    <string name="label_room">Lokale</string>
+    <string name="label_homework">Lektier</string>
+    <string name="label_notes">Noter</string>
+    <string name="label_week">Uge</string>
+    <string name="label_deadline">Deadline</string>
+    <string name="label_status">Status</string>
+    <string name="label_awaits">Afventer</string>
+    <string name="label_hours">Timer</string>
+
+    <string name="message_reply_hint">Skriv svar…</string>
+    <string name="message_send">Send</string>
+    <string name="message_mark_read">Marker som læst</string>
+    <string name="message_delete">Slet</string>
+    <string name="message_compose">Ny besked</string>
+    <string name="message_subject">Emne</string>
+    <string name="message_recipients">Modtagere</string>
+    <string name="message_body">Besked</string>
+
+    <string name="homework_no_note">Ingen lektienote</string>
+    <string name="homework_done">Færdig</string>
+    <string name="homework_mark_done">Marker som færdig</string>
+
+    <string name="filter_all">Alle</string>
+    <string name="filter_awaiting">Afventer dig</string>
+    <string name="filter_delivered">Afleveret</string>
+    <string name="filter_missing">Mangler</string>
+    <string name="label_grading">Bedømmelse</string>
+    <string name="assignment_description">Beskrivelse</string>
+    <string name="assignment_files">Filer</string>
+
+    <string name="plan_detail">Studieplan-detalje</string>
+    <string name="room_schedule">Lokaleskema</string>
+    <string name="room_schedule_empty">Ingen bookinger denne uge</string>
+    <string name="more_rooms">Lokaler</string>
+    <string name="room_in_use">I brug</string>
+    <string name="room_free">Ledig</string>
+    <string name="rooms_occupancy_header">Aktuel belægning</string>
+    <string name="absence_overview">Oversigt</string>
+    <string name="absence_chart">Fravær pr. hold</string>
+    <string name="studiekort_birthday">Fødselsdag: %1$s</string>
+
+    <string name="more_section_school">Skole</string>
+    <string name="more_section_app">App</string>
+    <string name="more_grades">Karakterer</string>
+    <string name="more_absence">Fravær</string>
+    <string name="more_absence_regs">Registreringer</string>
+    <string name="more_directory">Katalog</string>
+    <string name="more_directory_search">Søg personer, klasser, lokaler…</string>
+    <string name="more_studiekort">Studiekort</string>
+    <string name="more_studiekort_qr">QR-kode</string>
+    <string name="more_plans">Studieplan</string>
+    <string name="more_module_stats">Modulregnskab</string>
+    <string name="more_term">Skift årgang</string>
+    <string name="more_settings">Indstillinger</string>
+
+    <string name="settings_appearance">Udseende</string>
+    <string name="settings_appearance_system">System</string>
+    <string name="settings_appearance_light">Lys</string>
+    <string name="settings_appearance_dark">Mørk</string>
+    <string name="settings_language">Sprog</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_danish">Dansk</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_section_data">Data &amp; privatliv</string>
+    <string name="settings_calendar">Kalenderstil</string>
+    <string name="settings_calendar_timeline">Tidslinje</string>
+    <string name="settings_calendar_timeline_hint">Timegrid som Google Kalender (anbefalet)</string>
+    <string name="settings_calendar_list">Liste</string>
+    <string name="settings_calendar_list_hint">Flade rækker for dagens lektioner</string>
+    <string name="settings_subject_colors">Fagfarver</string>
+    <string name="settings_subject_colors_hint">Farverne og navnene bruges på skemaet.</string>
+    <string name="settings_subject_rename">Visningsnavn</string>
+    <string name="settings_subject_rename_save">Gem fagnavn</string>
+    <string name="settings_notifications">Notifikationer</string>
+    <string name="settings_notif_events">Aflyste og ændrede moduler</string>
+    <string name="settings_notif_messages">Nye beskeder</string>
+    <string name="settings_notif_assignments">Opgaver</string>
+    <string name="settings_notif_history">Notifikationshistorik</string>
+    <string name="settings_notif_history_empty">Ingen hændelser endnu.</string>
+    <string name="settings_notif_history_clear">Ryd historik</string>
+    <string name="settings_privacy">Privatlivspolitik</string>
+    <string name="settings_clear_cache">Ryd cache</string>
+
+    <string name="private_event_add">Ny privat aftale</string>
+    <string name="private_event_title">Privat aftale</string>
+    <string name="private_event_name">Titel</string>
+    <string name="private_event_start_date">Startdato (dd/MM-yyyy)</string>
+    <string name="private_event_start_time">Starttid (HH:mm)</string>
+    <string name="private_event_end_date">Slutdato (dd/MM-yyyy)</string>
+    <string name="private_event_end_time">Sluttid (HH:mm)</string>
+    <string name="private_event_note">Note</string>
+    <string name="private_event_save">Gem aftale</string>
+    <string name="private_event_title_required">Titel er påkrævet</string>
+    <string name="private_event_created">Privat aftale oprettet</string>
+    <string name="private_event_updated">Privat aftale opdateret</string>
+    <string name="private_event_deleted">Privat aftale slettet</string>
+
+    <string name="lesson_content">Indhold</string>
+    <string name="lesson_participants">Deltagere</string>
+    <string name="lesson_resources">Ressourcer</string>
+
+    <string name="grades_notes">Noter</string>
+    <string name="grades_no_notes">Ingen noter</string>
+    <string name="grades_notes_count">%1$d noter</string>
+
+    <string name="directory_members_of">Medlemmer af %1$s</string>
+    <string name="directory_no_members">Ingen medlemmer fundet</string>
+    <string name="directory_pin">Fastgør</string>
+    <string name="directory_unpin">Fjern fastgørelse</string>
+    <string name="directory_pinned">Fastgjorte</string>
+
+    <string name="message_flag">Flag</string>
+    <string name="message_unflag">Fjern flag</string>
+    <string name="message_receivers">Modtagere</string>
+    <string name="private_event_delete">Slet privat aftale</string>
+    <string name="private_event_edit">Rediger privat aftale</string>
+    <string name="private_event_edit_title">Rediger privat aftale</string>
+
+    <string name="homework_lesson_content">Lektionens indhold</string>
+
+    <string name="more_help">Hjælp</string>
+    <string name="help_title">Hjælp til BetterLectio</string>
+    <string name="help_body">BetterLectio viser dit Lectio-skema, beskeder, lektier og opgaver på Android.\n\n• Log ind med MitID via Lectio\n• Brug demo for at prøve uden konto\n• Fastgør personer i kataloget\n• Professionel kalenderstil under Indstillinger\n• Tilføj skema-widget på startskærmen\n\nPrivatlivspolitik findes under Indstillinger.</string>
+    <string name="settings_check_updates">Tjek opdateringer</string>
+    <string name="settings_version">Version %1$s</string>
+
+    <string name="widget_schedule_label">Dagens skema</string>
+    <string name="widget_schedule_description">Viser dagens lektioner fra BetterLectio</string>
+    <string name="widget_open_app_hint">Åbn appen for at opdatere skemaet</string>
+    <string name="widget_day_title">Skema · %1$s</string>
+
+    <string name="cd_prev_week">Forrige uge</string>
+    <string name="cd_next_week">Næste uge</string>
+    <string name="cd_qr">QR-kode</string>
+
+    <string name="event_all_day">Hele dagen</string>
+    <string name="event_status_changed">Ændret</string>
+    <string name="event_status_cancelled">Aflyst</string>
+    <string name="event_module_default">Modul</string>
+    <string name="private_event_team">Privat</string>
+
+    <string name="login_demo_badge">Demo</string>
+    <string name="student_fallback">Elev</string>
+    <string name="term_selected">Valgt</string>
+    <string name="settings_sync_subjects_hint">Henter remote fagfarver når Supabase er konfigureret</string>
+    <string name="message_sent">Besked sendt</string>
+    <string name="plan_fallback_title">Studieplan</string>
+    <string name="plan_empty">Ingen studieplaner fundet</string>
+    <string name="plan_subject_fallback">faget</string>
+
+    <string name="absence_current_final">Aktuelt %1$s%% · Slut %2$s%%</string>
+    <string name="absence_assignments_pct">Opgaver %1$s%%</string>
+    <string name="module_stats_line">Afholdt %1$d · Aflyst %2$d · Ændret %3$d</string>
+
+    <string name="msg_cache_cleared">Cache ryddet</string>
+    <string name="msg_absence_cause_updated">Årsag opdateret: %1$s</string>
+    <string name="msg_absence_cause_history">Fraværsårsag opdateret: %1$s</string>
+    <string name="msg_subject_name_saved">Fagnavn gemt</string>
+    <string name="msg_notif_history_cleared">Notifikationshistorik ryddet</string>
+    <string name="msg_profile_photo_updated">Profilbillede opdateret</string>
+    <string name="msg_supabase_not_configured">Supabase ikke konfigureret — lokale fagfarver bruges</string>
+    <string name="msg_no_remote_subject_mapping">Ingen remote fagmapping fundet</string>
+    <string name="msg_subjects_synced">Fagfarver synkroniseret (%1$d)</string>
+
+    <string name="error_invalid_login">Login ugyldigt</string>
+    <string name="error_missing_cookies">Manglende cookies</string>
+    <string name="error_robot_triggered">Robot-detektion udløst</string>
+    <string name="error_http">HTTP %1$d</string>
+    <string name="error_network">Netværksfejl</string>
+
+    <string name="notif_channel_name">BetterLectio</string>
+    <string name="notif_module_status">Modul %1$s</string>
+    <string name="notif_module_changed_fallback">ændret</string>
+    <string name="notif_event_line">%1$s · %2$s</string>
+    <string name="notif_new_messages_title">Nye beskeder</string>
+    <string name="notif_new_messages_body">Du har %1$d ny(e) ulæst(e) besked(er)</string>
+    <string name="notif_history_new_messages">Nye beskeder: %1$d</string>
+    <string name="notif_assignment_title">Opgave: %1$s</string>
+    <string name="notif_assignment_body">%1$s · %2$s</string>
+    <string name="notif_history_assignment">Opgave %1$s: %2$s</string>
+    <string name="notif_history_module">%1$s: %2$s</string>
+
+    <string name="live_channel_name">Igangværende lektion</string>
+    <string name="live_lesson_in_progress">Lektion i gang</string>
+    <string name="live_minutes_left">%1$d min tilbage</string>
+    <string name="live_teacher_line">Lærer: %1$s</string>
+    <string name="live_ends_at">Slutter %1$s</string>
+    <string name="live_next_line">Næste: %1$s %2$s</string>
+    <string name="live_open_schedule">Åbn skema</string>
+    <string name="live_next_in_minutes">Næste lektion om %1$d min</string>
+    <string name="live_schedule_update_in">Skemaopdatering om %1$d min</string>
+    <string name="live_boundary_big">%1$s\n%2$s kl. %3$s</string>
+    <string name="live_event_line">%1$s · %2$s · %3$s</string>
+
+    <string name="update_ready_retry_activity">Play In-App Updates er klar. Tryk igen fra en Activity for at tjekke butikken.</string>
+    <string name="update_not_linked">Play In-App Updates er ikke linket i denne build (graceful no-op).</string>
+    <string name="update_check_failed">Opdateringscheck mislykkedes: %1$s</string>
+    <string name="update_flexible_started">Opdatering tilgængelig — fleksibel opdatering startet.</string>
+    <string name="update_flexible_failed">Opdatering fundet, men flow kunne ikke startes: %1$s</string>
+    <string name="update_immediate_started">Opdatering tilgængelig — øjeblikkelig opdatering startet.</string>
+    <string name="update_immediate_failed">Opdatering fundet (immediate), flow fejlede: %1$s</string>
+    <string name="update_none_available">Ingen opdatering tilgængelig (version %1$s).</string>
+    <string name="update_play_check_failed">Kunne ikke tjekke Play: %1$s (sideload/debug er normalt).</string>
+    <string name="update_play_core_unavailable">Play Core utilgængelig: %1$s</string>
+</resources>

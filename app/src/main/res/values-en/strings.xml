@@ -1,0 +1,243 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">BetterLectio</string>
+
+    <string name="tab_schedule">Schedule</string>
+    <string name="tab_messages">Messages</string>
+    <string name="tab_homework">Homework</string>
+    <string name="tab_assignments">Assignments</string>
+    <string name="tab_more">More</string>
+
+    <string name="login_title">Log in</string>
+    <string name="login_subtitle">Choose your school and log in with MitID via Lectio.</string>
+    <string name="login_search_school">Search school</string>
+    <string name="login_mitid">Log in with MitID</string>
+    <string name="login_password">Log in with username</string>
+    <string name="login_username">Username</string>
+    <string name="login_password_field">Password</string>
+    <string name="login_password_submit">Log in</string>
+    <string name="login_demo">Try demo</string>
+    <string name="settings_sync_subjects">Sync subject colors (Supabase)</string>
+    <string name="studiekort_change_photo">Change profile photo</string>
+
+    <string name="placeholder_coming_soon">Coming soon — under construction.</string>
+    <string name="loading">Loading…</string>
+    <string name="error_generic">Something went wrong</string>
+    <string name="error_offline">No internet connection</string>
+    <string name="error_session_expired">Your session has expired. Please log in again.</string>
+    <string name="error_robot">Robot detection — try again in a moment.</string>
+    <string name="action_retry">Try again</string>
+    <string name="action_logout">Log out</string>
+
+    <string name="empty_schedule">No schedule data</string>
+    <string name="empty_schedule_day">No lessons this day</string>
+    <string name="empty_messages">No messages</string>
+    <string name="empty_homework">No homework</string>
+    <string name="empty_assignments">No assignments</string>
+
+    <string name="label_teacher">Teacher</string>
+    <string name="label_room">Room</string>
+    <string name="label_homework">Homework</string>
+    <string name="label_notes">Notes</string>
+    <string name="label_week">Week</string>
+    <string name="label_deadline">Deadline</string>
+    <string name="label_status">Status</string>
+    <string name="label_awaits">Awaiting</string>
+    <string name="label_hours">Hours</string>
+
+    <string name="message_reply_hint">Write a reply…</string>
+    <string name="message_send">Send</string>
+    <string name="message_mark_read">Mark as read</string>
+    <string name="message_delete">Delete</string>
+    <string name="message_compose">New message</string>
+    <string name="message_subject">Subject</string>
+    <string name="message_recipients">Recipients</string>
+    <string name="message_body">Message</string>
+
+    <string name="homework_no_note">No homework note</string>
+    <string name="homework_done">Done</string>
+    <string name="homework_mark_done">Mark as done</string>
+
+    <string name="filter_all">All</string>
+    <string name="filter_awaiting">Awaiting you</string>
+    <string name="filter_delivered">Submitted</string>
+    <string name="filter_missing">Missing</string>
+    <string name="label_grading">Grading</string>
+    <string name="assignment_description">Description</string>
+    <string name="assignment_files">Files</string>
+
+    <string name="plan_detail">Study plan detail</string>
+    <string name="room_schedule">Room schedule</string>
+    <string name="room_schedule_empty">No bookings this week</string>
+    <string name="more_rooms">Rooms</string>
+    <string name="room_in_use">In use</string>
+    <string name="room_free">Free</string>
+    <string name="rooms_occupancy_header">Current occupancy</string>
+    <string name="absence_overview">Overview</string>
+    <string name="absence_chart">Absence per class</string>
+    <string name="studiekort_birthday">Birthday: %1$s</string>
+
+    <string name="more_section_school">School</string>
+    <string name="more_section_app">App</string>
+    <string name="more_grades">Grades</string>
+    <string name="more_absence">Absence</string>
+    <string name="more_absence_regs">Registrations</string>
+    <string name="more_directory">Directory</string>
+    <string name="more_directory_search">Search people, classes, rooms…</string>
+    <string name="more_studiekort">Student ID</string>
+    <string name="more_studiekort_qr">QR code</string>
+    <string name="more_plans">Study plan</string>
+    <string name="more_module_stats">Module stats</string>
+    <string name="more_term">Change year</string>
+    <string name="more_settings">Settings</string>
+
+    <string name="settings_appearance">Appearance</string>
+    <string name="settings_appearance_system">System</string>
+    <string name="settings_appearance_light">Light</string>
+    <string name="settings_appearance_dark">Dark</string>
+    <string name="settings_language">Language</string>
+    <string name="settings_language_system">System</string>
+    <string name="settings_language_danish">Dansk</string>
+    <string name="settings_language_english">English</string>
+    <string name="settings_section_data">Data &amp; privacy</string>
+    <string name="settings_calendar">Calendar style</string>
+    <string name="settings_calendar_timeline">Timeline</string>
+    <string name="settings_calendar_timeline_hint">Time grid like Google Calendar (recommended)</string>
+    <string name="settings_calendar_list">List</string>
+    <string name="settings_calendar_list_hint">Flat rows for the day\'s lessons</string>
+    <string name="settings_subject_colors">Subject colors</string>
+    <string name="settings_subject_colors_hint">Colors and names are used on the schedule.</string>
+    <string name="settings_subject_rename">Display name</string>
+    <string name="settings_subject_rename_save">Save subject name</string>
+    <string name="settings_notifications">Notifications</string>
+    <string name="settings_notif_events">Cancelled and changed modules</string>
+    <string name="settings_notif_messages">New messages</string>
+    <string name="settings_notif_assignments">Assignments</string>
+    <string name="settings_notif_history">Notification history</string>
+    <string name="settings_notif_history_empty">No events yet.</string>
+    <string name="settings_notif_history_clear">Clear history</string>
+    <string name="settings_privacy">Privacy policy</string>
+    <string name="settings_clear_cache">Clear cache</string>
+
+    <string name="private_event_add">New private event</string>
+    <string name="private_event_title">Private event</string>
+    <string name="private_event_name">Title</string>
+    <string name="private_event_start_date">Start date (dd/MM-yyyy)</string>
+    <string name="private_event_start_time">Start time (HH:mm)</string>
+    <string name="private_event_end_date">End date (dd/MM-yyyy)</string>
+    <string name="private_event_end_time">End time (HH:mm)</string>
+    <string name="private_event_note">Note</string>
+    <string name="private_event_save">Save event</string>
+    <string name="private_event_title_required">Title is required</string>
+    <string name="private_event_created">Private event created</string>
+    <string name="private_event_updated">Private event updated</string>
+    <string name="private_event_deleted">Private event deleted</string>
+
+    <string name="lesson_content">Content</string>
+    <string name="lesson_participants">Participants</string>
+    <string name="lesson_resources">Resources</string>
+
+    <string name="grades_notes">Notes</string>
+    <string name="grades_no_notes">No notes</string>
+    <string name="grades_notes_count">%1$d notes</string>
+
+    <string name="directory_members_of">Members of %1$s</string>
+    <string name="directory_no_members">No members found</string>
+    <string name="directory_pin">Pin</string>
+    <string name="directory_unpin">Unpin</string>
+    <string name="directory_pinned">Pinned</string>
+
+    <string name="message_flag">Flag</string>
+    <string name="message_unflag">Remove flag</string>
+    <string name="message_receivers">Recipients</string>
+    <string name="private_event_delete">Delete private event</string>
+    <string name="private_event_edit">Edit private event</string>
+    <string name="private_event_edit_title">Edit private event</string>
+
+    <string name="homework_lesson_content">Lesson content</string>
+
+    <string name="more_help">Help</string>
+    <string name="help_title">Help for BetterLectio</string>
+    <string name="help_body">BetterLectio shows your Lectio schedule, messages, homework, and assignments on Android.\n\n• Log in with MitID via Lectio\n• Use demo to try without an account\n• Pin people in the directory\n• Professional calendar style under Settings\n• Add a schedule widget on the home screen\n\nPrivacy policy is available under Settings.</string>
+    <string name="settings_check_updates">Check for updates</string>
+    <string name="settings_version">Version %1$s</string>
+
+    <string name="widget_schedule_label">Today\'s schedule</string>
+    <string name="widget_schedule_description">Shows today\'s lessons from BetterLectio</string>
+    <string name="widget_open_app_hint">Open the app to refresh the schedule</string>
+    <string name="widget_day_title">Schedule · %1$s</string>
+
+    <string name="cd_prev_week">Previous week</string>
+    <string name="cd_next_week">Next week</string>
+    <string name="cd_qr">QR code</string>
+
+    <string name="event_all_day">All day</string>
+    <string name="event_status_changed">Changed</string>
+    <string name="event_status_cancelled">Cancelled</string>
+    <string name="event_module_default">Module</string>
+    <string name="private_event_team">Private</string>
+
+    <string name="login_demo_badge">Demo</string>
+    <string name="student_fallback">Student</string>
+    <string name="term_selected">Selected</string>
+    <string name="settings_sync_subjects_hint">Fetches remote subject colors when Supabase is configured</string>
+    <string name="message_sent">Message sent</string>
+    <string name="plan_fallback_title">Study plan</string>
+    <string name="plan_empty">No study plans found</string>
+    <string name="plan_subject_fallback">the subject</string>
+
+    <string name="absence_current_final">Current %1$s%% · Final %2$s%%</string>
+    <string name="absence_assignments_pct">Assignments %1$s%%</string>
+    <string name="module_stats_line">Held %1$d · Cancelled %2$d · Changed %3$d</string>
+
+    <string name="msg_cache_cleared">Cache cleared</string>
+    <string name="msg_absence_cause_updated">Cause updated: %1$s</string>
+    <string name="msg_absence_cause_history">Absence cause updated: %1$s</string>
+    <string name="msg_subject_name_saved">Subject name saved</string>
+    <string name="msg_notif_history_cleared">Notification history cleared</string>
+    <string name="msg_profile_photo_updated">Profile photo updated</string>
+    <string name="msg_supabase_not_configured">Supabase not configured — using local subject colors</string>
+    <string name="msg_no_remote_subject_mapping">No remote subject mapping found</string>
+    <string name="msg_subjects_synced">Subject colors synced (%1$d)</string>
+
+    <string name="error_invalid_login">Invalid login</string>
+    <string name="error_missing_cookies">Missing cookies</string>
+    <string name="error_robot_triggered">Robot detection triggered</string>
+    <string name="error_http">HTTP %1$d</string>
+    <string name="error_network">Network error</string>
+
+    <string name="notif_channel_name">BetterLectio</string>
+    <string name="notif_module_status">Module %1$s</string>
+    <string name="notif_module_changed_fallback">changed</string>
+    <string name="notif_event_line">%1$s · %2$s</string>
+    <string name="notif_new_messages_title">New messages</string>
+    <string name="notif_new_messages_body">You have %1$d new unread message(s)</string>
+    <string name="notif_history_new_messages">New messages: %1$d</string>
+    <string name="notif_assignment_title">Assignment: %1$s</string>
+    <string name="notif_assignment_body">%1$s · %2$s</string>
+    <string name="notif_history_assignment">Assignment %1$s: %2$s</string>
+    <string name="notif_history_module">%1$s: %2$s</string>
+
+    <string name="live_channel_name">Ongoing lesson</string>
+    <string name="live_lesson_in_progress">Lesson in progress</string>
+    <string name="live_minutes_left">%1$d min left</string>
+    <string name="live_teacher_line">Teacher: %1$s</string>
+    <string name="live_ends_at">Ends %1$s</string>
+    <string name="live_next_line">Next: %1$s %2$s</string>
+    <string name="live_open_schedule">Open schedule</string>
+    <string name="live_next_in_minutes">Next lesson in %1$d min</string>
+    <string name="live_schedule_update_in">Schedule update in %1$d min</string>
+    <string name="live_boundary_big">%1$s\n%2$s at %3$s</string>
+    <string name="live_event_line">%1$s · %2$s · %3$s</string>
+
+    <string name="update_ready_retry_activity">Play In-App Updates is ready. Tap again from an Activity to check the store.</string>
+    <string name="update_not_linked">Play In-App Updates is not linked in this build (graceful no-op).</string>
+    <string name="update_check_failed">Update check failed: %1$s</string>
+    <string name="update_flexible_started">Update available — flexible update started.</string>
+    <string name="update_flexible_failed">Update found, but the flow could not be started: %1$s</string>
+    <string name="update_immediate_started">Update available — immediate update started.</string>
+    <string name="update_immediate_failed">Update found (immediate), flow failed: %1$s</string>
+    <string name="update_none_available">No update available (version %1$s).</string>
+    <string name="update_play_check_failed">Could not check Play: %1$s (sideload/debug is normal).</string>
+    <string name="update_play_core_unavailable">Play Core unavailable: %1$s</string>
+</resources>

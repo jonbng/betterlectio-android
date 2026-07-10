@@ -1,0 +1,30 @@
+package dk.betterlectio.android.feature.messages
+
+import org.junit.Assert.assertEquals
+import org.junit.Assert.assertTrue
+import org.junit.Test
+
+class MessageParserTest {
+    @Test
+    fun parses_thread_list_fixture() {
+        val html = javaClass.classLoader!!
+            .getResourceAsStream("lectio/fixtures/messages_list.html")!!
+            .bufferedReader().readText()
+        val threads = MessageParser.parseThreadList(html)
+        assertEquals(1, threads.size)
+        assertEquals("Velkomst", threads[0].topic)
+        assertTrue(threads[0].id.contains("$") || threads[0].id.isNotBlank())
+        assertEquals("-70", threads[0].folderId)
+        // Flutter parity: `$ABC_$_42` → normalized `42` (not `_42`).
+        assertEquals("42", threads[0].normalizedId)
+    }
+
+    @Test
+    fun normalizeThreadId_flutter_parity() {
+        assertEquals("42", MessageParser.normalizeThreadId("\$ABC_\$_42"))
+        assertEquals("42", MessageParser.normalizeThreadId("\$ABC_\$_42"))
+        assertEquals("plain", MessageParser.normalizeThreadId("plain"))
+        // Offline store re-derives from full threadId the same way.
+        assertEquals("99", MessageParser.normalizeThreadId("\$X_\$_99"))
+    }
+}

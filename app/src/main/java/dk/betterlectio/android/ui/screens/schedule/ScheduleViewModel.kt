@@ -1,0 +1,308 @@
+package dk.betterlectio.android.ui.screens.schedule
+
+import androidx.lifecycle.ViewModel
+import androidx.lifecycle.viewModelScope
+import com.posthog.PostHog
+import dagger.hilt.android.lifecycle.HiltViewModel
+import dk.betterlectio.android.R
+import dk.betterlectio.android.core.i18n.UiText
+import dk.betterlectio.android.core.result.AppError
+import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.core.util.LectioDateUtils
+import android.content.Context
+import dagger.hilt.android.qualifiers.ApplicationContext
+import dk.betterlectio.android.feature.live.LiveLessonNotifier
+import dk.betterlectio.android.feature.live.LiveLessonScheduler
+import dk.betterlectio.android.feature.schedule.LessonDetail
+import dk.betterlectio.android.feature.schedule.PRIVATE_EVENT_TEAM_TOKEN
+import dk.betterlectio.android.feature.schedule.PrivateEventDraft
+import dk.betterlectio.android.feature.schedule.ScheduleEvent
+import dk.betterlectio.android.feature.schedule.ScheduleRepository
+import dk.betterlectio.android.feature.schedule.ScheduleWeek
+import dk.betterlectio.android.feature.schedule.timeLabel
+import dk.betterlectio.android.feature.settings.CalendarStyle
+import dk.betterlectio.android.feature.settings.SettingsStore
+import dk.betterlectio.android.feature.widget.ScheduleWidgetSnapshot
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
+import kotlinx.coroutines.flow.update
+import kotlinx.coroutines.launch
+import java.time.LocalDate
+import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
+import javax.inject.Inject
+
+data class ScheduleUiState(
+    val loading: Boolean = true,
+    val week: ScheduleWeek? = null,
+    val year: Int = LectioDateUtils.isoWeekYear(),
+    val weekNum: Int = LectioDateUtils.isoWeek(),
+    val selectedDate: LocalDate = LocalDate.now(),
+    val selectedEvent: ScheduleEvent? = null,
+    val lessonDetail: LessonDetail? = null,
+    val detailLoading: Boolean = false,
+    val showPrivateEvent: Boolean = false,
+    /** Non-null when editing an existing private event. */
+    val editingPrivateEventId: String? = null,
+    val privateTitle: String = "",
+    val privateNote: String = "",
+    val privateStartDate: String = "",
+    val privateStartTime: String = "08:00",
+    val privateEndDate: String = "",
+    val privateEndTime: String = "09:00",
+    val message: UiText? = null,
+    val error: AppError? = null,
+)
+
+@HiltViewModel
+class ScheduleViewModel @Inject constructor(
+    private val repository: ScheduleRepository,
+    private val liveLessonNotifier: LiveLessonNotifier,
+    private val liveLessonScheduler: LiveLessonScheduler,
+    private val settings: SettingsStore,
+    @ApplicationContext private val appContext: Context,
+) : ViewModel() {
+
+    private val _state = MutableStateFlow(ScheduleUiState())
+    val state: StateFlow<ScheduleUiState> = _state.asStateFlow()
+
+    val calendarStyle: StateFlow<CalendarStyle> = settings.calendarStyle
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.calendarStyle.value)
+
+    val subjectColors: StateFlow<Map<String, Long>> = settings.subjectColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectColors.value)
+
+    val subjectNames: StateFlow<Map<String, String>> = settings.subjectNames
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectNames.value)
+
+    init {
+        refresh()
+    }
+
+    fun accentArgbFor(event: ScheduleEvent): Long {
+        val key = event.team.ifBlank { event.title }
+        return settings.colorForSubject(key)
+    }
+
+    fun displayTitle(event: ScheduleEvent): String {
+        val key = event.team.ifBlank { event.title }
+        return settings.displayNameForSubject(key, event.title)
+    }
+
+    fun refresh(force: Boolean = false) {
+        viewModelScope.launch {
+            val s = _state.value
+            _state.update { it.copy(loading = true, error = null) }
+            when (val res = repository.loadWeek(s.year, s.weekNum, force)) {
+                is AppResult.Success -> {
+                    val days = res.data.days
+                    val selected = days.find { it.date == s.selectedDate }?.date
+                        ?: days.find { it.date == LocalDate.now() }?.date
+                        ?: days.firstOrNull()?.date
+                        ?: s.selectedDate
+                    _state.update {
+                        it.copy(loading = false, week = res.data, selectedDate = selected, error = null)
+                    }
+                    val todayEvents = days.find { it.date == LocalDate.now() }?.events.orEmpty()
+                    val now = LocalDateTime.now()
+                    liveLessonNotifier.update(todayEvents, now)
+                    liveLessonScheduler.scheduleBoundaries(todayEvents, now)
+                    ScheduleWidgetSnapshot.write(
+                        appContext,
+                        ScheduleWidgetSnapshot.defaultDayLabel(appContext, LocalDate.now()),
+                        todayEvents.map { e ->
+                            "${e.timeLabel(appContext)} ${displayTitle(e)}" +
+                                (e.room?.let { " · $it" } ?: "")
+                        },
+                    )
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(loading = false, error = res.error)
+                }
+            }
+        }
+    }
+
+    fun prevWeek() = shiftWeek(-1)
+    fun nextWeek() = shiftWeek(1)
+
+    private fun shiftWeek(delta: Int) {
+        var y = _state.value.year
+        var w = _state.value.weekNum + delta
+        if (w < 1) {
+            y -= 1
+            w = 52
+        } else if (w > 53) {
+            y += 1
+            w = 1
+        }
+        _state.update { it.copy(year = y, weekNum = w, selectedDate = LectioDateUtils.weekStart(y, w)) }
+        refresh(force = true)
+    }
+
+    fun selectDate(date: LocalDate) {
+        _state.update { it.copy(selectedDate = date, selectedEvent = null, lessonDetail = null) }
+    }
+
+    fun selectEvent(event: ScheduleEvent?) {
+        if (event == null) {
+            _state.update { it.copy(selectedEvent = null, lessonDetail = null, detailLoading = false) }
+            return
+        }
+        PostHog.capture(
+            event = "lesson_detail_viewed",
+            properties = mapOf(
+                "lesson_title" to event.title,
+                "lesson_team" to event.team,
+                "lesson_status" to event.status.name,
+            ),
+        )
+        _state.update { it.copy(selectedEvent = event, detailLoading = true, lessonDetail = null) }
+        viewModelScope.launch {
+            when (val res = repository.loadLessonDetail(event)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(detailLoading = false, lessonDetail = res.data)
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(
+                        detailLoading = false,
+                        lessonDetail = LessonDetail(
+                            eventId = event.id,
+                            title = event.title,
+                            note = event.notes,
+                            homework = event.homework,
+                        ),
+                    )
+                }
+            }
+        }
+    }
+
+    fun openPrivateEventSheet() {
+        val d = _state.value.selectedDate
+        val fmt = DateTimeFormatter.ofPattern("dd/MM-yyyy")
+        _state.update {
+            it.copy(
+                showPrivateEvent = true,
+                editingPrivateEventId = null,
+                privateTitle = "",
+                privateNote = "",
+                privateStartDate = d.format(fmt),
+                privateEndDate = d.format(fmt),
+                privateStartTime = "08:00",
+                privateEndTime = "09:00",
+                message = null,
+            )
+        }
+    }
+
+    fun openEditPrivateEvent(event: ScheduleEvent) {
+        val dateFmt = DateTimeFormatter.ofPattern("dd/MM-yyyy")
+        val timeFmt = DateTimeFormatter.ofPattern("HH:mm")
+        _state.update {
+            it.copy(
+                showPrivateEvent = true,
+                editingPrivateEventId = event.id,
+                privateTitle = event.title,
+                privateNote = event.notes.orEmpty(),
+                privateStartDate = (event.start?.toLocalDate() ?: event.date).format(dateFmt),
+                privateEndDate = (event.end?.toLocalDate() ?: event.date).format(dateFmt),
+                privateStartTime = event.start?.format(timeFmt) ?: "08:00",
+                privateEndTime = event.end?.format(timeFmt) ?: "09:00",
+                message = null,
+            )
+        }
+    }
+
+    fun closePrivateEventSheet() {
+        _state.update { it.copy(showPrivateEvent = false, editingPrivateEventId = null) }
+    }
+
+    fun updatePrivateField(
+        title: String? = null,
+        note: String? = null,
+        startDate: String? = null,
+        startTime: String? = null,
+        endDate: String? = null,
+        endTime: String? = null,
+    ) {
+        _state.update {
+            it.copy(
+                privateTitle = title ?: it.privateTitle,
+                privateNote = note ?: it.privateNote,
+                privateStartDate = startDate ?: it.privateStartDate,
+                privateStartTime = startTime ?: it.privateStartTime,
+                privateEndDate = endDate ?: it.privateEndDate,
+                privateEndTime = endTime ?: it.privateEndTime,
+            )
+        }
+    }
+
+    fun savePrivateEvent() {
+        val s = _state.value
+        if (s.privateTitle.isBlank()) {
+            _state.update { it.copy(message = UiText.Res(R.string.private_event_title_required)) }
+            return
+        }
+        viewModelScope.launch {
+            val draft = PrivateEventDraft(
+                title = s.privateTitle,
+                startDate = s.privateStartDate,
+                startTime = s.privateStartTime,
+                endDate = s.privateEndDate,
+                endTime = s.privateEndTime,
+                note = s.privateNote,
+                eventId = s.editingPrivateEventId,
+            )
+            val isEdit = s.editingPrivateEventId != null
+            when (val res = repository.createPrivateEvent(draft)) {
+                is AppResult.Success -> {
+                    PostHog.capture(
+                        event = if (isEdit) "private_event_updated" else "private_event_created",
+                    )
+                    _state.update {
+                        it.copy(
+                            showPrivateEvent = false,
+                            editingPrivateEventId = null,
+                            selectedEvent = null,
+                            lessonDetail = null,
+                            message = UiText.Res(
+                                if (isEdit) R.string.private_event_updated
+                                else R.string.private_event_created,
+                            ),
+                        )
+                    }
+                    refresh(force = true)
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(message = UiText.Raw(res.error.toString()))
+                }
+            }
+        }
+    }
+
+    fun canEditPrivateEvent(event: ScheduleEvent): Boolean = canDeleteEvent(event)
+
+    fun canDeleteEvent(event: ScheduleEvent): Boolean =
+        event.id.startsWith("local-private") ||
+            event.team.equals(PRIVATE_EVENT_TEAM_TOKEN, ignoreCase = true) ||
+            repository.localPrivate.contains(event.id)
+
+    fun deletePrivateEvent(event: ScheduleEvent) {
+        viewModelScope.launch {
+            repository.deletePrivateEvent(event)
+            PostHog.capture(event = "private_event_deleted")
+            _state.update {
+                it.copy(
+                    selectedEvent = null,
+                    lessonDetail = null,
+                    message = UiText.Res(R.string.private_event_deleted),
+                )
+            }
+            refresh(force = true)
+        }
+    }
+}
