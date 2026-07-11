@@ -38,16 +38,23 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         settingsStore.applyStoredLanguage()
         sessionController.restore()
-        (sessionController.authState.value as? AuthState.Authenticated)?.let { state ->
-            // Re-identify the user so all events in this session are linked to their profile.
-            if (!state.student.isDemo) {
-                PostHog.identify(
-                    distinctId = state.student.studentId,
-                    userProperties = mapOf("gym_id" to state.student.gymId),
-                )
+        when (val state = sessionController.authState.value) {
+            is AuthState.Authenticated -> {
+                // Re-identify the user so all events in this session are linked to their profile.
+                if (!state.student.isDemo) {
+                    PostHog.identify(
+                        distinctId = state.student.studentId,
+                        userProperties = mapOf("gym_id" to state.student.gymId),
+                    )
+                }
+                // iOS cold-start order: validate Lectio → Supabase → directory (sequential).
+                authSessionInstaller.onColdStart(state.student)
             }
-            // Session gate opens inside ensureSupabaseSession; subject sync runs after mint.
-            authSessionInstaller.ensureSupabaseSession(state.student)
+            AuthState.Unauthenticated -> {
+                // iOS: wipe residual WK/UniLogin state before LoginView.
+                authSessionInstaller.wipeResidualAuthState()
+            }
+            AuthState.Loading -> Unit
         }
         NotificationDiffWorker.enqueue(applicationContext)
         enableEdgeToEdge()

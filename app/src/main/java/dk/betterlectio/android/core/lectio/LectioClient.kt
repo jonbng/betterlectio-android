@@ -10,9 +10,11 @@ import dk.betterlectio.android.core.lectio.scrape.AspNetForm
 import dk.betterlectio.android.core.lectio.scrape.LectioUrls
 import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.core.lectio.session.SessionEvents
 import dk.betterlectio.android.core.result.AppResult
 import okhttp3.HttpUrl
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
+import timber.log.Timber
 import java.net.URLEncoder
 import java.nio.charset.StandardCharsets
 import javax.inject.Inject
@@ -74,6 +76,7 @@ class DefaultLectioClient @Inject constructor(
     private val engine: LectioHttpEngine,
     private val credentialStore: CredentialStore,
     private val sessionController: SessionController,
+    private val sessionEvents: SessionEvents,
 ) : LectioClient {
 
     override suspend fun get(
@@ -202,8 +205,7 @@ class DefaultLectioClient @Inject constructor(
             return AppResult.Failure(LectioError.Unknown(e.message, e).toAppError())
         }
 
-        val creds = credentials
-            ?: sid?.let { credentialStore.loadCredentials(it) }
+        val creds = resolveCredentials(credentials, sid)
             ?: return AppResult.Failure(LectioError.MissingCookies.toAppError())
 
         val request = LectioRequest(
@@ -223,6 +225,41 @@ class DefaultLectioClient @Inject constructor(
         } catch (e: Exception) {
             AppResult.Failure(LectioError.Unknown(e.message, e).toAppError())
         }
+    }
+
+    /**
+     * Load session credentials. If the user appears authenticated but the jar is gone/empty,
+     * force session death (iOS-style) instead of leaving a zombie Authenticated UI.
+     */
+    private fun resolveCredentials(
+        explicit: LectioCredentials?,
+        studentId: String?,
+    ): LectioCredentials? {
+        if (explicit != null) {
+            return if (explicit.autologinkey.isEmpty()) {
+                forceExpireIfAuthenticated("explicit credentials have empty autologinkey")
+                null
+            } else {
+                explicit
+            }
+        }
+        if (studentId == null) {
+            forceExpireIfAuthenticated("no studentId for Lectio request")
+            return null
+        }
+        val stored = credentialStore.loadCredentials(studentId)
+        if (stored == null || stored.autologinkey.isEmpty()) {
+            forceExpireIfAuthenticated("missing/empty stored credentials for studentId=$studentId")
+            return null
+        }
+        return stored
+    }
+
+    private fun forceExpireIfAuthenticated(reason: String) {
+        val student = sessionController.currentStudent
+        if (student == null || student.isDemo) return
+        Timber.w("Mid-session missing credentials — emitting sessionExpired (%s)", reason)
+        sessionEvents.emitSessionExpired()
     }
 
     private fun urlEncode(value: String): String =

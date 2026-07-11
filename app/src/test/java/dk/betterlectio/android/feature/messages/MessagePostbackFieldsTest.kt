@@ -1,5 +1,6 @@
 package dk.betterlectio.android.feature.messages
 
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -26,4 +27,13 @@ class MessagePostbackFieldsTest {
         assertTrue(MessagePostbackFields.flagTargets.isNotEmpty())
         assertTrue(MessagePostbackFields.deleteTargets.isNotEmpty())
     }
+
+    @Test
+    fun list_event_args_match_ios_flutter() {
+        assertEquals("READMESSAGE_42", MessagePostbackFields.readMessageArg("42"))
+        assertEquals("FLAGMESSAGE_42", MessagePostbackFields.flagMessageArg("42"))
+        assertEquals("HIDEMESSAGE_42", MessagePostbackFields.hideMessageArg("42"))
+        assertTrue(MessagePostbackFields.replyVariants.any { it.sendTarget.contains("SendMessageBtn") })
+    }
 }
+

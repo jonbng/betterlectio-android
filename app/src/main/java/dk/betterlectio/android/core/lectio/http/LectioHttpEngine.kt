@@ -54,6 +54,9 @@ class LectioHttpEngine @Inject constructor(
         request: LectioRequest,
         initialCredentials: LectioCredentials,
     ): LectioEngineResult = withContext(Dispatchers.IO) {
+        // Retained across InvalidCredentials retries so Set-Cookie rotations during a failed
+        // login probe (studentId == null) are not discarded (iOS keychain re-read only helps
+        // when studentId is already known).
         var currentCredentials = initialCredentials
         var lastError: LectioError = LectioError.Unknown("No response")
 
@@ -64,12 +67,19 @@ class LectioHttpEngine @Inject constructor(
                     val fresh = request.studentId
                         ?.let { credentialStore.loadCredentials(it) }
                         ?: currentCredentials
-                    val (response, creds) = performSingleAttempt(request, fresh)
-                    currentCredentials = creds
-                    LectioEngineResult(response, creds)
+                    when (val outcome = performSingleAttempt(request, fresh)) {
+                        is SingleAttemptOutcome.Success -> {
+                            currentCredentials = outcome.credentials
+                            LectioEngineResult(outcome.response, outcome.credentials)
+                        }
+                        is SingleAttemptOutcome.Failure -> {
+                            currentCredentials = outcome.credentials
+                            throw outcome.error
+                        }
+                    }
                 }
             } catch (e: LectioError.SessionExpired) {
-                // Definitive death — do not retry; session already cleared if UniLogin path.
+                // Definitive death — do not retry; session already signalled if UniLogin path.
                 throw e
             } catch (e: LectioError.InvalidCredentials) {
                 lastError = e
@@ -112,15 +122,30 @@ class LectioHttpEngine @Inject constructor(
         throw lastError
     }
 
+    private sealed class SingleAttemptOutcome {
+        data class Success(
+            val response: LectioResponse,
+            val credentials: LectioCredentials,
+        ) : SingleAttemptOutcome()
+
+        data class Failure(
+            val error: LectioError,
+            val credentials: LectioCredentials,
+        ) : SingleAttemptOutcome()
+    }
+
     private fun performSingleAttempt(
         request: LectioRequest,
         credentials: LectioCredentials,
-    ): Pair<LectioResponse, LectioCredentials> {
+    ): SingleAttemptOutcome {
         var currentCredentials = credentials
         var currentUrl = request.url
         var redirectCount = 0
         var method = request.method
         var body = request.body
+
+        fun fail(error: LectioError): SingleAttemptOutcome =
+            SingleAttemptOutcome.Failure(error, currentCredentials)
 
         while (redirectCount <= maxRedirects) {
             val cookieHeader = CookieHeaderBuilder.build(currentCredentials)
@@ -164,42 +189,46 @@ class LectioHttpEngine @Inject constructor(
                         if (UniLoginDetector.isUniLoginBroker(finalUrl)) {
                             Timber.w("Final URL UniLogin broker — session expired")
                             sessionEvents.emitSessionExpired()
-                            throw LectioError.SessionExpired
+                            return fail(LectioError.SessionExpired)
                         }
                         val bytes = response.body?.bytes() ?: ByteArray(0)
                         val html = LectioHtml.decode(bytes)
                         if (LectioHtml.isRobotDetectionPage(html)) {
-                            throw LectioError.RobotDetection
+                            return fail(LectioError.RobotDetection)
                         }
                         // Authenticated pages should not land on login.aspx
                         if (LectioHtml.isLoginPageUrl(finalUrl.toString()) &&
                             !finalUrl.toString().contains("unilogin", ignoreCase = true)
                         ) {
-                            throw LectioError.InvalidCredentials
+                            return fail(LectioError.InvalidCredentials)
                         }
-                        return LectioResponse(
-                            body = html,
-                            bytes = bytes,
-                            finalUrl = finalUrl,
-                            statusCode = response.code,
-                        ) to currentCredentials
+                        return SingleAttemptOutcome.Success(
+                            LectioResponse(
+                                body = html,
+                                bytes = bytes,
+                                finalUrl = finalUrl,
+                                statusCode = response.code,
+                            ),
+                            currentCredentials,
+                        )
                     }
 
                     301, 302, 303, 307, 308 -> {
                         val location = response.header("Location")
-                            ?: throw LectioError.Unknown("Redirect without Location")
+                            ?: return fail(LectioError.Unknown("Redirect without Location"))
                         val redirectUrl = resolveRedirect(currentUrl, location)
-                            ?: throw LectioError.Unknown("Invalid redirect: $location")
+                            ?: return fail(LectioError.Unknown("Invalid redirect: $location"))
 
                         if (UniLoginDetector.isUniLoginBroker(redirectUrl)) {
                             Timber.w("Redirect to UniLogin broker — session expired")
                             sessionEvents.emitSessionExpired()
-                            throw LectioError.SessionExpired
+                            return fail(LectioError.SessionExpired)
                         }
 
                         if (redirectCount >= maxRedirects) {
-                            // Redirect budget is not necessarily dead autologin.
-                            throw LectioError.Unknown("Too many redirects ($maxRedirects)")
+                            // iOS: exceeding redirect budget → invalidCredentials → session death
+                            Timber.w("Exceeded %d redirects — treating as session death", maxRedirects)
+                            return fail(redirectBudgetError(request.studentId))
                         }
 
                         // RFC: 303 / 302 traditionally become GET
@@ -211,14 +240,28 @@ class LectioHttpEngine @Inject constructor(
                         redirectCount++
                     }
 
-                    401, 403 -> throw LectioError.InvalidCredentials
+                    401, 403 -> return fail(LectioError.InvalidCredentials)
 
-                    else -> throw LectioError.Http(response.code)
+                    else -> return fail(LectioError.Http(response.code))
                 }
             }
         }
 
-        throw LectioError.Unknown("Redirect loop exceeded")
+        Timber.w("Redirect loop exceeded — treating as session death")
+        return fail(redirectBudgetError(request.studentId))
+    }
+
+    /**
+     * iOS throws `.invalidCredentials` on redirect budget; after retries that becomes session
+     * expiry for known students. Emit immediately when we already have a studentId.
+     */
+    private fun redirectBudgetError(studentId: String?): LectioError {
+        return if (studentId != null) {
+            sessionEvents.emitSessionExpired()
+            LectioError.SessionExpired
+        } else {
+            LectioError.InvalidCredentials
+        }
     }
 
     private fun mergeCookiesFromResponse(

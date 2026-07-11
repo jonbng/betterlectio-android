@@ -26,22 +26,25 @@ class GradeRepository @Inject constructor(
         }
         val key = "grades_${student.studentId}"
         if (!forceRefresh) cache.get(key)?.let { return AppResult.Success(GradeParser.parse(it)) }
-        return when (val res = client.get("grades/grade_student.aspx")) {
-            is AppResult.Failure -> {
-                cache.get(key)?.let { return AppResult.Success(GradeParser.parse(it)) }
-                when (val alt = client.get("Karakterer.aspx")) {
-                    is AppResult.Success -> {
-                        cache.put(key, alt.data.body)
-                        AppResult.Success(GradeParser.parse(alt.data.body))
-                    }
-                    is AppResult.Failure -> res
+        // Flutter/iOS: grades/grade_report.aspx?elevid=…
+        val paths = listOf(
+            "grades/grade_report.aspx?elevid=${student.studentId}",
+            "grades/grade_report.aspx",
+            "grades/grade_student.aspx",
+            "Karakterer.aspx",
+        )
+        var lastFailure: AppResult.Failure? = null
+        for (path in paths) {
+            when (val res = client.get(path)) {
+                is AppResult.Failure -> lastFailure = res
+                is AppResult.Success -> {
+                    cache.put(key, res.data.body)
+                    return AppResult.Success(GradeParser.parse(res.data.body))
                 }
             }
-            is AppResult.Success -> {
-                cache.put(key, res.data.body)
-                AppResult.Success(GradeParser.parse(res.data.body))
-            }
         }
+        cache.get(key)?.let { return AppResult.Success(GradeParser.parse(it)) }
+        return lastFailure ?: AppResult.Failure(AppError.Unknown("Kunne ikke hente karakterer"))
     }
 
     suspend fun loadSubjectDetail(row: GradeRow): AppResult<GradeSubjectDetail> {
@@ -51,12 +54,23 @@ class GradeRepository @Inject constructor(
                 GradeSubjectDetail(row, DemoData.gradeNotes[row.team] ?: listOf("Ingen noter")),
             )
         }
-        return when (val res = client.get("grades/grade_student_note.aspx")) {
-            is AppResult.Success -> {
-                val notes = GradeParser.parseNotes(res.data.body)
-                AppResult.Success(GradeSubjectDetail(row, notes.ifEmpty { row.notes }))
+        // Notes live on grade_report page (Flutter); fallback grade_student_note
+        val paths = listOf(
+            "grades/grade_report.aspx?elevid=${student.studentId}",
+            "grades/grade_report.aspx",
+            "grades/grade_student_note.aspx",
+        )
+        for (path in paths) {
+            when (val res = client.get(path)) {
+                is AppResult.Success -> {
+                    val notes = GradeParser.parseNotes(res.data.body)
+                    if (notes.isNotEmpty()) {
+                        return AppResult.Success(GradeSubjectDetail(row, notes))
+                    }
+                }
+                is AppResult.Failure -> continue
             }
-            is AppResult.Failure -> AppResult.Success(GradeSubjectDetail(row, row.notes))
         }
+        return AppResult.Success(GradeSubjectDetail(row, row.notes))
     }
 }

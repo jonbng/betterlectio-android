@@ -163,10 +163,13 @@ class MessageRepository @Inject constructor(
             _unreadCount.value = demoState.unreadCount()
             return AppResult.Success(Unit)
         }
-        val extra = mapOf("threadid" to thread.normalizedId)
-        for (target in MessagePostbackFields.markReadTargets) {
-            if (client.postback("beskeder2.aspx", target, extra) is AppResult.Success) break
-        }
+        // iOS/Flutter: __Page + READMESSAGE_<normalizedId> + folders
+        postListPageEvent(
+            folderId = thread.folderId,
+            eventArgument = MessagePostbackFields.readMessageArg(thread.normalizedId),
+            fallbackTargets = MessagePostbackFields.markReadTargets,
+            threadId = thread.normalizedId,
+        )
         return AppResult.Success(Unit)
     }
 
@@ -176,10 +179,13 @@ class MessageRepository @Inject constructor(
             _unreadCount.value = demoState.unreadCount()
             return AppResult.Success(Unit)
         }
-        val extra = mapOf("threadid" to thread.normalizedId)
-        for (target in MessagePostbackFields.deleteTargets) {
-            if (client.postback("beskeder2.aspx", target, extra) is AppResult.Success) break
-        }
+        // Flutter: HIDEMESSAGE_<normalizedId>
+        postListPageEvent(
+            folderId = thread.folderId,
+            eventArgument = MessagePostbackFields.hideMessageArg(thread.normalizedId),
+            fallbackTargets = MessagePostbackFields.deleteTargets,
+            threadId = thread.normalizedId,
+        )
         return AppResult.Success(Unit)
     }
 
@@ -191,11 +197,54 @@ class MessageRepository @Inject constructor(
             return AppResult.Success(updated)
         }
         val next = !thread.flagged
-        val extra = mapOf("threadid" to thread.normalizedId, "flag" to if (next) "1" else "0")
-        for (target in MessagePostbackFields.flagTargets) {
-            if (client.postback("beskeder2.aspx", target, extra) is AppResult.Success) break
-        }
+        // iOS: FLAGMESSAGE_<id>
+        postListPageEvent(
+            folderId = thread.folderId,
+            eventArgument = MessagePostbackFields.flagMessageArg(thread.normalizedId),
+            fallbackTargets = MessagePostbackFields.flagTargets,
+            threadId = thread.normalizedId,
+            extra = mapOf("flag" to if (next) "1" else "0"),
+        )
         return AppResult.Success(thread.copy(flagged = next))
+    }
+
+    /**
+     * GET folder page → merge VIEWSTATE → POST with iOS/Flutter event args.
+     */
+    private suspend fun postListPageEvent(
+        folderId: String,
+        eventArgument: String,
+        fallbackTargets: List<String>,
+        threadId: String,
+        extra: Map<String, String> = emptyMap(),
+    ) {
+        val path = "beskeder2.aspx"
+        val page = client.get("$path?type=liste&mappeid=$folderId")
+        val html = (page as? AppResult.Success)?.data?.body
+        if (html != null) {
+            val resolved = dk.betterlectio.android.core.lectio.scrape.SmartPostback.resolve(
+                html = html,
+                preferredTargets = listOf(MessagePostbackFields.PAGE_EVENT_TARGET),
+                extra = mapOf(
+                    "__EVENTARGUMENT" to eventArgument,
+                    MessagePostbackFields.FOLDERS_FIELD to folderId,
+                ) + extra,
+                nameContainsAny = emptyList(),
+            )
+            // Force __Page target + event argument
+            val fields = resolved.fields.toMutableMap()
+            fields["__EVENTTARGET"] = MessagePostbackFields.PAGE_EVENT_TARGET
+            fields["__EVENTARGUMENT"] = eventArgument
+            fields[MessagePostbackFields.FOLDERS_FIELD] = folderId
+            if (client.postForm(path, fields) is AppResult.Success) return
+        }
+        // Fallback: legacy button names
+        val fallbackExtra = mapOf("threadid" to threadId) + extra + mapOf(
+            MessagePostbackFields.FOLDERS_FIELD to folderId,
+        )
+        for (target in fallbackTargets) {
+            if (client.postback(path, target, fallbackExtra) is AppResult.Success) break
+        }
     }
 
     suspend fun compose(draft: ComposeMessageDraft): AppResult<Unit> {

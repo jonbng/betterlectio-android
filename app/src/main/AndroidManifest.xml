@@ -9,6 +9,26 @@
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:ignore="ExactAlarm" />
 
+    <!--
+      Package visibility (Android 11+): required so MitID app-switch ACTION_VIEW /
+      package resolution works. Flutter parity: dk.mitid.app.android + VIEW intents.
+    -->
+    <queries>
+        <package android:name="dk.mitid.app.android" />
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" android:host="appswitch.mitid.dk" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="mitid" />
+        </intent>
+        <intent>
+            <action android:name="android.intent.action.VIEW" />
+            <data android:scheme="https" />
+        </intent>
+    </queries>
+
     <application
         android:name=".BetterLectioApp"
         android:allowBackup="false"
@@ -26,6 +46,7 @@
             android:name=".MainActivity"
             android:exported="true"
             android:label="@string/app_name"
+            android:launchMode="singleTop"
             android:theme="@style/Theme.BetterLectio"
             android:windowSoftInputMode="adjustResize">
             <intent-filter>

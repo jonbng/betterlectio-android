@@ -77,9 +77,35 @@ class LectioHttpEngineTest {
     }
 
     @Test
-    fun max_redirects_throws_unknown_not_session_expired() = runBlocking {
-        // Loop of same-host redirects — must not wipe session as InvalidCredentials.
+    fun max_redirects_with_student_is_session_expired() = runBlocking {
+        // iOS: redirect budget exceeded → session death when already authenticated.
         repeat(8) {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .addHeader("Location", server.url("/loop").toString()),
+            )
+        }
+        try {
+            engine.execute(
+                LectioRequest(
+                    url = server.url("/loop"),
+                    priority = FetchPriority.Important,
+                    studentId = "s1",
+                ),
+                creds,
+            )
+            org.junit.Assert.fail("expected LectioError.SessionExpired")
+        } catch (_: LectioError.SessionExpired) {
+            // expected (immediate on redirect budget when studentId known)
+        }
+    }
+
+    @Test
+    fun max_redirects_without_student_becomes_session_expired_after_retries() = runBlocking {
+        // Login path: InvalidCredentials per attempt, then outer loop declares SessionExpired.
+        // 3 attempts × ~6 redirect hops each needs enough mock responses.
+        repeat(30) {
             server.enqueue(
                 MockResponse()
                     .setResponseCode(302)
@@ -91,11 +117,9 @@ class LectioHttpEngineTest {
                 LectioRequest(url = server.url("/loop"), priority = FetchPriority.Important),
                 creds,
             )
-            org.junit.Assert.fail("expected LectioError.Unknown")
-        } catch (e: LectioError.Unknown) {
-            assertTrue(e.message!!.contains("redirect", ignoreCase = true))
-        } catch (e: LectioError.SessionExpired) {
-            org.junit.Assert.fail("max redirects must not be SessionExpired")
+            org.junit.Assert.fail("expected LectioError.SessionExpired")
+        } catch (_: LectioError.SessionExpired) {
+            // expected
         }
     }
 

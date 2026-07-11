@@ -88,8 +88,13 @@ class ScheduleRepository @Inject constructor(
             return AppResult.Success(DemoData.lessonDetail(event))
         }
 
-        val path = event.href?.removePrefix("https://www.lectio.dk/lectio/${student.gymId}/")
-            ?: "aktivitet/aktivitetforside.aspx?absid=${event.id.removePrefix("ABS")}"
+        // iOS/Flutter: aktivitetforside2.aspx; keep href when brick already points at a detail page
+        val absId = event.id.removePrefix("ABS").removePrefix("PRV")
+        val path = event.href
+            ?.removePrefix("https://www.lectio.dk/lectio/${student.gymId}/")
+            ?.removePrefix("/lectio/${student.gymId}/")
+            ?.takeIf { it.isNotBlank() }
+            ?: "aktivitet/aktivitetforside2.aspx?absid=$absId"
 
         return when (val res = client.get(path, FetchPriority.Important)) {
             is AppResult.Failure -> {
@@ -161,7 +166,14 @@ class ScheduleRepository @Inject constructor(
                             )
                         }
                         cache.clearAll()
-                        val event = localPrivate.createFromDraft(draft)
+                        // Prefer Lectio AFT{id} so create→edit posts back to privat_aftale.aspx
+                        val numeric = PrivateEventIds.extractAftaleIdFromResponse(post.data.body)
+                        val storageId = if (numeric != null) {
+                            PrivateEventIds.storageId(numeric)
+                        } else {
+                            "local-private-${System.currentTimeMillis()}"
+                        }
+                        val event = localPrivate.createFromDraft(draft, id = storageId)
                         AppResult.Success(event)
                     }
                 }
@@ -176,13 +188,17 @@ class ScheduleRepository @Inject constructor(
         val student = session.currentStudent
             ?: return AppResult.Failure(AppError.Unauthorized)
 
-        if (student.isDemo || eventId.startsWith("local-private")) {
+        // Demo-only local ids: no Lectio. AFT/PRIV always go live even if also in local overlay.
+        val path = PrivateEventIds.updatePath(eventId)
+        if (student.isDemo || (eventId.startsWith("local-private") && path == null)) {
             val updated = localPrivate.updateFromDraft(eventId, draft)
             return AppResult.Success(updated)
         }
-
-        val aftaleId = eventId.removePrefix("PRIV").removePrefix("priv")
-        val path = "privat_aftale.aspx?aftaleid=$aftaleId"
+        if (path == null) {
+            return AppResult.Failure(
+                AppError.Unknown("Ugyldigt privat-aftale-id: $eventId"),
+            )
+        }
         return when (val page = client.get(path, FetchPriority.Important)) {
             is AppResult.Failure -> page
             is AppResult.Success -> {
@@ -196,7 +212,12 @@ class ScheduleRepository @Inject constructor(
                             )
                         }
                         cache.clearAll()
-                        val updated = localPrivate.updateFromDraft(eventId, draft)
+                        val storageId = PrivateEventIds.numericAftaleId(eventId)
+                            ?.let { PrivateEventIds.storageId(it) }
+                            ?: eventId
+                        // Keep overlay in sync under canonical AFT id
+                        if (eventId != storageId) localPrivate.delete(eventId)
+                        val updated = localPrivate.updateFromDraft(storageId, draft)
                         AppResult.Success(updated)
                     }
                 }
@@ -248,11 +269,13 @@ class ScheduleRepository @Inject constructor(
      * Live Lectio events require a successful postback; failures surface to the UI.
      */
     suspend fun deletePrivateEvent(event: ScheduleEvent): AppResult<Unit> {
-        if (event.id.startsWith("local-private") || session.currentStudent?.isDemo == true) {
+        val numeric = PrivateEventIds.numericAftaleId(event.id)
+        if (event.id.startsWith("local-private") || session.currentStudent?.isDemo == true || numeric == null) {
             localPrivate.delete(event.id)
             return AppResult.Success(Unit)
         }
-        when (val page = client.get("privat_aftale.aspx", FetchPriority.Important)) {
+        val path = PrivateEventIds.updatePath(event.id) ?: "privat_aftale.aspx?aftaleid=$numeric"
+        when (val page = client.get(path, FetchPriority.Important)) {
             is AppResult.Success -> {
                 val resolved = SmartPostback.resolve(
                     html = page.data.body,
@@ -260,11 +283,12 @@ class ScheduleRepository @Inject constructor(
                         "m\$Content\$deleteBtn",
                         "m\$Content\$sletbtn",
                         "s\$m\$Content\$deleteBtn",
+                        "m\$Content\$savebuttonsCtrl\$db",
                     ),
-                    extra = mapOf("aftaleid" to event.id.removePrefix("PRIV")),
+                    extra = mapOf("aftaleid" to numeric),
                     nameContainsAny = listOf("delete", "slet"),
                 )
-                return when (val post = client.postForm("privat_aftale.aspx", resolved.fields)) {
+                return when (val post = client.postForm(path, resolved.fields)) {
                     is AppResult.Success -> {
                         localPrivate.delete(event.id)
                         AppResult.Success(Unit)
@@ -275,9 +299,9 @@ class ScheduleRepository @Inject constructor(
             is AppResult.Failure -> {
                 return when (
                     val post = client.postback(
-                        "privat_aftale.aspx",
+                        path,
                         "m\$Content\$deleteBtn",
-                        mapOf("aftaleid" to event.id.removePrefix("PRIV")),
+                        mapOf("aftaleid" to numeric),
                     )
                 ) {
                     is AppResult.Success -> {

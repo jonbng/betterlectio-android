@@ -52,7 +52,10 @@ class StudiekortRepository @Inject constructor(
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) return loadCard()
 
+        // Flutter: digitaltStudiekort.aspx; keep elevforside fallbacks
         val paths = listOf(
+            "digitaltStudiekort.aspx?elevid=${student.studentId}",
+            "digitaltStudiekort.aspx",
             "Studiekort.aspx?elevid=${student.studentId}",
             "elevforside.aspx?elevid=${student.studentId}",
             "elevkort.aspx?elevid=${student.studentId}",

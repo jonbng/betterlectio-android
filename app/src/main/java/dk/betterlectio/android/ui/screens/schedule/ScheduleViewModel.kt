@@ -1,21 +1,21 @@
 package dk.betterlectio.android.ui.screens.schedule
 
+import android.content.Context
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.core.util.LectioDateUtils
-import android.content.Context
-import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.feature.live.LiveLessonNotifier
 import dk.betterlectio.android.feature.live.LiveLessonScheduler
 import dk.betterlectio.android.feature.schedule.LessonDetail
-import dk.betterlectio.android.feature.schedule.PRIVATE_EVENT_TEAM_TOKEN
 import dk.betterlectio.android.feature.schedule.PrivateEventDraft
+import dk.betterlectio.android.feature.schedule.PrivateEventIds
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.ScheduleRepository
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
@@ -33,14 +33,20 @@ import kotlinx.coroutines.launch
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
+import java.util.concurrent.ConcurrentHashMap
 import javax.inject.Inject
 
 data class ScheduleUiState(
     val loading: Boolean = true,
+    /** Current week for strip/header (always the week of [selectedDate]). */
     val week: ScheduleWeek? = null,
     val year: Int = LectioDateUtils.isoWeekYear(),
     val weekNum: Int = LectioDateUtils.isoWeek(),
     val selectedDate: LocalDate = LocalDate.now(),
+    /** Merged events for any loaded day (multi-week cache for day swipe). */
+    val eventsByDate: Map<LocalDate, List<ScheduleEvent>> = emptyMap(),
+    /** Days known to have zero events (vs not loaded). */
+    val knownEmptyDays: Set<LocalDate> = emptySet(),
     val selectedEvent: ScheduleEvent? = null,
     val lessonDetail: LessonDetail? = null,
     val detailLoading: Boolean = false,
@@ -78,8 +84,23 @@ class ScheduleViewModel @Inject constructor(
     val subjectNames: StateFlow<Map<String, String>> = settings.subjectNames
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectNames.value)
 
+    /** Weeks currently in memory: key = "year-week". */
+    private val weekCache = ConcurrentHashMap<String, ScheduleWeek>()
+    private val loadingWeeks = ConcurrentHashMap.newKeySet<String>()
+
     init {
+        val today = LocalDate.now()
+        _state.update {
+            it.copy(
+                selectedDate = today,
+                year = LectioDateUtils.isoWeekYear(today),
+                weekNum = LectioDateUtils.isoWeek(today),
+            )
+        }
         refresh()
+        // Prefetch adjacent weeks for smooth day/week swipes
+        ensureWeekLoaded(today.minusWeeks(1), force = false)
+        ensureWeekLoaded(today.plusWeeks(1), force = false)
     }
 
     fun accentArgbFor(event: ScheduleEvent): Long {
@@ -92,59 +113,147 @@ class ScheduleViewModel @Inject constructor(
         return settings.displayNameForSubject(key, event.title)
     }
 
+    fun eventsFor(date: LocalDate): List<ScheduleEvent> =
+        _state.value.eventsByDate[date].orEmpty()
+
+    /**
+     * Whether the day has lessons. Unknown/unloaded days return true so the strip
+     * only mutes days we know are empty (iOS-style empty-day tint).
+     */
+    fun hasEvents(date: LocalDate): Boolean {
+        val s = _state.value
+        if (date in s.eventsByDate) return s.eventsByDate[date].orEmpty().isNotEmpty()
+        s.week?.days?.find { it.date == date }?.let { return it.events.isNotEmpty() }
+        return true
+    }
+
     fun refresh(force: Boolean = false) {
-        viewModelScope.launch {
-            val s = _state.value
-            _state.update { it.copy(loading = true, error = null) }
-            when (val res = repository.loadWeek(s.year, s.weekNum, force)) {
-                is AppResult.Success -> {
-                    val days = res.data.days
-                    val selected = days.find { it.date == s.selectedDate }?.date
-                        ?: days.find { it.date == LocalDate.now() }?.date
-                        ?: days.firstOrNull()?.date
-                        ?: s.selectedDate
-                    _state.update {
-                        it.copy(loading = false, week = res.data, selectedDate = selected, error = null)
-                    }
-                    val todayEvents = days.find { it.date == LocalDate.now() }?.events.orEmpty()
-                    val now = LocalDateTime.now()
-                    liveLessonNotifier.update(todayEvents, now)
-                    liveLessonScheduler.scheduleBoundaries(todayEvents, now)
-                    ScheduleWidgetSnapshot.write(
-                        appContext,
-                        ScheduleWidgetSnapshot.defaultDayLabel(appContext, LocalDate.now()),
-                        todayEvents.map { e ->
-                            "${e.timeLabel(appContext)} ${displayTitle(e)}" +
-                                (e.room?.let { " · $it" } ?: "")
-                        },
-                    )
-                }
-                is AppResult.Failure -> _state.update {
-                    it.copy(loading = false, error = res.error)
-                }
-            }
-        }
+        val date = _state.value.selectedDate
+        ensureWeekLoaded(date, force = force, setAsPrimary = true)
+        ensureWeekLoaded(date.minusWeeks(1), force = force)
+        ensureWeekLoaded(date.plusWeeks(1), force = force)
     }
 
     fun prevWeek() = shiftWeek(-1)
     fun nextWeek() = shiftWeek(1)
 
     private fun shiftWeek(delta: Int) {
-        var y = _state.value.year
-        var w = _state.value.weekNum + delta
-        if (w < 1) {
-            y -= 1
-            w = 52
-        } else if (w > 53) {
-            y += 1
-            w = 1
-        }
-        _state.update { it.copy(year = y, weekNum = w, selectedDate = LectioDateUtils.weekStart(y, w)) }
-        refresh(force = true)
+        val current = _state.value.selectedDate
+        val target = current.plusWeeks(delta.toLong())
+        selectDate(target)
     }
 
+    /**
+     * Select a day. Loads the week if needed and keeps adjacent weeks warm.
+     */
     fun selectDate(date: LocalDate) {
-        _state.update { it.copy(selectedDate = date, selectedEvent = null, lessonDetail = null) }
+        val y = LectioDateUtils.isoWeekYear(date)
+        val w = LectioDateUtils.isoWeek(date)
+        _state.update {
+            it.copy(
+                selectedDate = date,
+                year = y,
+                weekNum = w,
+                selectedEvent = null,
+                lessonDetail = null,
+            )
+        }
+        // Promote cached week to primary if available
+        weekCache[weekKey(y, w)]?.let { week ->
+            _state.update { it.copy(week = week, loading = false, error = null) }
+        }
+        ensureWeekLoaded(date, force = false, setAsPrimary = true)
+        ensureWeekLoaded(date.minusWeeks(1), force = false)
+        ensureWeekLoaded(date.plusWeeks(1), force = false)
+    }
+
+    private fun weekKey(year: Int, week: Int) = "$year-$week"
+
+    private fun ensureWeekLoaded(
+        date: LocalDate,
+        force: Boolean,
+        setAsPrimary: Boolean = false,
+    ) {
+        val y = LectioDateUtils.isoWeekYear(date)
+        val w = LectioDateUtils.isoWeek(date)
+        val key = weekKey(y, w)
+
+        if (!force && weekCache.containsKey(key)) {
+            if (setAsPrimary) {
+                weekCache[key]?.let { mergeWeekIntoState(it, setAsPrimary = true) }
+            }
+            return
+        }
+        if (!force && !loadingWeeks.add(key)) return
+        if (force) loadingWeeks.add(key)
+
+        viewModelScope.launch {
+            if (setAsPrimary) {
+                _state.update { it.copy(loading = true, error = null) }
+            }
+            when (val res = repository.loadWeek(y, w, force)) {
+                is AppResult.Success -> {
+                    weekCache[key] = res.data
+                    mergeWeekIntoState(res.data, setAsPrimary = setAsPrimary)
+                    if (setAsPrimary) {
+                        publishLiveAndWidget(res.data)
+                    }
+                }
+                is AppResult.Failure -> {
+                    if (setAsPrimary && _state.value.week == null) {
+                        _state.update { it.copy(loading = false, error = res.error) }
+                    } else if (setAsPrimary) {
+                        _state.update { it.copy(loading = false) }
+                    }
+                }
+            }
+            loadingWeeks.remove(key)
+        }
+    }
+
+    private fun mergeWeekIntoState(week: ScheduleWeek, setAsPrimary: Boolean) {
+        _state.update { s ->
+            val map = s.eventsByDate.toMutableMap()
+            val empty = s.knownEmptyDays.toMutableSet()
+            for (day in week.days) {
+                map[day.date] = day.events
+                if (day.events.isEmpty()) empty.add(day.date) else empty.remove(day.date)
+            }
+            val selected = s.selectedDate
+            val primary = if (setAsPrimary) {
+                week
+            } else if (
+                s.week == null ||
+                (LectioDateUtils.isoWeekYear(selected) == week.year &&
+                    LectioDateUtils.isoWeek(selected) == week.week)
+            ) {
+                week
+            } else {
+                s.week
+            }
+            s.copy(
+                loading = if (setAsPrimary) false else s.loading,
+                week = primary,
+                eventsByDate = map,
+                knownEmptyDays = empty,
+                error = if (setAsPrimary) null else s.error,
+            )
+        }
+    }
+
+    private fun publishLiveAndWidget(week: ScheduleWeek) {
+        val todayEvents = week.days.find { it.date == LocalDate.now() }?.events.orEmpty()
+        val now = LocalDateTime.now()
+        liveLessonNotifier.update(todayEvents, now)
+        liveLessonScheduler.scheduleBoundaries(todayEvents, now)
+        ScheduleWidgetSnapshot.write(
+            appContext,
+            ScheduleWidgetSnapshot.defaultDayLabel(appContext, LocalDate.now()),
+            todayEvents.map { e ->
+                "${e.timeLabel(appContext)} ${displayTitle(e)}" +
+                    (e.room?.let { " · $it" } ?: "")
+            },
+        )
     }
 
     fun selectEvent(event: ScheduleEvent?) {
@@ -275,6 +384,8 @@ class ScheduleViewModel @Inject constructor(
                             ),
                         )
                     }
+                    // Invalidate cache for the week and reload
+                    weekCache.clear()
                     refresh(force = true)
                 }
                 is AppResult.Failure -> _state.update {
@@ -287,8 +398,7 @@ class ScheduleViewModel @Inject constructor(
     fun canEditPrivateEvent(event: ScheduleEvent): Boolean = canDeleteEvent(event)
 
     fun canDeleteEvent(event: ScheduleEvent): Boolean =
-        event.id.startsWith("local-private") ||
-            event.team.equals(PRIVATE_EVENT_TEAM_TOKEN, ignoreCase = true) ||
+        PrivateEventIds.isPrivateEvent(event) ||
             repository.localPrivate.contains(event.id)
 
     fun deletePrivateEvent(event: ScheduleEvent) {
@@ -302,6 +412,7 @@ class ScheduleViewModel @Inject constructor(
                     message = UiText.Res(R.string.private_event_deleted),
                 )
             }
+            weekCache.clear()
             refresh(force = true)
         }
     }

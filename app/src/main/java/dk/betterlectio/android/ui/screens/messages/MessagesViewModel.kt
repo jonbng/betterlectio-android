@@ -183,30 +183,61 @@ class MessagesViewModel @Inject constructor(
 
     fun markRead() {
         val detail = _state.value.detail ?: return
+        markThreadRead(detail.thread, fromDetail = true)
+    }
+
+    fun markThreadRead(thread: MessageThread, fromDetail: Boolean = false) {
         viewModelScope.launch {
-            repository.markRead(detail.thread)
-            refresh(true)
-            openThread(detail.thread.copy(unread = false))
+            repository.markRead(thread)
+            _state.update { s ->
+                s.copy(
+                    threads = s.threads.map { t ->
+                        if (t.id == thread.id) t.copy(unread = false) else t
+                    },
+                    detail = s.detail?.let { d ->
+                        if (d.thread.id == thread.id) d.copy(thread = d.thread.copy(unread = false)) else d
+                    },
+                )
+            }
+            repository.refreshUnreadBadge()
+            if (fromDetail) {
+                openThread(thread.copy(unread = false))
+            }
         }
     }
 
     fun deleteCurrent() {
         val detail = _state.value.detail ?: return
+        deleteThread(detail.thread)
+    }
+
+    fun deleteThread(thread: MessageThread) {
         viewModelScope.launch {
-            repository.deleteThread(detail.thread)
-            _state.update { it.copy(detail = null) }
-            refresh(true)
+            repository.deleteThread(thread)
+            _state.update { s ->
+                s.copy(
+                    detail = if (s.detail?.thread?.id == thread.id) null else s.detail,
+                    threads = s.threads.filterNot { it.id == thread.id },
+                )
+            }
+            repository.refreshUnreadBadge()
         }
     }
 
     fun toggleFlag() {
         val detail = _state.value.detail ?: return
+        toggleThreadFlag(detail.thread)
+    }
+
+    fun toggleThreadFlag(thread: MessageThread) {
         viewModelScope.launch {
-            when (val res = repository.toggleFlag(detail.thread)) {
+            when (val res = repository.toggleFlag(thread)) {
                 is AppResult.Success -> {
                     _state.update {
                         it.copy(
-                            detail = detail.copy(thread = res.data),
+                            detail = it.detail?.let { d ->
+                                if (d.thread.id == res.data.id) d.copy(thread = res.data) else d
+                            },
                             threads = it.threads.map { t ->
                                 if (t.id == res.data.id) res.data else t
                             },

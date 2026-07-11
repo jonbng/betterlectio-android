@@ -86,7 +86,7 @@ class NotificationDiffWorker(
                             nm.notify(
                                 notifId++,
                                 NotificationCompat.Builder(ctx, CHANNEL_ID)
-                                    .setSmallIcon(android.R.drawable.ic_dialog_info)
+                                    .setSmallIcon(R.drawable.ic_notification)
                                     .setContentTitle(title)
                                     .setContentText(body)
                                     .setAutoCancel(true)
@@ -111,7 +111,7 @@ class NotificationDiffWorker(
                         nm.notify(
                             notifId++,
                             NotificationCompat.Builder(ctx, CHANNEL_ID)
-                                .setSmallIcon(android.R.drawable.ic_dialog_email)
+                                .setSmallIcon(R.drawable.ic_notification)
                                 .setContentTitle(ctx.getString(R.string.notif_new_messages_title))
                                 .setContentText(
                                     ctx.getString(R.string.notif_new_messages_body, fresh.size),
@@ -142,7 +142,7 @@ class NotificationDiffWorker(
                         nm.notify(
                             notifId++,
                             NotificationCompat.Builder(ctx, CHANNEL_ID)
-                                .setSmallIcon(android.R.drawable.ic_menu_agenda)
+                                .setSmallIcon(R.drawable.ic_notification)
                                 .setContentTitle(ctx.getString(R.string.notif_assignment_title, item.title))
                                 .setContentText(
                                     ctx.getString(R.string.notif_assignment_body, item.team, item.status),

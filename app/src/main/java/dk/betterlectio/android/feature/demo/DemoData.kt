@@ -197,12 +197,30 @@ object DemoData {
 
     val absence = AbsenceOverview(
         teams = listOf(
-            AbsenceTeamRow("Ma A", 0.02, 0.03, 0.0, 0.0),
-            AbsenceTeamRow("Da A", 0.05, 0.05, 0.0, 0.0),
-            AbsenceTeamRow("Fy B", 0.12, 0.10, 0.0, 0.0),
+            AbsenceTeamRow(
+                team = "Ma A",
+                regularCurrentPercent = 0.02,
+                regularFinalPercent = 0.03,
+                assignmentCurrentPercent = 0.0,
+                assignmentFinalPercent = 0.0,
+            ),
+            AbsenceTeamRow(
+                team = "Da A",
+                regularCurrentPercent = 0.05,
+                regularFinalPercent = 0.05,
+                assignmentCurrentPercent = 0.0,
+                assignmentFinalPercent = 0.0,
+            ),
+            AbsenceTeamRow(
+                team = "Fy B",
+                regularCurrentPercent = 0.12,
+                regularFinalPercent = 0.10,
+                assignmentCurrentPercent = 0.0,
+                assignmentFinalPercent = 0.0,
+            ),
         ),
         registrations = listOf(
-            AbsenceRegistration("r1", LocalDate.now().minusDays(3), "Fy B", "Syg", "Godkendt"),
+            AbsenceRegistration("r1", LocalDate.now().minusDays(3), "Fy B", "Sygdom", "Godkendt"),
         ),
     )
 

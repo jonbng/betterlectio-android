@@ -17,6 +17,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.outlined.Assignment
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -56,6 +57,8 @@ import dk.betterlectio.android.ui.components.EmptyBox
 import dk.betterlectio.android.ui.components.ErrorBox
 import dk.betterlectio.android.ui.components.ListSkeleton
 import dk.betterlectio.android.ui.components.StatusChip
+import dk.betterlectio.android.ui.components.isDueUrgent
+import dk.betterlectio.android.ui.components.relativeDueLabel
 
 private object AsgRoutes {
     const val LIST = "asg_list"
@@ -170,7 +173,19 @@ private fun AssignmentsListPane(
                     state.loading && state.items.isEmpty() -> ListSkeleton()
                     state.error != null && state.items.isEmpty() ->
                         ErrorBox(state.error, onRetry = { viewModel.refresh(true) })
-                    state.filtered.isEmpty() -> EmptyBox(stringResource(R.string.empty_assignments))
+                    state.filtered.isEmpty() -> EmptyBox(
+                        text = stringResource(R.string.empty_assignments),
+                        description = stringResource(
+                            if (state.filter == AssignmentFilter.ALL) {
+                                R.string.empty_assignments_all_hint
+                            } else {
+                                R.string.empty_assignments_hint
+                            },
+                        ),
+                        icon = Icons.AutoMirrored.Outlined.Assignment,
+                        actionLabel = stringResource(R.string.action_retry),
+                        onAction = { viewModel.refresh(true) },
+                    )
                     else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                         items(state.filtered, key = { it.id }) { item ->
                             val statusColor = when {
@@ -182,6 +197,9 @@ private fun AssignmentsListPane(
                                     MaterialTheme.colorScheme.primary
                                 else -> MaterialTheme.colorScheme.onSurfaceVariant
                             }
+                            val dueLabel = relativeDueLabel(item.deadline)
+                            val urgent = isDueUrgent(item.deadline) &&
+                                !item.status.contains("aflever", ignoreCase = true)
                             AppListRow(
                                 onClick = { onOpen(item) },
                                 trailing = {
@@ -196,12 +214,17 @@ private fun AssignmentsListPane(
                                 }
                                 val meta = buildList {
                                     add("${stringResource(R.string.label_week)} ${item.week}")
-                                    item.deadline?.let {
-                                        add("${stringResource(R.string.label_deadline)}: $it")
-                                    }
+                                    dueLabel?.let { add(it) }
                                 }.joinToString(" · ")
                                 if (meta.isNotBlank()) {
-                                    AppListMeta(meta)
+                                    AppListMeta(
+                                        text = meta,
+                                        color = if (urgent) {
+                                            MaterialTheme.colorScheme.error
+                                        } else {
+                                            MaterialTheme.colorScheme.onSurfaceVariant
+                                        },
+                                    )
                                 }
                             }
                             AppListDivider()
@@ -220,20 +243,37 @@ private fun AssignmentDetailPane(
     onBack: () -> Unit,
 ) {
     val context = LocalContext.current
+    val statusColor = when {
+        detail.item.status.contains("mangler", ignoreCase = true) ||
+            detail.item.status.contains("afventer", ignoreCase = true) ||
+            detail.item.status.contains("venter", ignoreCase = true) ->
+            MaterialTheme.colorScheme.error
+        detail.item.status.contains("afleveret", ignoreCase = true) ||
+            detail.item.status.contains("godkendt", ignoreCase = true) ||
+            detail.item.status.contains("afsluttet", ignoreCase = true) ->
+            MaterialTheme.colorScheme.primary
+        else -> MaterialTheme.colorScheme.onSurfaceVariant
+    }
+    val dueLabel = relativeDueLabel(detail.item.deadline)
+    val urgent = isDueUrgent(detail.item.deadline) &&
+        !detail.item.status.contains("aflever", ignoreCase = true)
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(detail.item.title, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back),
+                        )
                     }
                 },
                 actions = {
                     if (detail.item.status.isNotBlank()) {
                         StatusChip(
                             text = detail.item.status,
-                            color = MaterialTheme.colorScheme.primary,
+                            color = statusColor,
                             modifier = Modifier.padding(end = 12.dp),
                         )
                     }
@@ -250,6 +290,18 @@ private fun AssignmentDetailPane(
         ) {
             if (detail.item.team.isNotBlank()) {
                 Text(detail.item.team, style = MaterialTheme.typography.titleMedium)
+            }
+            dueLabel?.let { due ->
+                Text(
+                    "${stringResource(R.string.label_deadline)}: $due",
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (urgent) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                    modifier = Modifier.padding(top = 4.dp),
+                )
             }
             DetailSection(stringResource(R.string.label_status)) {
                 DetailMetaLine(stringResource(R.string.label_status), detail.item.status)

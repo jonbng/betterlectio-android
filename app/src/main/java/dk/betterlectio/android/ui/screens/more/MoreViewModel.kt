@@ -22,9 +22,11 @@ import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.directory.DirectoryPinRepository
 import dk.betterlectio.android.feature.directory.DirectoryRepository
 import dk.betterlectio.android.feature.directory.RoomScheduleRepository
+import dk.betterlectio.android.feature.grades.GradeAverage
 import dk.betterlectio.android.feature.grades.GradeRepository
 import dk.betterlectio.android.feature.grades.GradeRow
 import dk.betterlectio.android.feature.grades.GradeSubjectDetail
+import dk.betterlectio.android.feature.grades.GradeType
 import dk.betterlectio.android.feature.plans.PlanRepository
 import dk.betterlectio.android.feature.plans.StudyPlan
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
@@ -60,6 +62,7 @@ data class MoreUiState(
     val profilePhotoUrl: String? = null,
     val loading: Boolean = false,
     val grades: List<GradeRow> = emptyList(),
+    val gradeType: GradeType = GradeType.FIRST_STANDPOINT,
     val gradeDetail: GradeSubjectDetail? = null,
     val absence: AbsenceOverview? = null,
     val directory: List<DirectoryEntity> = emptyList(),
@@ -214,6 +217,30 @@ class MoreViewModel @Inject constructor(
             is AppResult.Success -> _state.update { it.copy(loading = false, gradeDetail = res.data) }
             is AppResult.Failure -> _state.update { it.copy(loading = false, message = res.error.toUiText()) }
         }
+    }
+
+    fun setGradeType(type: GradeType) {
+        _state.update { it.copy(gradeType = type) }
+    }
+
+    fun visibleGrades(): List<GradeRow> =
+        GradeAverage.filterRows(_state.value.grades, _state.value.gradeType)
+
+    fun gradesAverageDisplay(): String? =
+        GradeAverage.weightedAverageDisplay(_state.value.grades, _state.value.gradeType)
+
+    fun openDirectoryKind(kind: DirectoryEntityKind) {
+        _state.update {
+            it.copy(
+                destination = MoreDestination.DIRECTORY,
+                directoryKind = kind,
+                directoryQuery = "",
+                directoryMembers = emptyList(),
+                directoryParent = null,
+                message = null,
+            )
+        }
+        searchDirectory()
     }
 
     private fun loadAbsence() = viewModelScope.launch {

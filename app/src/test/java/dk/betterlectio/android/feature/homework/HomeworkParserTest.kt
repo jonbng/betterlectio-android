@@ -15,6 +15,8 @@ class HomeworkParserTest {
         assertTrue(items[0].activityTitle.contains("Matematik"))
         assertEquals("Læs kapitel 4", items[0].note)
         assertEquals("999", items[0].id)
+        assertEquals("Ma A", items[0].team)
+        assertEquals(java.time.LocalDate.of(2026, 3, 11), items[0].date)
         // Detail load requires a usable activity link (absid path).
         assertTrue(
             "href must carry absid for detail scrape",
@@ -22,3 +24,4 @@ class HomeworkParserTest {
         )
     }
 }
+

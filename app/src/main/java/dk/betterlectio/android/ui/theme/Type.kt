@@ -15,48 +15,41 @@ val InterFontFamily = FontFamily(
     Font(R.font.inter, weight = FontWeight.Bold),
 )
 
-val FrauncesFontFamily = FontFamily(
-    Font(R.font.fraunces, weight = FontWeight.Normal),
-    Font(R.font.fraunces, weight = FontWeight.Medium),
-    Font(R.font.fraunces, weight = FontWeight.SemiBold),
-    Font(R.font.fraunces, weight = FontWeight.Bold),
-)
-
 val Typography = Typography(
     displayLarge = TextStyle(
-        fontFamily = FrauncesFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 57.sp,
         lineHeight = 64.sp,
         letterSpacing = (-0.25).sp,
     ),
     displayMedium = TextStyle(
-        fontFamily = FrauncesFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 45.sp,
         lineHeight = 52.sp,
     ),
     displaySmall = TextStyle(
-        fontFamily = FrauncesFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 36.sp,
         lineHeight = 44.sp,
     ),
     headlineLarge = TextStyle(
-        fontFamily = FrauncesFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 32.sp,
         lineHeight = 40.sp,
     ),
     headlineMedium = TextStyle(
-        fontFamily = FrauncesFontFamily,
+        fontFamily = InterFontFamily,
         fontWeight = FontWeight.SemiBold,
         fontSize = 28.sp,
         lineHeight = 36.sp,
     ),
     headlineSmall = TextStyle(
-        fontFamily = FrauncesFontFamily,
-        fontWeight = FontWeight.Medium,
+        fontFamily = InterFontFamily,
+        fontWeight = FontWeight.SemiBold,
         fontSize = 24.sp,
         lineHeight = 32.sp,
     ),

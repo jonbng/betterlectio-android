@@ -4,6 +4,12 @@ import dk.betterlectio.android.core.util.LectioDateUtils
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
+/**
+ * Message list + thread detail.
+ * Thread id normalization: Flutter (`_$_` segment).
+ * List flags / mobile layout: iOS MessageParser.
+ * Detail timestamps: strip sender name before parse (Flutter/iOS).
+ */
 object MessageParser {
 
     fun parseThreadList(html: String, fallbackFolderId: String = MessageFolder.NEWEST.id): List<MessageThread> {
@@ -13,12 +19,24 @@ object MessageParser {
             ?.ifBlank { null }
             ?: fallbackFolderId
 
+        // Desktop tables first (Flutter exact + iOS fuzzy), then iOS mobile layouts
         val table = doc.selectFirst("table#s_m_Content_Content_threadGV_ctl00")
             ?: doc.selectFirst("table[id*=threadGV]")
-            ?: return emptyList()
+            ?: doc.selectFirst("table.ls-table-layout5")
 
-        val rows = table.select("tr").drop(1)
-        return rows.mapNotNull { row -> parseThreadRow(row, folderId) }
+        if (table != null) {
+            val rows = table.select("tr").drop(1)
+            val fromTable = rows.mapNotNull { row -> parseThreadRow(row, folderId) }
+            if (fromTable.isNotEmpty()) return fromTable
+        }
+
+        // iOS mobile: div.message-list-thread-container
+        val mobile = doc.select("div.message-list-thread-container")
+        if (mobile.isNotEmpty()) {
+            return mobile.mapNotNull { parseMobileThread(it, folderId) }
+        }
+
+        return emptyList()
     }
 
     private fun parseThreadRow(row: Element, folderId: String): MessageThread? {
@@ -42,8 +60,15 @@ object MessageParser {
             ?: ""
         val date = LectioDateUtils.parseLectioDate(dateRaw)
 
-        val unread = row.hasClass("ulæst") || row.className().contains("unread", true) ||
+        // iOS: row class "unread"; also Danish class / text heuristics
+        val unread = row.hasClass("ulæst") ||
+            row.className().contains("unread", true) ||
             cells.any { it.text().contains("Ulæst", true) }
+
+        // iOS: img[title*=flag] with flagon src
+        val flagged = row.select("img[title*=flag], img[title*=Flag]").any {
+            it.attr("src").contains("flagon", ignoreCase = true)
+        }
 
         return MessageThread(
             id = id,
@@ -52,7 +77,37 @@ object MessageParser {
             dateChanged = date,
             folderId = folderId,
             normalizedId = normalizeThreadId(id),
-            unread = unread || folderId == MessageFolder.UNREAD.id,
+            unread = unread,
+            flagged = flagged,
+        )
+    }
+
+    private fun parseMobileThread(container: Element, folderId: String): MessageThread? {
+        val link = container.selectFirst("a[id*=EmneMobil], a") ?: return null
+        val onclick = link.attr("onclick")
+        val href = link.attr("href")
+        val id = extractThreadId(onclick, href) ?: return null
+        val topic = link.text().trim()
+        if (topic.isBlank()) return null
+        val sender = container.selectFirst("span[title]")?.attr("title")
+            ?: container.selectFirst(".message-list-sender, span")?.text()?.trim()
+            ?: ""
+        val dateRaw = container.selectFirst(".message-list-date, .lpm-datetime, div")?.text()?.trim().orEmpty()
+        val date = LectioDateUtils.parseLectioDate(dateRaw)
+        val unread = container.className().contains("unread", true) ||
+            container.hasClass("ulæst")
+        val flagged = container.select("img[title*=flag]").any {
+            it.attr("src").contains("flagon", ignoreCase = true)
+        }
+        return MessageThread(
+            id = id,
+            topic = topic,
+            sender = sender,
+            dateChanged = date,
+            folderId = folderId,
+            normalizedId = normalizeThreadId(id),
+            unread = unread,
+            flagged = flagged,
         )
     }
 
@@ -70,19 +125,45 @@ object MessageParser {
     fun parseThreadDetail(html: String, ref: MessageThread): MessageThreadDetail {
         val doc = Jsoup.parse(html)
         val receivers = doc.select("#s_m_Content_Content_MessageThreadCtrl_RecipientsReadMode span")
-            .map { it.text().trim() }
-            .filter { it.isNotEmpty() }
+            .mapNotNull { span ->
+                val name = span.text().trim()
+                if (name.isEmpty()) null
+                else name
+            }
 
-        val entries = doc.select("#GridRowMessage, .message-thread-message").mapIndexed { index, el ->
+        // Prefer MessagesGV rows (iOS), skip textareas; also accept GridRowMessage (Flutter)
+        val entryEls = buildList {
+            val gv = doc.selectFirst("table[id*=MessagesGV]")
+            if (gv != null) {
+                for (tr in gv.select("tr")) {
+                    if (tr.select("textarea").isNotEmpty()) continue
+                    val content = tr.selectFirst(".message-thread-message-content, #GridRowMessage, .message-thread-message")
+                        ?: tr.selectFirst("td")
+                    if (content != null && tr.selectFirst(".message-thread-message-content, .message-thread-message-sender") != null) {
+                        add(tr)
+                    }
+                }
+            }
+            if (isEmpty()) {
+                addAll(doc.select("#GridRowMessage, .message-thread-message"))
+            }
+        }
+
+        val entries = entryEls.mapIndexed { index, el ->
             val topic = el.selectFirst(".message-thread-message-header")?.text()?.trim()
             val contentEl = el.selectFirst(".message-thread-message-content")
             val attachments = parseAttachments(contentEl)
             contentEl?.select(".message-attachements, .message-attachments")?.remove()
-            val contentHtml = contentEl?.html()?.trim()
-            val sender = el.selectFirst(".message-thread-message-sender span")?.text()?.trim()
-                ?: el.selectFirst(".message-thread-message-sender")?.text()?.trim()
-            val infoText = el.selectFirst(".message-thread-message-sender")?.text().orEmpty()
-            val sentAt = LectioDateUtils.parseLectioDate(infoText)
+            var contentHtml = contentEl?.html()?.trim()
+            contentHtml = stripAppSignatures(contentHtml)
+
+            val senderSpan = el.selectFirst(".message-thread-message-sender span")
+            val senderBlock = el.selectFirst(".message-thread-message-sender")
+            val sender = senderSpan?.text()?.trim()
+                ?: senderBlock?.text()?.trim()?.substringBefore(',')?.trim()
+            val infoText = senderBlock?.text().orEmpty()
+            val sentAt = parseMessageTimestamp(infoText, sender)
+
             ThreadEntry(
                 id = "${ref.id}_$index",
                 topic = topic,
@@ -103,7 +184,7 @@ object MessageParser {
                     ThreadEntry(
                         id = ref.id,
                         topic = ref.topic,
-                        contentHtml = contentEl?.html(),
+                        contentHtml = stripAppSignatures(contentEl?.html()),
                         senderName = ref.sender,
                         sentAt = ref.dateChanged,
                         attachments = parseAttachments(contentEl),
@@ -114,10 +195,48 @@ object MessageParser {
         )
     }
 
+    /**
+     * Flutter/iOS: `"Name (class), 04-03-2026 11:05:41"` → parse timestamp only.
+     */
+    internal fun parseMessageTimestamp(infoText: String, senderName: String?): java.time.LocalDateTime? {
+        val t = infoText.trim()
+        if (t.isEmpty()) return null
+        // Prefer text after last comma (iOS split on ", ")
+        val afterComma = t.substringAfterLast(',').trim()
+        LectioDateUtils.parseLectioDate(afterComma)?.let { return it }
+        if (!senderName.isNullOrBlank()) {
+            val stripped = t.removePrefix(senderName).removePrefix(",").trim()
+            LectioDateUtils.parseLectioDate(stripped)?.let { return it }
+        }
+        return LectioDateUtils.parseLectioDate(t)
+    }
+
+    /** iOS signature cleanup for BetterLectio / Flutter footers. */
+    private fun stripAppSignatures(html: String?): String? {
+        if (html.isNullOrBlank()) return html
+        var out: String = html
+        listOf(
+            "sendt med betterlectio",
+            "sendt med BetterLectio",
+            "Sendt med BetterLectio",
+            "Sendt fra BetterLectio",
+        ).forEach { sig ->
+            out = out.replace(sig, "", ignoreCase = true)
+        }
+        return out.trim().ifBlank { null }
+    }
+
     /** Extract attachment name+href pairs from message HTML. */
     fun parseAttachments(root: Element?): List<MessageAttachment> {
         if (root == null) return emptyList()
-        return root.select(".message-attachements a, .message-attachments a, a[href*=GetFile], a[href*=documentid]")
+        // Prefer attachment blocks (Flutter typo + correct spelling); fallback GetFile/document
+        val fromBlock = root.select(".message-attachements a, .message-attachments a")
+        val links = if (fromBlock.isNotEmpty()) {
+            fromBlock
+        } else {
+            root.select("a[href*=GetFile], a[href*=documentid], a[href*=document]")
+        }
+        return links
             .mapNotNull { a ->
                 val href = a.attr("href").trim()
                 if (href.isEmpty()) return@mapNotNull null
@@ -134,6 +253,38 @@ object MessageParser {
 
     fun parseAttachmentsFromHtml(html: String): List<MessageAttachment> =
         parseAttachments(Jsoup.parse(html).body())
+
+    /**
+     * iOS parseMessageFolders — custom folders from ListGridSelectionTree postbacks / mobile select.
+     */
+    fun parseMessageFolders(html: String): List<MessageFolder> {
+        val doc = Jsoup.parse(html)
+        val folders = MessageFolder.defaults.toMutableList()
+        val seen = folders.map { it.id }.toMutableSet()
+
+        // Anchors with __doPostBack(..., 'folderId')
+        doc.select("a[href*=ListGridSelectionTree], a[onclick*=ListGridSelectionTree]").forEach { a ->
+            val onclick = a.attr("onclick") + a.attr("href")
+            val m = Regex("""['"](-?\d+)['"]\s*\)""").findAll(onclick).lastOrNull()
+                ?: Regex("""folders['"]?\s*,\s*['"](-?\d+)""").find(onclick)
+            val id = m?.groupValues?.get(1) ?: return@forEach
+            if (id in seen) return@forEach
+            val name = a.text().trim().ifBlank { return@forEach }
+            seen += id
+            folders += MessageFolder(id = id, displayName = name)
+        }
+
+        doc.select("select[id*=ListGridSelectionTree] option, select[name*=ListGridSelectionTree] option")
+            .forEach { opt ->
+                val id = opt.attr("value").trim()
+                if (id.isEmpty() || id in seen) return@forEach
+                val name = opt.text().trim().ifBlank { return@forEach }
+                seen += id
+                folders += MessageFolder(id = id, displayName = name)
+            }
+
+        return folders
+    }
 
     private fun extractThreadId(onclick: String, href: String): String? {
         val dollar = onclick.indexOf('$')

@@ -13,8 +13,11 @@ data class LessonResource(
 )
 
 data class LessonContentBlock(
-    val kind: String, // heading | paragraph | note
+    val kind: String, // heading | paragraph | note | image | divider
     val text: String,
+    val url: String? = null,
+    /** True when under Lektier section or doc-homework (iOS). */
+    val isHomework: Boolean = false,
 )
 
 data class LessonDetail(

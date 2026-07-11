@@ -1,33 +1,48 @@
 package dk.betterlectio.android.ui.screens.homework
 
 import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.background
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.CheckCircle
 import androidx.compose.material3.Checkbox
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SwipeToDismissBox
+import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
+import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
@@ -50,6 +65,9 @@ import dk.betterlectio.android.ui.components.EmptyBox
 import dk.betterlectio.android.ui.components.ErrorBox
 import dk.betterlectio.android.ui.components.ListSkeleton
 import dk.betterlectio.android.ui.components.SectionHeader
+import dk.betterlectio.android.ui.components.isDueUrgent
+import dk.betterlectio.android.ui.components.relativeDaySectionLabel
+import dk.betterlectio.android.ui.components.relativeDueLabel
 
 private object HwRoutes {
     const val LIST = "hw_list"
@@ -123,6 +141,7 @@ private fun HomeworkListPane(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
+    val haptics = LocalHapticFeedback.current
     LaunchedEffect(scrollToTopToken) {
         if (scrollToTopToken > 0) listState.animateScrollToItem(0)
     }
@@ -147,45 +166,145 @@ private fun HomeworkListPane(
                 state.loading && state.items.isEmpty() -> ListSkeleton()
                 state.error != null && state.items.isEmpty() ->
                     ErrorBox(state.error, onRetry = { viewModel.refresh(true) })
-                state.items.isEmpty() -> EmptyBox(stringResource(R.string.empty_homework))
+                state.items.isEmpty() -> EmptyBox(
+                    text = stringResource(R.string.empty_homework_all_clear),
+                    description = stringResource(R.string.empty_homework_all_clear_hint),
+                    icon = Icons.Default.CheckCircle,
+                )
                 else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
                     state.groups.forEach { group ->
-                        item(key = "header-${group.label}") {
-                            SectionHeader(group.label)
+                        item(key = "header-${group.date ?: "none"}-${group.label}") {
+                            SectionHeader(relativeDaySectionLabel(group.date))
                         }
                         items(group.items, key = { it.id }) { item ->
-                            AppListRow(
-                                onClick = { onOpen(item) },
-                                leading = {
-                                    Checkbox(
-                                        checked = item.done,
-                                        onCheckedChange = { viewModel.toggleDone(item.id) },
-                                    )
+                            SwipeableHomeworkRow(
+                                item = item,
+                                onOpen = { onOpen(item) },
+                                onToggleDone = {
+                                    viewModel.toggleDone(item.id)
+                                    haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
-                            ) {
-                                Text(
-                                    item.activityTitle,
-                                    style = MaterialTheme.typography.bodyLarge,
-                                    fontWeight = if (item.done) FontWeight.Normal else FontWeight.Medium,
-                                    color = if (item.done) {
-                                        MaterialTheme.colorScheme.onSurfaceVariant
-                                    } else {
-                                        MaterialTheme.colorScheme.onSurface
-                                    },
-                                    textDecoration = if (item.done) TextDecoration.LineThrough else null,
-                                    maxLines = 2,
-                                )
-                                if (item.note.isNotBlank()) {
-                                    AppListSecondary(item.note, maxLines = 2)
-                                }
-                                if (item.team.isNotBlank()) {
-                                    AppListMeta(item.team)
-                                }
-                            }
+                            )
                             AppListDivider()
                         }
                     }
                 }
+            }
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun SwipeableHomeworkRow(
+    item: HomeworkItem,
+    onOpen: () -> Unit,
+    onToggleDone: () -> Unit,
+) {
+    val dismissState = rememberSwipeToDismissBoxState(
+        confirmValueChange = { value ->
+            when (value) {
+                SwipeToDismissBoxValue.EndToStart,
+                SwipeToDismissBoxValue.StartToEnd,
+                -> {
+                    onToggleDone()
+                    false
+                }
+                SwipeToDismissBoxValue.Settled -> false
+            }
+        },
+    )
+
+    SwipeToDismissBox(
+        state = dismissState,
+        backgroundContent = {
+            val done = item.done
+            Box(
+                Modifier
+                    .fillMaxSize()
+                    .background(
+                        if (done) {
+                            MaterialTheme.colorScheme.surfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.primaryContainer
+                        },
+                    )
+                    .padding(horizontal = 20.dp),
+                contentAlignment = Alignment.CenterEnd,
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = if (done) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                    )
+                    Text(
+                        if (done) {
+                            stringResource(R.string.homework_swipe_undo)
+                        } else {
+                            stringResource(R.string.homework_swipe_done)
+                        },
+                        color = if (done) {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        } else {
+                            MaterialTheme.colorScheme.onPrimaryContainer
+                        },
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                }
+            }
+        },
+        enableDismissFromStartToEnd = true,
+        enableDismissFromEndToStart = true,
+    ) {
+        val dueLabel = relativeDueLabel(item.date)
+        val urgent = !item.done && isDueUrgent(item.date)
+        AppListRow(
+            onClick = onOpen,
+            modifier = Modifier.background(MaterialTheme.colorScheme.surface),
+            leading = {
+                Checkbox(
+                    checked = item.done,
+                    onCheckedChange = { onToggleDone() },
+                )
+            },
+            trailing = {
+                if (dueLabel != null) {
+                    AppListMeta(
+                        text = dueLabel,
+                        color = if (urgent) {
+                            MaterialTheme.colorScheme.error
+                        } else {
+                            MaterialTheme.colorScheme.onSurfaceVariant
+                        },
+                    )
+                }
+            },
+        ) {
+            Text(
+                item.activityTitle,
+                style = MaterialTheme.typography.bodyLarge,
+                fontWeight = if (item.done) FontWeight.Normal else FontWeight.Medium,
+                color = if (item.done) {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                } else {
+                    MaterialTheme.colorScheme.onSurface
+                },
+                textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                maxLines = 2,
+            )
+            if (item.note.isNotBlank()) {
+                AppListSecondary(item.note, maxLines = 2)
+            }
+            if (item.team.isNotBlank()) {
+                AppListMeta(item.team)
             }
         }
     }
@@ -198,13 +317,17 @@ private fun HomeworkDetailPane(
     onBack: () -> Unit,
     onToggleDone: () -> Unit,
 ) {
+    val haptics = LocalHapticFeedback.current
     Scaffold(
         topBar = {
             TopAppBar(
                 title = { Text(item.activityTitle, maxLines = 1) },
                 navigationIcon = {
                     IconButton(onClick = onBack) {
-                        Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                        Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back),
+                        )
                     }
                 },
             )
@@ -216,8 +339,16 @@ private fun HomeworkDetailPane(
                 .padding(padding)
                 .padding(16.dp),
         ) {
-            item.date?.let {
-                Text(it.toString(), style = MaterialTheme.typography.labelLarge, color = MaterialTheme.colorScheme.primary)
+            relativeDueLabel(item.date)?.let { due ->
+                Text(
+                    due,
+                    style = MaterialTheme.typography.labelLarge,
+                    color = if (isDueUrgent(item.date) && !item.done) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
                 Spacer(Modifier.height(8.dp))
             }
             if (item.team.isNotBlank()) {
@@ -240,7 +371,13 @@ private fun HomeworkDetailPane(
             }
             Spacer(Modifier.height(16.dp))
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(checked = item.done, onCheckedChange = { onToggleDone() })
+                Checkbox(
+                    checked = item.done,
+                    onCheckedChange = {
+                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                        onToggleDone()
+                    },
+                )
                 Text(
                     if (item.done) {
                         stringResource(R.string.homework_done)
@@ -255,7 +392,7 @@ private fun HomeworkDetailPane(
 
 @Composable
 private fun ColumnScroll(modifier: Modifier = Modifier, content: @Composable () -> Unit) {
-    androidx.compose.foundation.layout.Column(
+    Column(
         modifier = modifier.verticalScroll(rememberScrollState()),
         content = { content() },
     )

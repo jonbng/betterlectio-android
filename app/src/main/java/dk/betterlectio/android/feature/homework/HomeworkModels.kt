@@ -1,6 +1,14 @@
 package dk.betterlectio.android.feature.homework
 
+import dk.betterlectio.android.feature.schedule.EventStatus
 import java.time.LocalDate
+
+/** Individual lektie item inside a content cell (iOS HomeworkItem). */
+data class HomeworkTask(
+    val id: String,
+    val text: String,
+    val url: String? = null,
+)
 
 data class HomeworkItem(
     val id: String,
@@ -8,9 +16,14 @@ data class HomeworkItem(
     val activityTitle: String,
     val date: LocalDate?,
     val team: String = "",
+    val teacher: String? = null,
+    val room: String? = null,
+    val status: EventStatus = EventStatus.NORMAL,
     val done: Boolean = false,
     val href: String? = null,
     val detailHtml: String? = null,
+    /** Structured lektier from content cell (iOS items). */
+    val tasks: List<HomeworkTask> = emptyList(),
 )
 
 data class HomeworkDayGroup(

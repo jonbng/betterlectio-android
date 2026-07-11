@@ -1,5 +1,6 @@
 package dk.betterlectio.android.core.lectio.session
 
+import com.posthog.PostHog
 import dk.betterlectio.android.core.cache.OfflineDataCleaner
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.model.Student
@@ -11,6 +12,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.launchIn
 import kotlinx.coroutines.flow.onEach
+import kotlinx.coroutines.launch
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
@@ -24,14 +26,19 @@ sealed class AuthState {
 /**
  * Owns current auth state for the process.
  * Install after MitID cookie capture; restore on cold start.
+ *
+ * iOS parity: AuthenticationViewModel.handleSessionExpired — on definitive death clear
+ * local session **and** wipe WebView/Supabase so the next MitID login is clean.
  */
 @Singleton
 class SessionController @Inject constructor(
     private val credentialStore: CredentialStore,
     private val sessionEvents: SessionEvents,
     private val offlineDataCleaner: OfflineDataCleaner,
+    private val externalWiper: SessionExternalWiper,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
+    private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     private val _authState = MutableStateFlow<AuthState>(AuthState.Loading)
     val authState: StateFlow<AuthState> = _authState.asStateFlow()
@@ -42,10 +49,32 @@ class SessionController @Inject constructor(
     init {
         sessionEvents.sessionExpired
             .onEach {
-                Timber.w("Session expired event — clearing session")
-                clearSession(keepStudentProfile = false)
+                handleSessionExpired()
             }
             .launchIn(scope)
+    }
+
+    /**
+     * iOS AuthenticationViewModel.handleSessionExpired — idempotent.
+     */
+    private fun handleSessionExpired() {
+        val student = currentStudent
+        if (student?.isDemo == true) return
+        if (_authState.value !is AuthState.Authenticated && student == null) {
+            // Already signed out — still wipe residual external jars.
+            ioScope.launch {
+                runCatching { externalWiper.wipeExternalAuthState() }
+            }
+            return
+        }
+        Timber.w("Session expired — full wipe (store + WebView + Supabase)")
+        PostHog.capture(event = "session_expired")
+        PostHog.reset()
+        clearSession(keepStudentProfile = false)
+        ioScope.launch {
+            runCatching { externalWiper.wipeExternalAuthState() }
+                .onFailure { Timber.w(it, "External wipe after session expiry failed") }
+        }
     }
 
     fun restore() {
@@ -73,7 +102,12 @@ class SessionController @Inject constructor(
             credentialStore.saveCredentials(credentials, student.studentId)
         }
         _authState.value = AuthState.Authenticated(student)
-        Timber.i("Session installed for studentId=%s gymId=%s demo=%s", student.studentId, student.gymId, student.isDemo)
+        Timber.i(
+            "Session installed for studentId=%s gymId=%s demo=%s",
+            student.studentId,
+            student.gymId,
+            student.isDemo,
+        )
     }
 
     fun installDemoSession() {

@@ -11,10 +11,12 @@ import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.DefaultLectioClient
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.auth.AndroidWebViewCookieExtractor
+import dk.betterlectio.android.core.lectio.auth.DefaultSessionExternalWiper
 import dk.betterlectio.android.core.lectio.auth.WebViewCookieExtractor
 import dk.betterlectio.android.core.lectio.http.PriorityRequestLimiter
 import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.core.lectio.session.EncryptedCredentialStore
+import dk.betterlectio.android.core.lectio.session.SessionExternalWiper
 import okhttp3.OkHttpClient
 import okhttp3.logging.HttpLoggingInterceptor
 import java.util.concurrent.TimeUnit
@@ -31,6 +33,10 @@ abstract class LectioBindModule {
     @Binds
     @Singleton
     abstract fun bindWebViewCookieExtractor(impl: AndroidWebViewCookieExtractor): WebViewCookieExtractor
+
+    @Binds
+    @Singleton
+    abstract fun bindSessionExternalWiper(impl: DefaultSessionExternalWiper): SessionExternalWiper
 }
 
 @Module

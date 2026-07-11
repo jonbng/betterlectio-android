@@ -10,6 +10,7 @@ import dk.betterlectio.android.core.lectio.scrape.LectioUrls
 import dk.betterlectio.android.core.lectio.scrape.StudentIdentityParser
 import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.core.lectio.session.SessionExternalWiper
 import dk.betterlectio.android.core.model.School
 import dk.betterlectio.android.core.model.Student
 import dk.betterlectio.android.core.result.AppResult
@@ -19,15 +20,18 @@ import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.feature.supabase.SupabaseAuthService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.launch
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
  * Completes MitID/WebView auth: validate cookies against Lectio, persist, install session.
- * iOS parity: AuthenticationService.completeAuthentication
+ * iOS parity: AuthenticationService.completeAuthentication / coldStartValidate / wipeAuthState
+ * Flutter inspiration: uniloginLogin(callbackUrl) then checkIfLoggedIn.
  */
 @Singleton
 class AuthSessionInstaller @Inject constructor(
@@ -35,6 +39,7 @@ class AuthSessionInstaller @Inject constructor(
     private val credentialStore: CredentialStore,
     private val sessionController: SessionController,
     private val webViewCookieExtractor: WebViewCookieExtractor,
+    private val sessionExternalWiper: SessionExternalWiper,
     private val supabaseAuth: SupabaseAuthService,
     private val settingsStore: SettingsStore,
     private val directorySync: DirectorySyncService,
@@ -43,106 +48,137 @@ class AuthSessionInstaller @Inject constructor(
     private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
     /**
-     * Use after WebView reached forside/unilogin callback — reads cookies from CookieManager.
+     * Use after WebView finished forside/unilogin callback — reads cookies from CookieManager.
+     *
+     * @param callbackUrl final WebView URL (UniLogin integration or forside). When this is the
+     * UniLogin integration callback, we re-request it over HTTP (Flutter `uniloginLogin`) so
+     * Lectio can finish minting session cookies even if WebView jar was incomplete.
      */
-    suspend fun completeLoginFromWebView(school: School): AppResult<Student> {
+    suspend fun completeLoginFromWebView(
+        school: School,
+        callbackUrl: String? = null,
+    ): AppResult<Student> {
         return when (val extracted = webViewCookieExtractor.extractFromCookieManager()) {
             is AppResult.Failure -> extracted
-            is AppResult.Success -> completeLogin(extracted.data, school)
+            is AppResult.Success -> completeLogin(extracted.data, school, callbackUrl)
         }
     }
 
     /**
      * Validate [credentials], parse student identity, persist, install session.
+     *
+     * Probe order:
+     * 0. Optional **UniLogin integration callback** HTTP GET (Flutter)
+     * 1. **SkemaNy.aspx** — iOS `validateCredentialsAndGetStudentInfo`
+     * 2. **forside.aspx** — Flutter `checkIfLoggedIn`
+     * 3. Fallback: person id embedded in [callbackUrl]
      */
     suspend fun completeLogin(
         credentials: LectioCredentials,
         school: School,
+        callbackUrl: String? = null,
     ): AppResult<Student> {
-        val seeded = credentials.seededIsLoggedIn()
-        val probeUrl = LectioUrls.forsideUrl(school.id)
+        var latestCreds = credentials.seededIsLoggedIn()
+        val skemaUrl = LectioUrls.buildUrl(school.id, "SkemaNy.aspx")
+        val forsideUrl = LectioUrls.forsideUrl(school.id)
 
         return try {
+            // Flutter: request(unilogin.aspx) so Set-Cookie from the integration hop lands in our jar.
+            if (!callbackUrl.isNullOrBlank() &&
+                MitIdAuthUrls.isUniloginIntegrationCallback(callbackUrl)
+            ) {
+                val callbackHttp = callbackUrl.toHttpUrlOrNull()
+                if (callbackHttp != null) {
+                    Timber.i("Login: replaying UniLogin callback over HTTP")
+                    val replay = engine.execute(
+                        LectioRequest(
+                            url = callbackHttp,
+                            method = "GET",
+                            priority = FetchPriority.Important,
+                            studentId = null,
+                        ),
+                        latestCreds,
+                    )
+                    latestCreds = replay.credentials
+                    val fromCallbackHtml = StudentIdentityParser.parse(replay.response.body)
+                    if (!fromCallbackHtml.personId.isNullOrBlank()) {
+                        return finishLogin(
+                            personId = fromCallbackHtml.personId!!,
+                            name = fromCallbackHtml.name,
+                            pictureId = fromCallbackHtml.pictureId,
+                            school = school,
+                            credentials = latestCreds,
+                        )
+                    }
+                }
+            }
+
             val first = engine.execute(
                 LectioRequest(
-                    url = probeUrl,
+                    url = skemaUrl,
                     method = "GET",
                     priority = FetchPriority.Important,
                     studentId = null,
                 ),
-                seeded,
+                latestCreds,
             )
 
             var identity = StudentIdentityParser.parse(first.response.body)
-            var latestCreds = first.credentials
+            latestCreds = first.credentials
+            Timber.i(
+                "Login probe SkemaNy personId=%s finalUrl=%s bodyLen=%d looksLogin=%s",
+                identity.personId,
+                first.response.finalUrl,
+                first.response.body.length,
+                looksLikeLoginHtml(first.response.body),
+            )
 
             if (identity.personId.isNullOrBlank()) {
-                val skema = engine.execute(
+                val forside = engine.execute(
                     LectioRequest(
-                        url = LectioUrls.buildUrl(school.id, "SkemaNy.aspx"),
+                        url = forsideUrl,
                         method = "GET",
                         priority = FetchPriority.Important,
                         studentId = null,
                     ),
                     latestCreds,
                 )
-                latestCreds = skema.credentials
-                identity = StudentIdentityParser.parse(skema.response.body)
+                latestCreds = forside.credentials
+                identity = StudentIdentityParser.parse(forside.response.body)
+                Timber.i(
+                    "Login probe forside personId=%s finalUrl=%s bodyLen=%d looksLogin=%s",
+                    identity.personId,
+                    forside.response.finalUrl,
+                    forside.response.body.length,
+                    looksLikeLoginHtml(forside.response.body),
+                )
             }
 
+            // Last resort: elevid in callback / final URL query.
             val personId = identity.personId
-                ?: return AppResult.Failure(
-                    LectioError.Parse("Could not parse student id from Lectio").toAppError(),
-                )
+                ?: callbackUrl?.let { MitIdAuthUrls.personIdFromUrl(it) }
+                ?: first.response.finalUrl.toString().let { MitIdAuthUrls.personIdFromUrl(it) }
 
-            val student = Student(
-                studentId = personId,
-                gymId = school.id,
+            if (personId.isNullOrBlank()) {
+                Timber.w(
+                    "Login parse failed. cookiePreview names present; body sample: %s",
+                    first.response.body.take(400).replace('\n', ' '),
+                )
+                return AppResult.Failure(
+                    LectioError.Parse(
+                        "Could not parse student id from Lectio " +
+                            "(no elevid/laererid — session may be incomplete after MitID)",
+                    ).toAppError(),
+                )
+            }
+
+            return finishLogin(
+                personId = personId,
                 name = identity.name,
                 pictureId = identity.pictureId,
-                classLabel = null,
-                schoolName = school.name,
-                isDemo = false,
+                school = school,
+                credentials = latestCreds,
             )
-
-            // Persist under real student id, then one more request so rotations bind to that id.
-            credentialStore.saveCredentials(latestCreds, personId)
-            val confirm = engine.execute(
-                LectioRequest(
-                    url = probeUrl,
-                    method = "GET",
-                    priority = FetchPriority.Important,
-                    studentId = personId,
-                ),
-                latestCreds,
-            )
-            val finalCreds = confirm.credentials
-            credentialStore.saveCredentials(finalCreds, personId)
-            sessionController.installSession(student, finalCreds)
-
-            PostHog.identify(
-                distinctId = personId,
-                userProperties = mapOf(
-                    "gym_id" to school.id,
-                    "school_name" to school.name,
-                ),
-            )
-            PostHog.capture(
-                event = "login_completed",
-                properties = mapOf("login_method" to "mitid"),
-            )
-
-            // iOS: best-effort Supabase Auth via Edge Function (does not block login UI).
-            // Gate opens after mint so schedule/homework RPCs don't race RLS.
-            bgScope.launch {
-                supabaseAuth.authenticateAndMarkReady(finalCreds, school.id)
-                settingsStore.syncSubjectsFromSupabase(student)
-            }
-            // Opportunistic directory catalog + message prefetch (no permission prompts).
-            schedulePostLoginSync()
-
-            Timber.i("Login complete studentId=%s gymId=%s", personId, school.id)
-            AppResult.Success(student)
         } catch (e: LectioError) {
             Timber.w(e, "Login validation failed")
             AppResult.Failure(e.toAppError())
@@ -152,12 +188,76 @@ class AuthSessionInstaller @Inject constructor(
         }
     }
 
+    private suspend fun finishLogin(
+        personId: String,
+        name: String?,
+        pictureId: String?,
+        school: School,
+        credentials: LectioCredentials,
+    ): AppResult<Student> {
+        val forsideUrl = LectioUrls.forsideUrl(school.id)
+        val student = Student(
+            studentId = personId,
+            gymId = school.id,
+            name = name,
+            pictureId = pictureId,
+            classLabel = null,
+            schoolName = school.name,
+            isDemo = false,
+        )
+
+        // Persist under real student id, then one more request so rotations bind to that id.
+        credentialStore.saveCredentials(credentials, personId)
+        val confirm = engine.execute(
+            LectioRequest(
+                url = forsideUrl,
+                method = "GET",
+                priority = FetchPriority.Important,
+                studentId = personId,
+            ),
+            credentials,
+        )
+        val finalCreds = confirm.credentials
+        credentialStore.saveCredentials(finalCreds, personId)
+        sessionController.installSession(student, finalCreds)
+
+        PostHog.identify(
+            distinctId = personId,
+            userProperties = mapOf(
+                "gym_id" to school.id,
+                "school_name" to school.name,
+            ),
+        )
+        PostHog.capture(
+            event = "login_completed",
+            properties = mapOf("login_method" to "mitid"),
+        )
+
+        bgScope.launch {
+            supabaseAuth.authenticateAndMarkReady(finalCreds, school.id)
+            settingsStore.syncSubjectsFromSupabase(student)
+            schedulePostLoginSync()
+        }
+
+        Timber.i("Login complete studentId=%s gymId=%s", personId, school.id)
+        return AppResult.Success(student)
+    }
+
+    private fun looksLikeLoginHtml(html: String): Boolean {
+        val lower = html.lowercase()
+        return lower.contains("login.aspx") ||
+            lower.contains("m\$content\$username") ||
+            lower.contains("m_content_username") ||
+            lower.contains("unilogin") && lower.contains("log ind")
+    }
+
     fun enterDemo(): Student {
         sessionController.installDemoSession()
         PostHog.capture(event = "demo_entered")
-        // Demo never uses Supabase — open gate so any best-effort calls no-op quickly
-        bgScope.launch { supabaseAuth.ensureSessionIfNeeded(Student.Demo) }
-        schedulePostLoginSync()
+        bgScope.launch {
+            supabaseAuth.ensureSessionIfNeeded(Student.Demo)
+            schedulePostLoginSync()
+        }
         return Student.Demo
     }
 
@@ -173,29 +273,117 @@ class AuthSessionInstaller @Inject constructor(
         messagePrefetcher.schedulePrefetch()
     }
 
+    /**
+     * iOS `wipeAuthState` / logout — clear UI session immediately, then wipe WebView jar
+     * so the next MitID login does not inherit a stale UniLogin session.
+     */
     fun logout() {
         PostHog.capture(event = "logged_out")
         PostHog.reset()
-        webViewCookieExtractor.clearLectioCookies()
         sessionController.clearSession()
-        bgScope.launch { supabaseAuth.signOutLocal() }
+        bgScope.launch {
+            runCatching { sessionExternalWiper.wipeExternalAuthState() }
+                .onFailure { Timber.w(it, "External wipe on logout failed") }
+        }
     }
 
     /**
-     * Cold-start: re-mint Supabase session if needed, then open the session gate
-     * (iOS: ensureSupabaseSession). Returns a Job callers can join before remote work.
+     * iOS: when no stored student, wipe residual WK/keychain/Supabase before LoginView.
+     * Call after [SessionController.restore] when state is unauthenticated.
      */
-    fun ensureSupabaseSession(student: Student): kotlinx.coroutines.Job {
+    fun wipeResidualAuthState() {
+        bgScope.launch {
+            runCatching { sessionExternalWiper.wipeExternalAuthState() }
+            Timber.i("Residual auth state wiped (unauthenticated cold start)")
+        }
+    }
+
+    /**
+     * Cold-start sequence (iOS AuthenticationViewModel.checkStoredCredentials Task):
+     * 1. coldStartValidate — cheapest Lectio probe; definitive death → logout
+     * 2. ensureSupabaseSession
+     * 3. directory / message prefetch
+     *
+     * Strictly sequential so parallel autologin rotation races do not kill the session.
+     */
+    fun onColdStart(student: Student): Job {
         return bgScope.launch {
             if (student.isDemo) {
-                // ensureSessionIfNeeded marks ready in finally
                 supabaseAuth.ensureSessionIfNeeded(student)
                 schedulePostLoginSync()
                 return@launch
             }
+
+            when (val probe = coldStartValidate(student)) {
+                ColdStartResult.Dead -> {
+                    Timber.w("Cold-start validation: session dead — logging out")
+                    // Engine may already have emitted sessionExpired; ensure UI clears.
+                    logout()
+                    return@launch
+                }
+                is ColdStartResult.Deferred -> {
+                    Timber.w(
+                        probe.cause,
+                        "Cold-start validation deferred — will recover on next user fetch",
+                    )
+                }
+                ColdStartResult.Ok -> {
+                    Timber.i("Cold-start validation OK")
+                }
+            }
+
             supabaseAuth.ensureSessionIfNeeded(student)
             settingsStore.syncSubjectsFromSupabase(student)
             schedulePostLoginSync()
         }
     }
+
+    /**
+     * Lightweight probe (iOS `AuthenticationService.coldStartValidate`).
+     * Only definitive session death returns [ColdStartResult.Dead]; network/robot stay signed in.
+     */
+    suspend fun coldStartValidate(student: Student): ColdStartResult {
+        val credentials = credentialStore.loadCredentials(student.studentId)
+            ?: return ColdStartResult.Dead
+
+        return try {
+            val result = engine.execute(
+                LectioRequest(
+                    url = LectioUrls.buildUrl(student.gymId, "SkemaNy.aspx"),
+                    method = "GET",
+                    priority = FetchPriority.Opportunistic,
+                    studentId = student.studentId,
+                ),
+                credentials,
+            )
+            // Persist post-probe rotations (iOS updates keychain on success).
+            credentialStore.saveCredentials(result.credentials, student.studentId)
+            ColdStartResult.Ok
+        } catch (_: LectioError.SessionExpired) {
+            ColdStartResult.Dead
+        } catch (_: LectioError.InvalidCredentials) {
+            ColdStartResult.Dead
+        } catch (e: LectioError.MissingCookies) {
+            ColdStartResult.Dead
+        } catch (e: LectioError) {
+            // Offline, robot, network, parse — keep user signed in (iOS parity).
+            ColdStartResult.Deferred(e)
+        } catch (e: Exception) {
+            ColdStartResult.Deferred(e)
+        }
+    }
+
+    /**
+     * @deprecated Prefer [onColdStart] which validates first. Kept for call-site clarity.
+     */
+    fun ensureSupabaseSession(student: Student): Job = onColdStart(student)
+}
+
+/**
+ * Result of cold-start Lectio probe.
+ */
+sealed class ColdStartResult {
+    data object Ok : ColdStartResult()
+    data object Dead : ColdStartResult()
+    data class Deferred(val cause: Throwable) : ColdStartResult()
 }

@@ -11,6 +11,13 @@ data class GradeRow(
     val yearGrade: String?,
     val examGrade: String?,
     val notes: List<String> = emptyList(),
+    val teamId: String? = null,
+    val firstStandpunktWeight: Double? = null,
+    val secondStandpunktWeight: Double? = null,
+    val finalYearWeight: Double? = null,
+    val internalTestWeight: Double? = null,
+    val yearGradeWeight: Double? = null,
+    val examGradeWeight: Double? = null,
 ) {
     val gradeSummary: String
         get() = listOfNotNull(

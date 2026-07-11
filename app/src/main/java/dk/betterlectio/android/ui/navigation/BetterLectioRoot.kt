@@ -5,6 +5,7 @@ import androidx.compose.animation.core.tween
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
+import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
@@ -96,7 +97,11 @@ private fun AuthenticatedShell() {
     var assignmentsScroll by remember { mutableIntStateOf(0) }
     var moreScroll by remember { mutableIntStateOf(0) }
 
+    // Zero content insets: child screens own status-bar handling via their TopAppBars.
+    // Without this, the outer Scaffold (no topBar) pads the NavHost for the status bar,
+    // and each tab Scaffold/TopAppBar pads again → empty gap above every page title.
     Scaffold(
+        contentWindowInsets = WindowInsets(0, 0, 0, 0),
         bottomBar = {
             NavigationBar(
                 containerColor = MaterialTheme.colorScheme.surface,

@@ -10,6 +10,8 @@ data class ScheduleEvent(
     val title: String,
     val team: String = "",
     val teacher: String? = null,
+    /** Lectio teacher context-card id without `T` prefix (iOS parity). */
+    val teacherId: String? = null,
     val room: String? = null,
     val status: EventStatus = EventStatus.NORMAL,
     val start: LocalDateTime? = null,
@@ -19,6 +21,10 @@ data class ScheduleEvent(
     val homework: String? = null,
     val isAllDay: Boolean = false,
     val href: String? = null,
+    /** Flutter `ls-lektier` icon on brick. */
+    val hasHomeworkIcon: Boolean = false,
+    /** Flutter `ls-note` icon on brick. */
+    val hasNoteIcon: Boolean = false,
 )
 
 data class ScheduleDay(

@@ -3,7 +3,9 @@ package dk.betterlectio.android.feature.studiekort
 import org.jsoup.Jsoup
 
 /**
- * Parses Lectio studiekort / elevforside HTML for photo and QR image URLs.
+ * Parses Lectio studiekort HTML.
+ * Primary: Flutter digitaltStudiekort.aspx field ids.
+ * Fallback: elevforside / generic GetImage scraping.
  */
 object StudiekortParser {
     data class ParsedCard(
@@ -18,23 +20,44 @@ object StudiekortParser {
 
     fun parse(html: String, gymId: Int, studentId: String): ParsedCard {
         val doc = Jsoup.parse(html)
-        val name = doc.selectFirst("#s_m_HeaderContent_MainTitle, .ls-person-name, h1")
-            ?.text()?.trim()?.takeIf { it.isNotBlank() }
-        val classLabel = doc.selectFirst(".ls-person-text, #s_m_HeaderContent_MainTitle")
-            ?.text()?.let { extractClass(it) }
-        val schoolName = doc.selectFirst(".ls-master-header-institutionname, .ls-subtext")
-            ?.text()?.trim()?.takeIf { it.isNotBlank() }
-        val birthday = parseBirthday(html)
+
+        // Flutter digitaltStudiekort fields
+        val digitalName = doc.getElementById("s_m_Content_Content_StudentName")?.text()?.trim()
+        val digitalSchool = doc.getElementById("s_m_Content_Content_SchoolName")?.text()?.trim()
+        val digitalPic = doc.getElementById("s_m_Content_Content_StudPic")
+        val digitalBirthday = parseBirthdayFromElement(
+            doc.getElementById("s_m_Content_Content_StudentBirthday"),
+        )
+
+        val name = digitalName
+            ?: doc.selectFirst("#s_m_HeaderContent_MainTitle, .ls-person-name, h1")
+                ?.text()?.trim()?.takeIf { it.isNotBlank() }
+        val classLabel = extractClass(name.orEmpty())
+            ?: doc.selectFirst(".ls-person-text")?.text()?.let { extractClass(it) }
+        val schoolName = digitalSchool
+            ?: doc.selectFirst(".ls-master-header-institutionname, .ls-subtext")
+                ?.text()?.trim()?.takeIf { it.isNotBlank() }
+        val birthday = digitalBirthday ?: parseBirthday(html)
 
         var photoUrl: String? = null
         var pictureId: String? = null
-        doc.select("img[src*=GetImage], img[src*=pictureid]").forEach { img ->
-            val src = img.attr("src")
-            if (src.contains("studiekortqr", ignoreCase = true)) return@forEach
-            if (src.contains("GetImage") || src.contains("pictureid")) {
+        if (digitalPic != null) {
+            val src = digitalPic.attr("src")
+            if (src.isNotBlank()) {
                 photoUrl = absolutize(src, gymId)
                 pictureId = Regex("""pictureid=(\d+)""", RegexOption.IGNORE_CASE)
                     .find(src)?.groupValues?.get(1)
+            }
+        }
+        if (photoUrl == null) {
+            doc.select("img[src*=GetImage], img[src*=pictureid]").forEach { img ->
+                val src = img.attr("src")
+                if (src.contains("studiekortqr", ignoreCase = true)) return@forEach
+                if (src.contains("GetImage") || src.contains("pictureid")) {
+                    photoUrl = absolutize(src, gymId)
+                    pictureId = Regex("""pictureid=(\d+)""", RegexOption.IGNORE_CASE)
+                        .find(src)?.groupValues?.get(1)
+                }
             }
         }
 
@@ -43,16 +66,16 @@ object StudiekortParser {
             val src = img.attr("src").ifBlank { img.parent()?.attr("href").orEmpty() }
             if (src.isNotBlank()) qrUrl = absolutize(src, gymId)
         }
-        // Also look for explicit studiekortqr links
         doc.select("a[href*=studiekortqr], img[src*=type=studiekortqr]").forEach { el ->
             val src = el.attr("src").ifBlank { el.attr("href") }
             if (src.isNotBlank()) qrUrl = absolutize(src, gymId)
         }
 
-        // Fallback constructed QR if page only has student id
+        // Flutter constructs QR with time=
         if (qrUrl == null && studentId.isNotBlank()) {
+            val t = System.currentTimeMillis()
             qrUrl =
-                "https://www.lectio.dk/lectio/$gymId/GetImage.aspx?type=studiekortqr&studentid=$studentId"
+                "https://www.lectio.dk/lectio/$gymId/GetImage.aspx?studentid=$studentId&type=studiekortqr&time=$t"
         }
         if (photoUrl == null && pictureId != null) {
             photoUrl =
@@ -63,7 +86,8 @@ object StudiekortParser {
     }
 
     /**
-     * iOS parity: StudentParser.parseBirthday — span#s_m_Content_Content_StudentBirthday
+     * iOS + Flutter: span#s_m_Content_Content_StudentBirthday
+     * Flutter also strips to date before `(` when present.
      */
     fun parseBirthday(html: String): String? {
         val doc = Jsoup.parse(html)
@@ -72,11 +96,20 @@ object StudiekortParser {
                 "span#s_m_Content_Content_StudentBirthday, " +
                 "[id*=StudentBirthday], [id*=studentBirthday]",
         ) ?: return null
-        return span.text()
+        return parseBirthdayFromElement(span)
+    }
+
+    private fun parseBirthdayFromElement(span: org.jsoup.nodes.Element?): String? {
+        if (span == null) return null
+        var text = span.text()
             .replace("Fødselsdag:", "", ignoreCase = true)
             .replace("Fødselsdag", "", ignoreCase = true)
             .trim()
-            .takeIf { it.isNotBlank() }
+        // Flutter: take part before `(` if present (age parenthesis)
+        if ('(' in text) {
+            text = text.substringBefore('(').trim()
+        }
+        return text.takeIf { it.isNotBlank() }
     }
 
     private fun extractClass(title: String): String? {

@@ -20,6 +20,20 @@ data class AssignmentItem(
     val awaits: String,
     val note: String,
     val absence: String = "",
+    val grade: String? = null,
+    val gradeNote: String? = null,
+    val studentNote: String? = null,
+    val holdElementId: String? = null,
+    val detailUrl: String? = null,
+)
+
+data class AssignmentSubmission(
+    val id: String,
+    val timestamp: String,
+    val user: String,
+    val comment: String? = null,
+    val documentName: String? = null,
+    val documentUrl: String? = null,
 )
 
 data class AssignmentDetail(
@@ -28,6 +42,10 @@ data class AssignmentDetail(
     val files: List<Pair<String, String>> = emptyList(), // name to url
     val responsible: String = "",
     val grading: String = "",
+    val submissions: List<AssignmentSubmission> = emptyList(),
+    val completed: Boolean = false,
+    val studentGrade: String? = null,
+    val studentGradeNote: String? = null,
 )
 
 fun AssignmentItem.matches(filter: AssignmentFilter): Boolean {
@@ -35,8 +53,12 @@ fun AssignmentItem.matches(filter: AssignmentFilter): Boolean {
     val a = awaits.lowercase()
     return when (filter) {
         AssignmentFilter.ALL -> true
+        // Lectio uses "Venter" (iOS) and sometimes "Afventer"
         AssignmentFilter.AWAITING_ME ->
-            a.contains("elev") || s.contains("afventer") || s.contains("mangler")
+            a.contains("elev") ||
+                s.contains("afventer") ||
+                s.contains("venter") ||
+                s.contains("mangler")
         AssignmentFilter.DELIVERED ->
             s.contains("aflever") || s.contains("afsluttet") || a.contains("lærer")
         AssignmentFilter.MISSING ->

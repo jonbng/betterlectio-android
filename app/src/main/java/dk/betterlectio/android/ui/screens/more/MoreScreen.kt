@@ -1,5 +1,9 @@
 package dk.betterlectio.android.ui.screens.more
 
+import android.content.Intent
+import android.net.Uri
+import androidx.compose.animation.core.animateFloatAsState
+import androidx.compose.animation.core.tween
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
@@ -11,6 +15,7 @@ import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -31,12 +36,18 @@ import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Grade
+import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.Help
+import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.People
+import androidx.compose.material.icons.filled.Person
 import androidx.compose.material.icons.filled.PushPin
+import androidx.compose.material.icons.filled.QrCode2
+import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Warning
+import androidx.compose.material.icons.filled.Widgets
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
@@ -53,16 +64,20 @@ import androidx.compose.material3.Switch
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
-import android.content.Intent
-import android.net.Uri
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.graphicsLayer
+import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalDensity
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -71,13 +86,17 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import coil3.compose.AsyncImage
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.asString
-import dk.betterlectio.android.feature.schedule.timeLabelText
+import dk.betterlectio.android.feature.absence.AbsenceChartSeries
+import dk.betterlectio.android.feature.absence.AbsenceSummary
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.grades.GradeAverage
+import dk.betterlectio.android.feature.grades.GradeType
+import dk.betterlectio.android.feature.schedule.timeLabelText
 import dk.betterlectio.android.feature.settings.AppLanguage
 import dk.betterlectio.android.feature.settings.AppearanceMode
 import dk.betterlectio.android.feature.settings.CalendarStyle
-import dk.betterlectio.android.feature.absence.AbsenceChartSeries
+import dk.betterlectio.android.feature.studiekort.StudentCard
 import dk.betterlectio.android.ui.components.AbsenceBarChart
 import dk.betterlectio.android.ui.components.AbsenceRing
 import dk.betterlectio.android.ui.components.AppListDivider
@@ -85,6 +104,7 @@ import dk.betterlectio.android.ui.components.AppListMeta
 import dk.betterlectio.android.ui.components.AppListPrimary
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
+import dk.betterlectio.android.ui.components.EmptyBox
 import dk.betterlectio.android.ui.components.InitialsAvatar
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.components.SectionHeader
@@ -150,7 +170,10 @@ fun MoreScreen(
                 navigationIcon = {
                     if (showBack) {
                         IconButton(onClick = viewModel::back) {
-                            Icon(Icons.AutoMirrored.Filled.ArrowBack, contentDescription = null)
+                            Icon(
+                            Icons.AutoMirrored.Filled.ArrowBack,
+                            contentDescription = stringResource(R.string.cd_back),
+                        )
                         }
                     }
                 },
@@ -165,6 +188,7 @@ fun MoreScreen(
                 classLabel = state.student?.classLabel,
                 photoUrl = state.profilePhotoUrl,
                 onNavigate = viewModel::navigate,
+                onOpenCatalogKind = viewModel::openDirectoryKind,
                 onLogout = viewModel::logout,
             )
             MoreDestination.GRADES -> {
@@ -220,31 +244,77 @@ fun MoreScreen(
                             }
                         }
                     }
-                } else LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                ) {
-                    items(state.grades, key = { it.subject + it.team }) { g ->
-                        AppListRow(
-                            onClick = { viewModel.openGradeDetail(g) },
-                            trailing = {
-                                Text(
-                                    g.gradeSummary.ifBlank { "—" },
-                                    style = MaterialTheme.typography.titleMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.primary,
-                                )
-                            },
-                        ) {
-                            AppListPrimary(g.subject, emphasized = true)
-                            if (g.team.isNotBlank()) AppListSecondary(g.team)
-                            if (g.notes.isNotEmpty()) {
-                                AppListMeta(stringResource(R.string.grades_notes_count, g.notes.size))
+                } else {
+                    val gradeType = state.gradeType
+                    val visible = GradeAverage.filterRows(state.grades, gradeType)
+                    val avg = GradeAverage.weightedAverageDisplay(state.grades, gradeType)
+                    val typeLabel = gradeTypeLabel(gradeType)
+                    LazyColumn(
+                        state = listState,
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .padding(padding),
+                    ) {
+                        item {
+                            FlowRow(
+                                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
+                                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            ) {
+                                GradeType.entries.forEach { type ->
+                                    FilterChip(
+                                        selected = gradeType == type,
+                                        onClick = { viewModel.setGradeType(type) },
+                                        label = { Text(gradeTypeLabel(type)) },
+                                    )
+                                }
                             }
                         }
-                        AppListDivider()
+                        item {
+                            Surface(
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                                shape = RoundedCornerShape(16.dp),
+                                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                                tonalElevation = 0.dp,
+                            ) {
+                                Column(Modifier.padding(20.dp)) {
+                                    Text(
+                                        stringResource(R.string.grades_average_label, typeLabel),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        fontWeight = FontWeight.SemiBold,
+                                    )
+                                    Spacer(Modifier.height(6.dp))
+                                    Text(
+                                        avg ?: stringResource(R.string.grades_no_average),
+                                        style = MaterialTheme.typography.displaySmall,
+                                        fontWeight = FontWeight.Bold,
+                                        color = MaterialTheme.colorScheme.onSurface,
+                                    )
+                                }
+                            }
+                        }
+                        items(visible, key = { it.subject + it.team + gradeType.name }) { g ->
+                            AppListRow(
+                                onClick = { viewModel.openGradeDetail(g) },
+                                trailing = {
+                                    Text(
+                                        GradeAverage.displayGrade(g, gradeType),
+                                        style = MaterialTheme.typography.titleMedium,
+                                        fontWeight = FontWeight.SemiBold,
+                                        color = MaterialTheme.colorScheme.primary,
+                                    )
+                                },
+                            ) {
+                                AppListPrimary(g.subject, emphasized = true)
+                                if (g.team.isNotBlank()) AppListSecondary(g.team)
+                                if (g.notes.isNotEmpty()) {
+                                    AppListMeta(stringResource(R.string.grades_notes_count, g.notes.size))
+                                }
+                            }
+                            AppListDivider()
+                        }
                     }
                 }
             }
@@ -258,21 +328,36 @@ fun MoreScreen(
                 ) {
                     item {
                         SectionHeader(stringResource(R.string.absence_overview))
-                        FlowRow(
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 8.dp),
-                            horizontalArrangement = Arrangement.spacedBy(16.dp),
-                            verticalArrangement = Arrangement.spacedBy(12.dp),
+                        val dual = state.absence?.let { AbsenceSummary.dual(it) }
+                        Row(
+                            Modifier
+                                .fillMaxWidth()
+                                .padding(horizontal = 24.dp, vertical = 12.dp),
+                            horizontalArrangement = Arrangement.SpaceEvenly,
                         ) {
-                            state.absence?.teams.orEmpty().forEach { row ->
-                                Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                    AbsenceRing(fraction = row.regularCurrentPercent)
-                                    Text(
-                                        row.team,
-                                        style = MaterialTheme.typography.labelSmall,
-                                        maxLines = 1,
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    )
-                                }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                AbsenceRing(
+                                    fraction = dual?.regularFraction ?: 0.0,
+                                    size = 88.dp,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    stringResource(R.string.absence_regular),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                                AbsenceRing(
+                                    fraction = dual?.writtenFraction ?: 0.0,
+                                    size = 88.dp,
+                                )
+                                Spacer(Modifier.height(8.dp))
+                                Text(
+                                    stringResource(R.string.absence_written),
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
                             }
                         }
                         HorizontalDivider(
@@ -403,10 +488,13 @@ fun MoreScreen(
                             }
                             if (state.directoryMembers.isEmpty()) {
                                 item {
-                                    Text(
-                                        stringResource(R.string.directory_no_members),
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        modifier = Modifier.padding(16.dp),
+                                    EmptyBox(
+                                        text = stringResource(R.string.directory_no_members),
+                                        description = stringResource(R.string.empty_directory_hint),
+                                        icon = Icons.Default.People,
+                                        modifier = Modifier
+                                            .fillMaxWidth()
+                                            .height(280.dp),
                                     )
                                 }
                             } else {
@@ -464,7 +552,23 @@ fun MoreScreen(
                                 thickness = 0.5.dp,
                             )
                             if (state.loading) LoadingBox()
-                            else LazyColumn(
+                            else if (state.directory.isEmpty()) {
+                                EmptyBox(
+                                    text = stringResource(R.string.empty_directory),
+                                    description = stringResource(R.string.empty_directory_hint),
+                                    icon = Icons.Default.People,
+                                    actionLabel = if (state.directoryQuery.isNotBlank()) {
+                                        stringResource(R.string.cd_clear_search)
+                                    } else {
+                                        null
+                                    },
+                                    onAction = if (state.directoryQuery.isNotBlank()) {
+                                        { viewModel.onDirectoryQuery("") }
+                                    } else {
+                                        null
+                                    },
+                                )
+                            } else LazyColumn(
                                 state = listState,
                                 modifier = Modifier.fillMaxSize(),
                             ) {
@@ -606,106 +710,12 @@ fun MoreScreen(
                             .fillMaxSize()
                             .padding(padding)
                             .padding(horizontal = 20.dp, vertical = 16.dp),
+                        horizontalAlignment = Alignment.CenterHorizontally,
                         verticalArrangement = Arrangement.spacedBy(16.dp),
                     ) {
-                        // One intentional "card" — it's a student ID, not a list item.
-                        Surface(
-                            modifier = Modifier.fillMaxWidth(),
-                            shape = RoundedCornerShape(20.dp),
-                            color = MaterialTheme.colorScheme.primaryContainer,
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
-                        ) {
-                            Column(Modifier.padding(20.dp)) {
-                                Text(
-                                    stringResource(R.string.more_studiekort),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                                )
-                                Spacer(Modifier.height(12.dp))
-                                Row(
-                                    verticalAlignment = Alignment.CenterVertically,
-                                    horizontalArrangement = Arrangement.spacedBy(16.dp),
-                                ) {
-                                    if (card.photoUrl != null) {
-                                        AsyncImage(
-                                            model = card.photoUrl,
-                                            contentDescription = null,
-                                            modifier = Modifier
-                                                .size(88.dp)
-                                                .clip(RoundedCornerShape(12.dp)),
-                                        )
-                                    } else {
-                                        Box(
-                                            Modifier
-                                                .size(88.dp)
-                                                .clip(RoundedCornerShape(12.dp))
-                                                .background(
-                                                    MaterialTheme.colorScheme.primary.copy(alpha = 0.2f),
-                                                ),
-                                            contentAlignment = Alignment.Center,
-                                        ) {
-                                            Text(
-                                                (card.student.name ?: "?").take(1).uppercase(),
-                                                style = MaterialTheme.typography.headlineMedium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                            )
-                                        }
-                                    }
-                                    Column(Modifier.weight(1f)) {
-                                        Text(
-                                            card.student.name ?: stringResource(R.string.student_fallback),
-                                            style = MaterialTheme.typography.headlineSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
-                                        )
-                                        card.student.classLabel?.let {
-                                            Text(
-                                                it,
-                                                style = MaterialTheme.typography.bodyLarge,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
-                                            )
-                                        }
-                                        card.student.schoolName?.let {
-                                            Text(
-                                                it,
-                                                style = MaterialTheme.typography.bodyMedium,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
-                                            )
-                                        }
-                                        card.birthday?.let { bday ->
-                                            Text(
-                                                stringResource(R.string.studiekort_birthday, bday),
-                                                style = MaterialTheme.typography.bodySmall,
-                                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
-                                            )
-                                        }
-                                    }
-                                }
-                            }
-                        }
-
+                        FlipStudiekortCard(card = card)
                         TextButton(onClick = { photoPicker.launch("image/*") }) {
                             Text(stringResource(R.string.studiekort_change_photo))
-                        }
-
-                        card.qrUrl?.let { qr ->
-                            SectionHeader(stringResource(R.string.more_studiekort_qr))
-                            Surface(
-                                modifier = Modifier.fillMaxWidth(),
-                                shape = RoundedCornerShape(16.dp),
-                                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.4f),
-                                tonalElevation = 0.dp,
-                            ) {
-                                AsyncImage(
-                                    model = qr,
-                                    contentDescription = stringResource(R.string.cd_qr),
-                                    modifier = Modifier
-                                        .fillMaxWidth()
-                                        .height(200.dp)
-                                        .padding(24.dp),
-                                )
-                            }
                         }
                         state.message?.let {
                             Text(it.asString(), color = MaterialTheme.colorScheme.primary)
@@ -1100,6 +1110,163 @@ fun MoreScreen(
 }
 
 @Composable
+private fun gradeTypeLabel(type: GradeType): String = when (type) {
+    GradeType.ALL -> stringResource(R.string.grades_type_all)
+    GradeType.FIRST_STANDPOINT -> stringResource(R.string.grades_type_sp1)
+    GradeType.SECOND_STANDPOINT -> stringResource(R.string.grades_type_sp2)
+    GradeType.INTERNAL_EXAM -> stringResource(R.string.grades_type_internal)
+    GradeType.YEAR_GRADE -> stringResource(R.string.grades_type_year)
+    GradeType.FINAL_EXAM -> stringResource(R.string.grades_type_exam)
+}
+
+@Composable
+private fun FlipStudiekortCard(card: StudentCard) {
+    var flipped by remember { mutableStateOf(false) }
+    val rotation by animateFloatAsState(
+        targetValue = if (flipped) 180f else 0f,
+        animationSpec = tween(450),
+        label = "studiekortFlip",
+    )
+    val showBack = rotation > 90f
+
+    val density = LocalDensity.current.density
+    Column(horizontalAlignment = Alignment.CenterHorizontally) {
+        Box(
+            Modifier
+                .fillMaxWidth(0.88f)
+                .aspectRatio(0.63f)
+                .graphicsLayer {
+                    rotationY = rotation
+                    cameraDistance = 12f * density
+                }
+                .clip(RoundedCornerShape(20.dp))
+                .clickable { flipped = !flipped },
+        ) {
+            if (!showBack) {
+                Surface(
+                    modifier = Modifier.fillMaxSize(),
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.primaryContainer,
+                    shadowElevation = 6.dp,
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxSize()
+                            .padding(20.dp),
+                        verticalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        Text(
+                            stringResource(R.string.more_studiekort),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                        )
+                        Row(
+                            verticalAlignment = Alignment.CenterVertically,
+                            horizontalArrangement = Arrangement.spacedBy(14.dp),
+                        ) {
+                            if (card.photoUrl != null) {
+                                AsyncImage(
+                                    model = card.photoUrl,
+                                    contentDescription = null,
+                                    modifier = Modifier
+                                        .size(88.dp)
+                                        .clip(RoundedCornerShape(12.dp)),
+                                )
+                            } else {
+                                Box(
+                                    Modifier
+                                        .size(88.dp)
+                                        .clip(RoundedCornerShape(12.dp))
+                                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.2f)),
+                                    contentAlignment = Alignment.Center,
+                                ) {
+                                    Text(
+                                        (card.student.name ?: "?").take(1).uppercase(),
+                                        style = MaterialTheme.typography.headlineMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                    )
+                                }
+                            }
+                            Column {
+                                Text(
+                                    card.student.name ?: stringResource(R.string.student_fallback),
+                                    style = MaterialTheme.typography.titleLarge,
+                                    fontWeight = FontWeight.SemiBold,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                                )
+                                card.student.classLabel?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodyLarge,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.85f),
+                                    )
+                                }
+                                card.student.schoolName?.let {
+                                    Text(
+                                        it,
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.7f),
+                                    )
+                                }
+                                card.birthday?.let { bday ->
+                                    Text(
+                                        stringResource(R.string.studiekort_birthday, bday),
+                                        style = MaterialTheme.typography.bodySmall,
+                                        color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.75f),
+                                    )
+                                }
+                            }
+                        }
+                        Icon(
+                            Icons.Default.QrCode2,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.45f),
+                            modifier = Modifier.align(Alignment.End),
+                        )
+                    }
+                }
+            } else {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .graphicsLayer { rotationY = 180f },
+                    shape = RoundedCornerShape(20.dp),
+                    color = MaterialTheme.colorScheme.surface,
+                    shadowElevation = 6.dp,
+                ) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        if (card.qrUrl != null) {
+                            AsyncImage(
+                                model = card.qrUrl,
+                                contentDescription = stringResource(R.string.cd_qr),
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(28.dp),
+                            )
+                        } else {
+                            Text(
+                                stringResource(R.string.more_studiekort_qr),
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                    }
+                }
+            }
+        }
+        Spacer(Modifier.height(12.dp))
+        Text(
+            if (flipped) {
+                stringResource(R.string.studiekort_flip_back_hint)
+            } else {
+                stringResource(R.string.studiekort_flip_hint)
+            },
+            style = MaterialTheme.typography.bodyMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
 private fun MoreRoot(
     padding: PaddingValues,
     listState: androidx.compose.foundation.lazy.LazyListState,
@@ -1107,6 +1274,7 @@ private fun MoreRoot(
     classLabel: String?,
     photoUrl: String?,
     onNavigate: (MoreDestination) -> Unit,
+    onOpenCatalogKind: (DirectoryEntityKind) -> Unit,
     onLogout: () -> Unit,
 ) {
     LazyColumn(
@@ -1116,64 +1284,151 @@ private fun MoreRoot(
             .padding(padding),
     ) {
         item {
-            Row(
-                Modifier.padding(horizontal = 16.dp, vertical = 20.dp),
-                verticalAlignment = Alignment.CenterVertically,
+            Surface(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 12.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .clickable { onNavigate(MoreDestination.STUDIEKORT) },
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+                tonalElevation = 0.dp,
             ) {
-                if (photoUrl != null) {
-                    AsyncImage(
-                        model = photoUrl,
-                        contentDescription = null,
-                        modifier = Modifier
-                            .size(56.dp)
-                            .clip(CircleShape),
-                    )
-                } else {
-                    Box(
-                        Modifier
-                            .size(56.dp)
-                            .clip(CircleShape)
-                            .background(MaterialTheme.colorScheme.primaryContainer),
-                        contentAlignment = Alignment.Center,
-                    ) {
+                Row(
+                    Modifier.padding(horizontal = 16.dp, vertical = 16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    if (photoUrl != null) {
+                        AsyncImage(
+                            model = photoUrl,
+                            contentDescription = null,
+                            modifier = Modifier
+                                .size(64.dp)
+                                .clip(CircleShape),
+                        )
+                    } else {
+                        Box(
+                            Modifier
+                                .size(64.dp)
+                                .clip(CircleShape)
+                                .background(MaterialTheme.colorScheme.primaryContainer),
+                            contentAlignment = Alignment.Center,
+                        ) {
+                            Text(
+                                studentName.take(1).uppercase(),
+                                style = MaterialTheme.typography.headlineSmall,
+                                color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            )
+                        }
+                    }
+                    Spacer(Modifier.size(14.dp))
+                    Column(Modifier.weight(1f)) {
                         Text(
-                            studentName.take(1).uppercase(),
+                            studentName,
                             style = MaterialTheme.typography.titleLarge,
-                            color = MaterialTheme.colorScheme.onPrimaryContainer,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        classLabel?.let {
+                            Text(
+                                it,
+                                style = MaterialTheme.typography.bodyMedium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+                        Text(
+                            stringResource(R.string.more_open_studiekort),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
+                            modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                }
-                Spacer(Modifier.size(14.dp))
-                Column {
-                    Text(
-                        studentName,
-                        style = MaterialTheme.typography.titleLarge,
-                        fontWeight = FontWeight.SemiBold,
+                    Icon(
+                        Icons.Default.Badge,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    classLabel?.let {
-                        Text(it, color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    }
                 }
             }
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                thickness = 0.5.dp,
-            )
         }
         item { SectionHeader(stringResource(R.string.more_section_school)) }
         item { MoreLink(Icons.Default.Grade, stringResource(R.string.more_grades)) { onNavigate(MoreDestination.GRADES) } }
         item { MoreLink(Icons.Default.Warning, stringResource(R.string.more_absence)) { onNavigate(MoreDestination.ABSENCE) } }
-        item { MoreLink(Icons.Default.People, stringResource(R.string.more_directory)) { onNavigate(MoreDestination.DIRECTORY) } }
-        item { MoreLink(Icons.Default.CalendarMonth, stringResource(R.string.more_rooms)) { onNavigate(MoreDestination.ROOMS) } }
-        item { MoreLink(Icons.Default.Badge, stringResource(R.string.more_studiekort)) { onNavigate(MoreDestination.STUDIEKORT) } }
         item { MoreLink(Icons.AutoMirrored.Filled.MenuBook, stringResource(R.string.more_plans)) { onNavigate(MoreDestination.PLANS) } }
         item { MoreLink(Icons.Default.BarChart, stringResource(R.string.more_module_stats)) { onNavigate(MoreDestination.MODULE_STATS) } }
         item { MoreLink(Icons.Default.CalendarMonth, stringResource(R.string.more_term)) { onNavigate(MoreDestination.TERM) } }
+        item { SectionHeader(stringResource(R.string.more_catalog)) }
+        item {
+            CatalogGrid(onOpenCatalogKind = onOpenCatalogKind)
+        }
+        item { SectionHeader(stringResource(R.string.more_section_find)) }
+        item { MoreLink(Icons.Default.People, stringResource(R.string.more_directory)) { onNavigate(MoreDestination.DIRECTORY) } }
+        item { MoreLink(Icons.Default.CalendarMonth, stringResource(R.string.more_rooms)) { onNavigate(MoreDestination.ROOMS) } }
         item { SectionHeader(stringResource(R.string.more_section_app)) }
-        item { MoreLink(Icons.Default.Help, stringResource(R.string.more_help)) { onNavigate(MoreDestination.HELP) } }
         item { MoreLink(Icons.Default.Settings, stringResource(R.string.more_settings)) { onNavigate(MoreDestination.SETTINGS) } }
+        item { MoreLink(Icons.Default.Help, stringResource(R.string.more_help)) { onNavigate(MoreDestination.HELP) } }
         item { MoreLink(Icons.AutoMirrored.Filled.ExitToApp, stringResource(R.string.action_logout), onLogout) }
         item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun CatalogGrid(onOpenCatalogKind: (DirectoryEntityKind) -> Unit) {
+    val tiles = listOf(
+        Triple(DirectoryEntityKind.TEACHER, Icons.Default.Person, R.string.catalog_teachers),
+        Triple(DirectoryEntityKind.CLASS, Icons.Default.School, R.string.catalog_classes),
+        Triple(DirectoryEntityKind.HOLD, Icons.Default.Groups, R.string.catalog_holds),
+        Triple(DirectoryEntityKind.ROOM, Icons.Default.MeetingRoom, R.string.catalog_rooms),
+        Triple(DirectoryEntityKind.GROUP, Icons.Default.People, R.string.catalog_groups),
+        Triple(DirectoryEntityKind.RESOURCE, Icons.Default.Widgets, R.string.catalog_resources),
+    )
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 8.dp)
+            .clip(RoundedCornerShape(16.dp))
+            .background(MaterialTheme.colorScheme.surfaceContainerLow)
+            .padding(12.dp),
+        verticalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        for (row in tiles.chunked(2)) {
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                row.forEach { (kind, icon, labelRes) ->
+                    CatalogTile(
+                        icon = icon,
+                        title = stringResource(labelRes),
+                        onClick = { onOpenCatalogKind(kind) },
+                        modifier = Modifier.weight(1f),
+                    )
+                }
+                if (row.size == 1) Spacer(Modifier.weight(1f))
+            }
+        }
+    }
+}
+
+@Composable
+private fun CatalogTile(
+    icon: ImageVector,
+    title: String,
+    onClick: () -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier
+            .clip(RoundedCornerShape(14.dp))
+            .clickable(onClick = onClick),
+        color = MaterialTheme.colorScheme.surface,
+        tonalElevation = 0.dp,
+    ) {
+        Column(
+            Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp),
+        ) {
+            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        }
     }
 }
 

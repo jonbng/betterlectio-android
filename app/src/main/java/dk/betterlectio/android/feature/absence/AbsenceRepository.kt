@@ -2,6 +2,7 @@ package dk.betterlectio.android.feature.absence
 
 import dk.betterlectio.android.core.cache.SimpleCache
 import dk.betterlectio.android.core.lectio.LectioClient
+import dk.betterlectio.android.core.lectio.scrape.SmartPostback
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
@@ -22,61 +23,87 @@ class AbsenceRepository @Inject constructor(
         val key = "absence_${student.studentId}"
         if (!forceRefresh) {
             cache.get(key)?.let {
+                val (att, written) = AbsenceParser.parseSummaryPercents(it)
                 return AppResult.Success(
-                    AbsenceOverview(AbsenceParser.parseOverview(it), emptyList()),
-                )
-            }
-        }
-        return when (val res = client.get("subnav/fravaereloversigt.aspx")) {
-            is AppResult.Failure -> {
-                when (val alt = client.get("fravaer_oversigt.aspx")) {
-                    is AppResult.Success -> {
-                        cache.put(key, alt.data.body)
-                        AppResult.Success(AbsenceOverview(AbsenceParser.parseOverview(alt.data.body)))
-                    }
-                    is AppResult.Failure -> res
-                }
-            }
-            is AppResult.Success -> {
-                cache.put(key, res.data.body)
-                val teams = AbsenceParser.parseOverview(res.data.body)
-                val regs = loadRegistrations()
-                AppResult.Success(
                     AbsenceOverview(
-                        teams = teams,
-                        registrations = (regs as? AppResult.Success)?.data.orEmpty(),
+                        teams = AbsenceParser.parseOverview(it),
+                        registrations = emptyList(),
+                        attendanceAbsencePercent = att,
+                        writtenAbsencePercent = written,
                     ),
                 )
             }
         }
+        // Flutter: subnav/fravaerelev.aspx?elevid=…
+        val paths = listOf(
+            "subnav/fravaerelev.aspx?elevid=${student.studentId}",
+            "subnav/fravaerelev.aspx",
+            "subnav/fravaereloversigt.aspx",
+            "fravaer_oversigt.aspx",
+        )
+        var lastFailure: AppResult.Failure? = null
+        for (path in paths) {
+            when (val res = client.get(path)) {
+                is AppResult.Failure -> lastFailure = res
+                is AppResult.Success -> {
+                    cache.put(key, res.data.body)
+                    val teams = AbsenceParser.parseOverview(res.data.body)
+                    val (att, written) = AbsenceParser.parseSummaryPercents(res.data.body)
+                    val regs = loadRegistrations()
+                    return AppResult.Success(
+                        AbsenceOverview(
+                            teams = teams,
+                            registrations = (regs as? AppResult.Success)?.data.orEmpty(),
+                            attendanceAbsencePercent = att,
+                            writtenAbsencePercent = written,
+                        ),
+                    )
+                }
+            }
+        }
+        return lastFailure ?: AppResult.Failure(AppError.Unknown("Kunne ikke hente fravær"))
     }
 
     suspend fun loadRegistrations(): AppResult<List<AbsenceRegistration>> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) return AppResult.Success(demoAbsenceState.registrations())
-        return when (val res = client.get("subnav/fravaerelev_fravaersaarsager.aspx")) {
-            is AppResult.Success -> AppResult.Success(AbsenceParser.parseRegistrations(res.data.body))
-            is AppResult.Failure -> res
+        val paths = listOf(
+            "subnav/fravaerelev_fravaersaarsager.aspx?elevid=${student.studentId}",
+            "subnav/fravaerelev_fravaersaarsager.aspx",
+        )
+        for (path in paths) {
+            when (val res = client.get(path)) {
+                is AppResult.Success -> return AppResult.Success(AbsenceParser.parseRegistrations(res.data.body))
+                is AppResult.Failure -> continue
+            }
         }
+        return AppResult.Success(emptyList())
     }
 
     /**
-     * Best-effort cause update via ASP postback (Flutter absence update path).
-     * Demo mutates [DemoAbsenceState] so [loadOverview] reflects the new cause.
+     * Flutter absence update: `fravaer_aarsag.aspx?elevid=&id=&atype=aa`
+     * fields: StudentReasonDD$dd, cancelStudentNote$tb
+     * target: savecancelapplyBtn$svbtn
      */
-    suspend fun updateCause(registrationId: String, cause: String): AppResult<Unit> {
+    suspend fun updateCause(registrationId: String, cause: String, note: String = ""): AppResult<Unit> {
         if (session.currentStudent?.isDemo == true) {
             val ok = demoAbsenceState.updateCause(registrationId, cause)
             return if (ok) AppResult.Success(Unit)
             else AppResult.Failure(AppError.Unknown("Ukendt registrering: $registrationId"))
         }
-        val path = "subnav/fravaerelev_fravaersaarsager.aspx"
+        val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
+        val path =
+            "fravaer_aarsag.aspx?elevid=${student.studentId}&id=$registrationId&atype=aa"
         return when (val page = client.get(path)) {
             is AppResult.Failure -> {
+                // Last-resort legacy list postback
                 client.postback(
-                    path,
-                    "s\$m\$Content\$Content\$savebtn",
-                    mapOf("cause" to cause, "id" to registrationId),
+                    "subnav/fravaerelev_fravaersaarsager.aspx",
+                    "s\$m\$Content\$Content\$savecancelapplyBtn\$svbtn",
+                    mapOf(
+                        "s\$m\$Content\$Content\$StudentReasonDD\$dd" to cause,
+                        "s\$m\$Content\$Content\$cancelStudentNote\$tb" to note,
+                    ),
                 ).let {
                     when (it) {
                         is AppResult.Success -> AppResult.Success(Unit)
@@ -86,23 +113,18 @@ class AbsenceRepository @Inject constructor(
             }
             is AppResult.Success -> {
                 val html = page.data.body
-                val causeField = dk.betterlectio.android.core.lectio.scrape.SmartPostback.findFieldName(
-                    html,
-                    listOf("cause", "aarsag", "fravaersaarsag", "Reason"),
-                ) ?: "cause"
-                val idField = dk.betterlectio.android.core.lectio.scrape.SmartPostback.findFieldName(
-                    html,
-                    listOf("id", "registration", "absid", "elevid"),
-                ) ?: "id"
-                val resolved = dk.betterlectio.android.core.lectio.scrape.SmartPostback.resolve(
+                val resolved = SmartPostback.resolve(
                     html = html,
                     preferredTargets = listOf(
+                        "s\$m\$Content\$Content\$savecancelapplyBtn\$svbtn",
                         "s\$m\$Content\$Content\$savebtn",
-                        "s\$m\$Content\$Content\$SaveBtn",
-                        "m\$Content\$Content\$savebtn",
+                        "m\$Content\$Content\$savecancelapplyBtn\$svbtn",
                     ),
-                    extra = mapOf(causeField to cause, idField to registrationId),
-                    nameContainsAny = listOf("save", "gem", "opdater"),
+                    extra = mapOf(
+                        "s\$m\$Content\$Content\$StudentReasonDD\$dd" to cause,
+                        "s\$m\$Content\$Content\$cancelStudentNote\$tb" to note,
+                    ),
+                    nameContainsAny = listOf("save", "gem", "apply", "svbtn"),
                 )
                 when (val post = client.postForm(path, resolved.fields)) {
                     is AppResult.Success -> AppResult.Success(Unit)

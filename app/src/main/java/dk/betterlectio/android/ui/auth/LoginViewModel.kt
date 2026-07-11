@@ -24,17 +24,15 @@ data class LoginUiState(
     val loadingSchools: Boolean = true,
     val loggingIn: Boolean = false,
     val showWebView: Boolean = false,
-    val showPasswordForm: Boolean = false,
-    val username: String = "",
-    val password: String = "",
     val error: AppError? = null,
+    /** Non-null when appswitch Intent could not open MitID (e.g. app not installed). */
+    val mitIdAppSwitchError: String? = null,
 )
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val schoolRepository: SchoolRepository,
     private val authSessionInstaller: AuthSessionInstaller,
-    private val passwordLogin: dk.betterlectio.android.feature.auth.PasswordLoginRepository,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(LoginUiState())
@@ -74,25 +72,63 @@ class LoginViewModel @Inject constructor(
 
     fun startMitId() {
         if (_state.value.selected == null) return
-        _state.update { it.copy(showWebView = true, error = null) }
+        _state.update {
+            it.copy(
+                showWebView = true,
+                error = null,
+                mitIdAppSwitchError = null,
+            )
+        }
     }
 
     fun dismissWebView() {
-        _state.update { it.copy(showWebView = false, loggingIn = false) }
+        _state.update {
+            it.copy(
+                showWebView = false,
+                loggingIn = false,
+                mitIdAppSwitchError = null,
+            )
+        }
     }
 
-    fun onWebViewLoginSuccess() {
+    fun onMitIdAppSwitchFailed(url: String) {
+        PostHog.capture(
+            event = "mitid_app_switch_failed",
+            properties = mapOf("url_host" to (runCatching { java.net.URI(url).host }.getOrNull() ?: "unknown")),
+        )
+        _state.update { it.copy(mitIdAppSwitchError = url) }
+    }
+
+    fun clearMitIdAppSwitchError() {
+        _state.update { it.copy(mitIdAppSwitchError = null) }
+    }
+
+    fun onWebViewLoginSuccess(callbackUrl: String) {
         val school = _state.value.selected ?: return
+        // Guard against double-fire from onPageFinished + onResume.
+        if (_state.value.loggingIn) return
         viewModelScope.launch {
-            _state.update { it.copy(loggingIn = true, error = null) }
-            when (val res = authSessionInstaller.completeLoginFromWebView(school)) {
+            _state.update { it.copy(loggingIn = true, error = null, mitIdAppSwitchError = null) }
+            when (
+                val res = authSessionInstaller.completeLoginFromWebView(
+                    school = school,
+                    callbackUrl = callbackUrl,
+                )
+            ) {
                 is AppResult.Success -> _state.update {
                     it.copy(loggingIn = false, showWebView = false)
                 }
                 is AppResult.Failure -> {
                     PostHog.capture(
                         event = "login_failed",
-                        properties = mapOf("login_method" to "mitid", "error" to res.error.toString()),
+                        properties = mapOf(
+                            "login_method" to "mitid",
+                            "error" to res.error.toString(),
+                            "callback_host" to (
+                                runCatching { java.net.URI(callbackUrl).host }.getOrNull()
+                                    ?: "unknown"
+                                ),
+                        ),
                     )
                     _state.update {
                         it.copy(loggingIn = false, showWebView = false, error = res.error)
@@ -105,45 +141,6 @@ class LoginViewModel @Inject constructor(
     fun enterDemo() {
         authSessionInstaller.enterDemo()
         // PostHog.capture("demo_entered") is called inside enterDemo()
-    }
-
-    fun togglePasswordForm() {
-        _state.update { it.copy(showPasswordForm = !it.showPasswordForm, error = null) }
-    }
-
-    fun onUsername(v: String) {
-        _state.update { it.copy(username = v) }
-    }
-
-    fun onPassword(v: String) {
-        _state.update { it.copy(password = v) }
-    }
-
-    fun loginWithPassword() {
-        val school = _state.value.selected ?: return
-        val user = _state.value.username
-        val pass = _state.value.password
-        viewModelScope.launch {
-            _state.update { it.copy(loggingIn = true, error = null) }
-            when (val res = passwordLogin.login(school, user, pass)) {
-                is AppResult.Success -> {
-                    PostHog.capture(
-                        event = "login_with_password_completed",
-                        properties = mapOf("login_method" to "password"),
-                    )
-                    _state.update { it.copy(loggingIn = false) }
-                }
-                is AppResult.Failure -> {
-                    PostHog.capture(
-                        event = "login_failed",
-                        properties = mapOf("login_method" to "password", "error" to res.error.toString()),
-                    )
-                    _state.update {
-                        it.copy(loggingIn = false, error = res.error)
-                    }
-                }
-            }
-        }
     }
 
     private fun filter(schools: List<School>, q: String): List<School> {

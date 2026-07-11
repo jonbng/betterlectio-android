@@ -1,20 +1,10 @@
 package dk.betterlectio.android.ui.auth
 
-import android.annotation.SuppressLint
-import android.webkit.CookieManager
-import android.webkit.WebResourceRequest
-import android.webkit.WebView
-import android.webkit.WebViewClient
-import androidx.compose.animation.AnimatedVisibility
-import androidx.compose.animation.expandVertically
-import androidx.compose.animation.fadeIn
-import androidx.compose.animation.fadeOut
-import androidx.compose.animation.shrinkVertically
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
-import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -28,22 +18,24 @@ import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.outlined.School
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
+import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
@@ -52,7 +44,8 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
+import androidx.compose.ui.window.Dialog
+import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dk.betterlectio.android.R
@@ -61,8 +54,7 @@ import dk.betterlectio.android.ui.components.AppListDivider
 import dk.betterlectio.android.ui.components.AppListPrimary
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
-import dk.betterlectio.android.ui.theme.FrauncesFontFamily
-
+import dk.betterlectio.android.ui.components.EmptyBox
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
@@ -85,10 +77,8 @@ fun LoginScreen(
             ) {
                 Text(
                     stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.displaySmall.copy(
-                        fontFamily = FrauncesFontFamily,
-                        fontWeight = FontWeight.SemiBold,
-                    ),
+                    style = MaterialTheme.typography.displaySmall,
+                    fontWeight = FontWeight.SemiBold,
                     color = MaterialTheme.colorScheme.primary,
                 )
                 Spacer(Modifier.height(8.dp))
@@ -130,6 +120,23 @@ fun LoginScreen(
                 ) {
                     CircularProgressIndicator()
                 }
+            } else if (state.filtered.isEmpty()) {
+                EmptyBox(
+                    text = stringResource(R.string.empty_login_schools),
+                    description = stringResource(R.string.empty_login_schools_hint),
+                    icon = Icons.Outlined.School,
+                    actionLabel = if (state.query.isNotBlank()) {
+                        stringResource(R.string.cd_clear_search)
+                    } else {
+                        null
+                    },
+                    onAction = if (state.query.isNotBlank()) {
+                        { viewModel.onQuery("") }
+                    } else {
+                        null
+                    },
+                    modifier = Modifier.weight(1f),
+                )
             } else {
                 LazyColumn(Modifier.weight(1f)) {
                     items(state.filtered, key = { it.id }) { school ->
@@ -242,47 +249,6 @@ fun LoginScreen(
                         Text(stringResource(R.string.login_mitid))
                     }
 
-                    OutlinedButton(
-                        onClick = viewModel::togglePasswordForm,
-                        enabled = state.selected != null && !state.loggingIn,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        Text(stringResource(R.string.login_password))
-                    }
-
-                    AnimatedVisibility(
-                        visible = state.showPasswordForm,
-                        enter = fadeIn() + expandVertically(),
-                        exit = fadeOut() + shrinkVertically(),
-                    ) {
-                        Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            OutlinedTextField(
-                                value = state.username,
-                                onValueChange = viewModel::onUsername,
-                                label = { Text(stringResource(R.string.login_username)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                            )
-                            OutlinedTextField(
-                                value = state.password,
-                                onValueChange = viewModel::onPassword,
-                                label = { Text(stringResource(R.string.login_password_field)) },
-                                modifier = Modifier.fillMaxWidth(),
-                                singleLine = true,
-                            )
-                            Button(
-                                onClick = viewModel::loginWithPassword,
-                                enabled = state.selected != null &&
-                                    state.username.isNotBlank() &&
-                                    state.password.isNotBlank() &&
-                                    !state.loggingIn,
-                                modifier = Modifier.fillMaxWidth(),
-                            ) {
-                                Text(stringResource(R.string.login_password_submit))
-                            }
-                        }
-                    }
-
                     TextButton(
                         onClick = viewModel::enterDemo,
                         modifier = Modifier.fillMaxWidth(),
@@ -295,75 +261,136 @@ fun LoginScreen(
     }
 
     if (state.showWebView && state.selected != null) {
-        ModalBottomSheet(
-            onDismissRequest = viewModel::dismissWebView,
-            sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true),
-        ) {
-            Column {
-                Text(
-                    stringResource(R.string.login_mitid),
-                    style = MaterialTheme.typography.titleLarge,
-                    fontWeight = FontWeight.SemiBold,
-                    modifier = Modifier.padding(horizontal = 20.dp, vertical = 8.dp),
-                )
-                MitIdWebView(
-                    school = state.selected!!,
-                    onLoginComplete = viewModel::onWebViewLoginSuccess,
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .height(520.dp),
-                )
-            }
-        }
+        MitIdLoginDialog(
+            school = state.selected!!,
+            loggingIn = state.loggingIn,
+            appSwitchError = state.mitIdAppSwitchError,
+            onDismiss = viewModel::dismissWebView,
+            onLoginComplete = { callbackUrl -> viewModel.onWebViewLoginSuccess(callbackUrl) },
+            onAppSwitchFailed = viewModel::onMitIdAppSwitchFailed,
+            onClearAppSwitchError = viewModel::clearMitIdAppSwitchError,
+        )
     }
 }
 
-@SuppressLint("SetJavaScriptEnabled")
+/**
+ * Full-screen MitID session — not a flingable bottom sheet.
+ * Dismiss only via explicit cancel / system back (same idea as Flutter UniLoginScreen).
+ */
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun MitIdWebView(
+private fun MitIdLoginDialog(
     school: School,
-    onLoginComplete: () -> Unit,
-    modifier: Modifier = Modifier,
+    loggingIn: Boolean,
+    appSwitchError: String?,
+    onDismiss: () -> Unit,
+    onLoginComplete: (callbackUrl: String) -> Unit,
+    onAppSwitchFailed: (String) -> Unit,
+    onClearAppSwitchError: () -> Unit,
 ) {
-    val loginUrl = "https://www.lectio.dk/lectio/${school.id}/login.aspx"
-    AndroidView(
-        modifier = modifier,
-        factory = { context ->
-            WebView(context).apply {
-                settings.javaScriptEnabled = true
-                settings.domStorageEnabled = true
-                CookieManager.getInstance().setAcceptCookie(true)
-                CookieManager.getInstance().setAcceptThirdPartyCookies(this, true)
-                webViewClient = object : WebViewClient() {
-                    override fun shouldOverrideUrlLoading(view: WebView?, request: WebResourceRequest?): Boolean {
-                        val url = request?.url?.toString().orEmpty()
-                        if (isAuthSuccessUrl(url)) {
-                            CookieManager.getInstance().flush()
-                            onLoginComplete()
-                            return true
+    // Block accidental back during cookie install after success callback.
+    BackHandler(enabled = !loggingIn) { onDismiss() }
+    BackHandler(enabled = loggingIn) { /* consume */ }
+
+    Dialog(
+        onDismissRequest = {
+            if (!loggingIn) onDismiss()
+        },
+        properties = DialogProperties(
+            dismissOnBackPress = !loggingIn,
+            dismissOnClickOutside = false,
+            usePlatformDefaultWidth = false,
+            decorFitsSystemWindows = false,
+        ),
+    ) {
+        Surface(
+            modifier = Modifier.fillMaxSize(),
+            color = MaterialTheme.colorScheme.surface,
+        ) {
+            Scaffold(
+                topBar = {
+                    TopAppBar(
+                        title = {
+                            Text(
+                                stringResource(R.string.login_mitid),
+                                maxLines = 1,
+                            )
+                        },
+                        navigationIcon = {
+                            IconButton(
+                                onClick = onDismiss,
+                                enabled = !loggingIn,
+                            ) {
+                                Icon(
+                                    Icons.Default.Close,
+                                    contentDescription = stringResource(R.string.login_mitid_cancel),
+                                )
+                            }
+                        },
+                        actions = {
+                            if (loggingIn) {
+                                CircularProgressIndicator(
+                                    Modifier
+                                        .padding(end = 16.dp)
+                                        .size(20.dp),
+                                    strokeWidth = 2.dp,
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                    )
+                },
+            ) { padding ->
+                Column(
+                    Modifier
+                        .fillMaxSize()
+                        .padding(padding),
+                ) {
+                    if (appSwitchError != null) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.errorContainer,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Column(
+                                Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+                                verticalArrangement = Arrangement.spacedBy(4.dp),
+                            ) {
+                                Text(
+                                    stringResource(R.string.login_mitid_app_missing),
+                                    style = MaterialTheme.typography.bodyMedium,
+                                    color = MaterialTheme.colorScheme.onErrorContainer,
+                                )
+                                TextButton(onClick = onClearAppSwitchError) {
+                                    Text(stringResource(R.string.action_retry))
+                                }
+                            }
                         }
-                        return false
                     }
 
-                    override fun onPageFinished(view: WebView?, url: String?) {
-                        super.onPageFinished(view, url)
-                        val u = url.orEmpty()
-                        if (isAuthSuccessUrl(u)) {
-                            CookieManager.getInstance().flush()
-                            onLoginComplete()
+                    Box(Modifier.weight(1f).fillMaxWidth()) {
+                        MitIdWebView(
+                            school = school,
+                            onLoginComplete = onLoginComplete,
+                            onExternalAppLaunchFailed = onAppSwitchFailed,
+                            modifier = Modifier.fillMaxSize(),
+                        )
+                        if (loggingIn) {
+                            Box(
+                                Modifier
+                                    .fillMaxSize()
+                                    .background(
+                                        MaterialTheme.colorScheme.surface.copy(alpha = 0.55f),
+                                    ),
+                                contentAlignment = Alignment.Center,
+                            ) {
+                                CircularProgressIndicator()
+                            }
                         }
                     }
                 }
-                loadUrl(loginUrl)
             }
-        },
-    )
-}
-
-private fun isAuthSuccessUrl(url: String): Boolean {
-    val lower = url.lowercase()
-    if (lower.contains("broker.unilogin.dk")) return false
-    return lower.contains("lectio.dk") &&
-        (lower.contains("forside.aspx") ||
-            (lower.contains("unilogin.aspx") && !lower.contains("broker")))
+        }
+    }
 }

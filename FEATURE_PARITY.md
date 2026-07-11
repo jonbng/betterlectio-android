@@ -8,7 +8,7 @@
 
 ## 1. Snapshot
 
-Android is a **first-class Lectio client**: MitID + username/password + demo, 5-tab iOS IA, full daily path depth, directory pins/search, optional Supabase, Glance widget, live-lesson boundaries, offline stores, help, and Play IAU.
+Android is a **first-class Lectio client**: MitID + demo, 5-tab iOS IA, full daily path depth, directory pins/search, optional Supabase, Glance widget, live-lesson boundaries, offline stores, help, and Play IAU.
 
 ### Legend
 
@@ -28,7 +28,7 @@ Android is a **first-class Lectio client**: MitID + username/password + demo, 5-
 |------------|---------|-------|
 | School picker | ✅ | Supabase catalog when configured + scrape fallback |
 | MitID WebView | ✅ | |
-| Username/password login | ✅ | Demo accepts any creds; live best-effort Lectio POST |
+| Username/password login | ❌ | Removed — Lectio no longer offers password login |
 | Secure cookies / rotation | ✅ | |
 | Session expired → re-login | ✅ | |
 | Demo mode | ✅ | |

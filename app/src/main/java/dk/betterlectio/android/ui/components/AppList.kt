@@ -176,7 +176,7 @@ fun UnreadDot(
 @Composable
 fun InitialsAvatar(
     label: String,
-    modifier: Modifier = Modifier,
+    modifier: Modifier = Modifier.size(40.dp),
     containerColor: Color = MaterialTheme.colorScheme.secondaryContainer,
     contentColor: Color = MaterialTheme.colorScheme.onSecondaryContainer,
 ) {
@@ -191,7 +191,6 @@ fun InitialsAvatar(
 
     Box(
         modifier
-            .size(40.dp)
             .clip(CircleShape)
             .background(containerColor),
         contentAlignment = Alignment.Center,

@@ -27,4 +27,17 @@ class MessageParserTest {
         // Offline store re-derives from full threadId the same way.
         assertEquals("99", MessageParser.normalizeThreadId("\$X_\$_99"))
     }
+
+    @Test
+    fun parseMessageTimestamp_strips_sender_name() {
+        val ts = MessageParser.parseMessageTimestamp(
+            "Anders Andersen (3.a), 04-03-2026 11:05:41",
+            "Anders Andersen (3.a)",
+        )
+        assertEquals(2026, ts!!.year)
+        assertEquals(3, ts.monthValue)
+        assertEquals(4, ts.dayOfMonth)
+        assertEquals(11, ts.hour)
+    }
 }
+

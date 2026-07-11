@@ -36,7 +36,7 @@ android {
         applicationId = "dk.betterlectio.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 1
+        versionCode = 4
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -90,13 +90,13 @@ android {
             if (hasReleaseKeystore) {
                 signingConfig = signingConfigs.getByName("release")
             }
+            // R8 code shrinking/obfuscation + unused resource removal (Play "optimized" builds).
+            isMinifyEnabled = true
+            isShrinkResources = true
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
             )
-            optimization {
-                enable = false
-            }
         }
     }
 
