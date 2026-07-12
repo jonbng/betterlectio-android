@@ -170,7 +170,6 @@ class LectioHttpEngine @Inject constructor(
                 .header("Cookie", cookieHeader)
                 .header("User-Agent", LectioUserAgent.VALUE)
                 .header("Referer", LectioUserAgent.REFERER)
-                .header("Accept-Encoding", "gzip, deflate, br")
                 .apply {
                     request.headers.forEach { (k, v) ->
                         if (!k.equals("Cookie", ignoreCase = true)) {

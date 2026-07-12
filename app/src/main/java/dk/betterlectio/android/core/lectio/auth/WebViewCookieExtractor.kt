@@ -5,6 +5,7 @@ import android.webkit.CookieManager
 import android.webkit.WebStorage
 import android.webkit.WebView
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.lectio.model.LectioCredentials.Companion.COOKIE_AUTOLOGIN
 import dk.betterlectio.android.core.lectio.model.LectioCredentials.Companion.COOKIE_SESSION_ID
@@ -29,7 +30,7 @@ import kotlin.coroutines.resume
  * (origin + /lectio/ paths) to approximate iOS's domain-wide `allCookies` filter.
  */
 interface WebViewCookieExtractor {
-    fun extractFromCookieManager(): AppResult<LectioCredentials>
+    fun extractFromCookieManager(schoolId: String? = null): AppResult<LectioCredentials>
 
     /**
      * Best-effort sync clear (legacy). Prefer [clearAllWebViewData] on logout.
@@ -48,14 +49,24 @@ class AndroidWebViewCookieExtractor @Inject constructor(
     @param:ApplicationContext private val appContext: Context,
 ) : WebViewCookieExtractor {
 
-    override fun extractFromCookieManager(): AppResult<LectioCredentials> {
+    override fun extractFromCookieManager(schoolId: String?): AppResult<LectioCredentials> {
         val cm = CookieManager.getInstance()
         cm.flush()
 
         val map = linkedMapOf<String, String>()
-        for (url in COOKIE_PROBE_URLS) {
+        for (url in cookieProbeUrls(schoolId)) {
             val raw = cm.getCookie(url) ?: continue
-            map.putAll(parseCookieHeader(raw))
+            val parsed = parseCookieHeader(raw)
+            if (BuildConfig.DEBUG) {
+                Timber.d(
+                    "WebView cookie probe url=%s names=%s hasAutologin=%s hasSession=%s",
+                    url,
+                    parsed.keys.sorted().joinToString(","),
+                    parsed.containsKey(COOKIE_AUTOLOGIN),
+                    parsed.containsKey(COOKIE_SESSION_ID),
+                )
+            }
+            map.putAll(parsed)
         }
 
         if (map.isEmpty()) {
@@ -155,5 +166,19 @@ class AndroidWebViewCookieExtractor @Inject constructor(
             "https://lectio.dk/",
             "https://lectio.dk/lectio/",
         )
+
+        internal fun cookieProbeUrls(schoolId: String?): List<String> {
+            val generic = COOKIE_PROBE_URLS
+            val id = schoolId?.trim()?.takeIf { it.isNotEmpty() } ?: return generic
+            val schoolSpecific = listOf(
+                "${LectioUrls.ORIGIN}/lectio/$id/",
+                "${LectioUrls.ORIGIN}/lectio/$id/login.aspx",
+                "${LectioUrls.ORIGIN}/lectio/$id/forside.aspx",
+                "${LectioUrls.ORIGIN}/lectio/$id/SkemaNy.aspx",
+                "https://lectio.dk/lectio/$id/",
+                "https://lectio.dk/lectio/$id/forside.aspx",
+            )
+            return schoolSpecific + generic
+        }
     }
 }

@@ -65,6 +65,21 @@ class StudentIdentityParserTest {
     }
 
     @Test
+    fun parses_first_student_context_card_when_no_elevid_links_exist() {
+        val html = """
+            <html><body>
+              <span data-lectioContextCard="S12345678901">Ada Lovelace</span>
+              <span data-lectioContextCard="T222">Teacher</span>
+              <span data-lectioContextCard="HE333">Math A</span>
+            </body></html>
+        """.trimIndent()
+
+        val identity = StudentIdentityParser.parse(html)
+        assertEquals("12345678901", identity.studentId)
+        assertNull(identity.teacherId)
+    }
+
+    @Test
     fun empty_html_returns_null_ids() {
         val identity = StudentIdentityParser.parse("<html><body>login form</body></html>")
         assertNull(identity.personId)

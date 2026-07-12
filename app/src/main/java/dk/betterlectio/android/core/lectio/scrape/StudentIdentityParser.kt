@@ -12,6 +12,21 @@ data class StudentIdentity(
     val personId: String? get() = studentId ?: teacherId
 }
 
+data class StudentIdentityDebugSignals(
+    val hasMetaStartUrl: Boolean,
+    val elevidLinkCount: Int,
+    val laereridLinkCount: Int,
+    val elevidRegexCount: Int,
+    val laereridRegexCount: Int,
+    val studentContextCardCount: Int,
+    val teacherContextCardCount: Int,
+    val firstStudentContextCard: String?,
+    val firstTeacherContextCard: String?,
+    val title: String?,
+    val header: String?,
+    val pictureId: String?,
+)
+
 /**
  * Parse student id / name / picture from Lectio page chrome.
  *
@@ -19,7 +34,7 @@ data class StudentIdentity(
  * 1. Flutter / lectio_wrapper: `meta[name=msapplication-starturl]` → `elevid` / `laererid`
  * 2. iOS `StudentParser.parseStudentInfo`: first `a[href*=elevid]` / `a[href*=laererid]`
  * 3. Regex fallback on raw HTML for `elevid=` / `laererid=` (covers minified / odd markup)
- * 4. `data-lectiocontextcard` self-links like `S123…` / `T123…` when clearly singular
+ * 4. `data-lectiocontextcard` self-links like `S123…` / `T123…`
  */
 object StudentIdentityParser {
 
@@ -60,15 +75,19 @@ object StudentIdentityParser {
             teacherId = laererIdInUrl.find(html)?.groupValues?.getOrNull(1)
         }
 
-        // 4) Context card — only if a single distinct person id appears (avoid team lists)
+        // 4) Context card. The authenticated Skema page can contain several context cards
+        // for classes/teachers, but Supabase/iOS resolve the logged-in student from the
+        // first S-card when query links are absent.
         if (studentId.isNullOrBlank() && teacherId.isNullOrBlank()) {
             val cards = contextCard.findAll(html)
                 .map { it.groupValues[1].uppercase() to it.groupValues[2] }
                 .distinct()
                 .toList()
-            if (cards.size == 1) {
-                val (kind, id) = cards.first()
-                if (kind == "S") studentId = id else teacherId = id
+            val studentCard = cards.firstOrNull { it.first == "S" }
+            val teacherCard = cards.firstOrNull { it.first == "T" }
+            studentId = studentCard?.second
+            if (studentId.isNullOrBlank()) {
+                teacherId = teacherCard?.second
             }
         }
 
@@ -99,6 +118,41 @@ object StudentIdentityParser {
             studentId = studentId,
             teacherId = teacherId,
             name = name,
+            pictureId = pictureId,
+        )
+    }
+
+    fun debugSignals(html: String): StudentIdentityDebugSignals {
+        val doc = Jsoup.parse(html)
+        val cards = contextCard.findAll(html)
+            .map { it.groupValues[1].uppercase() to it.groupValues[2] }
+            .distinct()
+            .toList()
+        val studentCards = cards.filter { it.first == "S" }
+        val teacherCards = cards.filter { it.first == "T" }
+        val pictureSrc = doc.getElementById("s_m_HeaderContent_picctrlthumbimage")
+            ?.attr("src")
+            .orEmpty()
+        val pictureId = AspNetForm.queriesFromUrl(pictureSrc)["pictureid"]
+            ?: Regex("""pictureid=(\d+)""", RegexOption.IGNORE_CASE)
+                .find(pictureSrc)?.groupValues?.getOrNull(1)
+
+        return StudentIdentityDebugSignals(
+            hasMetaStartUrl = doc.selectFirst("meta[name=$META_START_URL]") != null,
+            elevidLinkCount = doc.select("a[href*=elevid]").size,
+            laereridLinkCount = doc.select("a[href*=laererid]").size,
+            elevidRegexCount = elevIdInUrl.findAll(html).count(),
+            laereridRegexCount = laererIdInUrl.findAll(html).count(),
+            studentContextCardCount = studentCards.size,
+            teacherContextCardCount = teacherCards.size,
+            firstStudentContextCard = studentCards.firstOrNull()?.second,
+            firstTeacherContextCard = teacherCards.firstOrNull()?.second,
+            title = doc.getElementById("s_m_HeaderContent_MainTitle")
+                ?.text()
+                ?.take(120),
+            header = doc.selectFirst("div[id*=subHeaderDiv]")
+                ?.text()
+                ?.take(160),
             pictureId = pictureId,
         )
     }

@@ -21,6 +21,7 @@ import androidx.compose.ui.viewinterop.AndroidView
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.lectio.auth.MitIdAuthUrls
 import dk.betterlectio.android.core.model.School
@@ -140,6 +141,26 @@ fun MitIdWebView(
                     super.onPageFinished(view, url)
                     val u = url.orEmpty()
                     Timber.d("MitID WebView finished: %s", u)
+                    if (BuildConfig.DEBUG) {
+                        view?.evaluateJavascript(
+                            """
+                            (() => JSON.stringify({
+                              href: location.href,
+                              title: document.title,
+                              readyState: document.readyState,
+                              bodyText: (document.body && document.body.innerText || '').slice(0, 160),
+                              elevidLinks: document.querySelectorAll('a[href*="elevid"]').length,
+                              laereridLinks: document.querySelectorAll('a[href*="laererid"]').length,
+                              studentCards: document.querySelectorAll('[data-lectiocontextcard^="S"],[data-lectioContextCard^="S"]').length,
+                              teacherCards: document.querySelectorAll('[data-lectiocontextcard^="T"],[data-lectioContextCard^="T"]').length,
+                              hasMainTitle: !!document.querySelector('#s_m_HeaderContent_MainTitle'),
+                              hasSubHeader: !!document.querySelector('div[id*="subHeaderDiv"]')
+                            }))()
+                            """.trimIndent(),
+                        ) { result ->
+                            Timber.d("MitID WebView DOM probe: %s", result)
+                        }
+                    }
                     if (MitIdAuthUrls.isAuthSuccessUrl(u)) {
                         callbacks.completeOnce(u)
                     }

@@ -1,6 +1,7 @@
 package dk.betterlectio.android.core.lectio.auth
 
 import com.posthog.PostHog
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.http.LectioHttpEngine
 import dk.betterlectio.android.core.lectio.model.FetchPriority
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
@@ -22,6 +23,7 @@ import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import timber.log.Timber
@@ -58,7 +60,7 @@ class AuthSessionInstaller @Inject constructor(
         school: School,
         callbackUrl: String? = null,
     ): AppResult<Student> {
-        return when (val extracted = webViewCookieExtractor.extractFromCookieManager()) {
+        return when (val extracted = webViewCookieExtractor.extractFromCookieManager(school.id.toString())) {
             is AppResult.Failure -> extracted
             is AppResult.Success -> completeLogin(extracted.data, school, callbackUrl)
         }
@@ -101,6 +103,7 @@ class AuthSessionInstaller @Inject constructor(
                     )
                     latestCreds = replay.credentials
                     val fromCallbackHtml = StudentIdentityParser.parse(replay.response.body)
+                    logIdentityProbe("UniLogin callback replay", replay.response.body, fromCallbackHtml)
                     if (!fromCallbackHtml.personId.isNullOrBlank()) {
                         return finishLogin(
                             personId = fromCallbackHtml.personId!!,
@@ -113,7 +116,7 @@ class AuthSessionInstaller @Inject constructor(
                 }
             }
 
-            val first = engine.execute(
+            var first = engine.execute(
                 LectioRequest(
                     url = skemaUrl,
                     method = "GET",
@@ -132,6 +135,39 @@ class AuthSessionInstaller @Inject constructor(
                 first.response.body.length,
                 looksLikeLoginHtml(first.response.body),
             )
+            logIdentityProbe("SkemaNy", first.response.body, identity)
+
+            // Lectio sometimes finishes the MitID callback before the authenticated page
+            // chrome includes elevid/laererid. Retry with the rotated jar, matching the
+            // Supabase token helper used by iOS.
+            var skemaAttempt = 0
+            while (identity.personId.isNullOrBlank() &&
+                !looksLikeLoginHtml(first.response.body) &&
+                skemaAttempt < 2
+            ) {
+                delay(400L * (skemaAttempt + 1))
+                first = engine.execute(
+                    LectioRequest(
+                        url = skemaUrl,
+                        method = "GET",
+                        priority = FetchPriority.Important,
+                        studentId = null,
+                    ),
+                    latestCreds,
+                )
+                latestCreds = first.credentials
+                identity = StudentIdentityParser.parse(first.response.body)
+                Timber.i(
+                    "Login probe SkemaNy retry=%d personId=%s finalUrl=%s bodyLen=%d looksLogin=%s",
+                    skemaAttempt + 1,
+                    identity.personId,
+                    first.response.finalUrl,
+                    first.response.body.length,
+                    looksLikeLoginHtml(first.response.body),
+                )
+                logIdentityProbe("SkemaNy retry ${skemaAttempt + 1}", first.response.body, identity)
+                skemaAttempt++
+            }
 
             if (identity.personId.isNullOrBlank()) {
                 val forside = engine.execute(
@@ -152,6 +188,7 @@ class AuthSessionInstaller @Inject constructor(
                     forside.response.body.length,
                     looksLikeLoginHtml(forside.response.body),
                 )
+                logIdentityProbe("forside", forside.response.body, identity)
             }
 
             // Last resort: elevid in callback / final URL query.
@@ -249,6 +286,24 @@ class AuthSessionInstaller @Inject constructor(
             lower.contains("m\$content\$username") ||
             lower.contains("m_content_username") ||
             lower.contains("unilogin") && lower.contains("log ind")
+    }
+
+    private fun logIdentityProbe(
+        label: String,
+        html: String,
+        identity: dk.betterlectio.android.core.lectio.scrape.StudentIdentity,
+    ) {
+        if (!BuildConfig.DEBUG) return
+        val signals = StudentIdentityParser.debugSignals(html)
+        Timber.d(
+            "Login identity probe [%s]: parsed student=%s teacher=%s name=%s picture=%s signals=%s",
+            label,
+            identity.studentId,
+            identity.teacherId,
+            identity.name?.take(80),
+            identity.pictureId,
+            signals,
+        )
     }
 
     fun enterDemo(): Student {
