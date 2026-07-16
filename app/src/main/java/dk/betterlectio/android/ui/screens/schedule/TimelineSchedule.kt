@@ -43,13 +43,14 @@ import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import dk.betterlectio.android.R
+import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.schedule.EventStatus
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
+import dk.betterlectio.android.feature.schedule.ScheduleMultiDay
 import dk.betterlectio.android.feature.schedule.timeLabelText
-import dk.betterlectio.android.ui.components.InitialsAvatar
+import dk.betterlectio.android.ui.components.PersonAvatar
 import java.time.LocalDate
 import java.time.LocalDateTime
-import java.time.LocalTime
 import kotlin.math.max
 
 // iOS professional timeline: ~1dp per minute, day starts 08:00
@@ -182,6 +183,7 @@ fun TimelineDayView(
                             title = displayTitle(event),
                             room = event.room,
                             teacher = event.teacher,
+                            teacherId = event.teacherId,
                             status = event.status,
                             accent = accent,
                             neutralBlend = neutralBlend,
@@ -295,6 +297,7 @@ private fun ModernScheduleCard(
     neutralBlend: Color,
     dark: Boolean,
     showTeacherAvatar: Boolean = false,
+    teacherId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val bg = when (status) {
@@ -329,9 +332,11 @@ private fun ModernScheduleCard(
                     },
                 )
                 if (showTeacherAvatar && !teacher.isNullOrBlank()) {
-                    InitialsAvatar(
-                        label = teacher,
-                        modifier = Modifier.size(20.dp),
+                    PersonAvatar(
+                        name = teacher,
+                        size = 20.dp,
+                        teacherNumericId = teacherId,
+                        kind = DirectoryEntityKind.TEACHER,
                     )
                     Spacer(Modifier.width(6.dp))
                 }
@@ -411,12 +416,27 @@ private fun calculateOverlapLayouts(
     dayStartHour: Int,
 ): List<EventLayout> {
     val minDuration = 29
-    val ranges = timed.map { event ->
-        val start = event.start ?: LocalDateTime.of(date, LocalTime.of(dayStartHour, 0))
-        val end = event.end ?: start.plusHours(1)
-        val startMin = max(0, (start.hour * 60 + start.minute) - dayStartHour * 60)
-        val endMin = max(startMin + minDuration, (end.hour * 60 + end.minute) - dayStartHour * 60)
-        Triple(event, startMin, endMin)
+    // Clamp multi-day ranges to this day's segment so overnight / multi-day
+    // events get correct height (not clock-only math across dates).
+    val ranges = timed.mapNotNull { event ->
+        val segment = ScheduleMultiDay.segmentMinutesOnDay(
+            event = event,
+            date = date,
+            dayStartHour = dayStartHour,
+            minDurationMinutes = minDuration,
+        )
+        if (segment != null) {
+            Triple(event, segment.first, segment.second)
+        } else {
+            // Timed event missing start/end — fall back to a one-hour stub at day start.
+            val start = event.start
+            val end = event.end
+            if (start == null || end == null) {
+                Triple(event, 0, minDuration)
+            } else {
+                null
+            }
+        }
     }.sortedBy { it.second }
 
     val columnEndTimes = mutableMapOf<Int, Int>()
@@ -535,7 +555,12 @@ fun StandardDayList(
                     }
                 }
                 event.teacher?.takeIf { it.isNotBlank() }?.let { t ->
-                    InitialsAvatar(label = t, modifier = Modifier.size(28.dp))
+                    PersonAvatar(
+                        name = t,
+                        size = 28.dp,
+                        teacherNumericId = event.teacherId,
+                        kind = DirectoryEntityKind.TEACHER,
+                    )
                     Spacer(Modifier.width(8.dp))
                 }
                 if (event.status != EventStatus.NORMAL) {

@@ -1,5 +1,9 @@
 package dk.betterlectio.android.feature.messages
 
+import android.content.Context
+import android.net.Uri
+import android.provider.OpenableColumns
+import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.core.cache.SimpleCache
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.model.FetchPriority
@@ -26,6 +30,8 @@ class MessageRepository @Inject constructor(
     private val directoryRepository: DirectoryRepository,
     private val settings: SettingsStore,
     private val offlineMessages: OfflineMessageStore,
+    private val documentUpload: DocumentUpload,
+    @ApplicationContext private val appContext: Context,
 ) {
     private val _unreadCount = MutableStateFlow(0)
     val unreadCount: StateFlow<Int> = _unreadCount.asStateFlow()
@@ -45,39 +51,128 @@ class MessageRepository @Inject constructor(
             return AppResult.Success(list)
         }
 
-        val key = "messages_${student.studentId}_${folder.id}"
+        val key = listCacheKey(student.studentId, folder.id)
         if (!forceRefresh) {
-            cache.get(key)?.let {
-                val parsed = MessageParser.parseThreadList(it, folder.id)
-                if (folder.id == MessageFolder.UNREAD.id) _unreadCount.value = parsed.size
-                return AppResult.Success(parsed)
+            cache.get(key)?.let { cached ->
+                // Never trust empty/error cache (e.g. old type=liste fejlhandled pages).
+                if (MessageParser.looksLikeThreadList(cached)) {
+                    val parsed = MessageParser.parseThreadList(cached, folder.id)
+                    if (parsed.isNotEmpty()) {
+                        if (folder.id == MessageFolder.UNREAD.id) _unreadCount.value = parsed.size
+                        return AppResult.Success(parsed)
+                    }
+                } else {
+                    cache.remove(key)
+                }
             }
             val roomCached = offlineMessages.loadFolder(student.studentId, folder.id)
             if (roomCached.isNotEmpty()) {
                 if (folder.id == MessageFolder.UNREAD.id) _unreadCount.value = roomCached.count { it.unread }
                 return AppResult.Success(roomCached)
             }
+        } else {
+            cache.remove(key)
         }
 
-        val path = "beskeder2.aspx?type=liste&mappeid=${folder.id}"
-        return when (val res = client.get(path, FetchPriority.Important)) {
+        // iOS parity: Lectio rejects `type=liste`. Load via GET?mappeid= then POST folder switch.
+        return when (val res = fetchFolderHtml(folder.id)) {
             is AppResult.Failure -> {
                 cache.get(key)?.let {
-                    return AppResult.Success(MessageParser.parseThreadList(it, folder.id))
+                    val parsed = MessageParser.parseThreadList(it, folder.id)
+                    if (parsed.isNotEmpty()) return AppResult.Success(parsed)
                 }
                 val roomCached = offlineMessages.loadFolder(student.studentId, folder.id)
                 if (roomCached.isNotEmpty()) return AppResult.Success(roomCached)
                 res
             }
             is AppResult.Success -> {
-                cache.put(key, res.data.body)
-                val parsed = MessageParser.parseThreadList(res.data.body, folder.id)
+                val html = res.data
+                if (isLectioErrorPage(html) || !MessageParser.looksLikeThreadList(html)) {
+                    return AppResult.Failure(
+                        AppError.Unknown("Kunne ikke hente beskeder (Lectio fejlside)"),
+                    )
+                }
+                val parsed = MessageParser.parseThreadList(html, folder.id)
+                // Only cache when we got a real list page (empty folder is OK if HTML is list UI).
+                cache.put(key, html)
                 offlineMessages.saveFolder(student.studentId, folder.id, parsed)
                 if (folder.id == MessageFolder.UNREAD.id) _unreadCount.value = parsed.size
+                timber.log.Timber.d(
+                    "messages list folder=%s threads=%d html=%d",
+                    folder.id,
+                    parsed.size,
+                    html.length,
+                )
                 AppResult.Success(parsed)
             }
         }
     }
+
+    /**
+     * iOS [LectioHTTPClient+Messages.fetchMessages]: empty EVENTARGUMENT folder switch.
+     */
+    private suspend fun fetchFolderHtml(folderId: String): AppResult<String> =
+        postBeskederListPageBack(folderId, eventArgument = "")
+
+    /**
+     * iOS `postBeskederListPageBack`:
+     * GET `beskeder2.aspx?mappeid=X` → POST form with folders=X, __EVENTTARGET=__Page,
+     * and the given __EVENTARGUMENT (empty = list, `$LB2$_MC_$_id` = open thread, …).
+     */
+    private suspend fun postBeskederListPageBack(
+        folderId: String,
+        eventArgument: String,
+        extra: Map<String, String> = emptyMap(),
+        priority: FetchPriority = FetchPriority.Important,
+    ): AppResult<String> {
+        val seedPath = folderListSeedPath(folderId)
+        val postPath = folderListPostPath(folderId)
+        val page = client.get(seedPath, priority)
+        val seedHtml = when (page) {
+            is AppResult.Failure -> return AppResult.Failure(page.error)
+            is AppResult.Success -> page.data.body
+        }
+        if (isLectioErrorPage(seedHtml)) {
+            return AppResult.Failure(AppError.Unknown("Kunne ikke hente beskeder (Lectio fejlside)"))
+        }
+        val resolved = SmartPostback.resolve(
+            html = seedHtml,
+            preferredTargets = listOf(MessagePostbackFields.PAGE_EVENT_TARGET),
+            extra = mapOf(
+                "__EVENTARGUMENT" to eventArgument,
+                MessagePostbackFields.FOLDERS_FIELD to folderId,
+            ) + extra,
+            nameContainsAny = emptyList(),
+        )
+        val fields = resolved.fields.toMutableMap()
+        fields["__EVENTTARGET"] = MessagePostbackFields.PAGE_EVENT_TARGET
+        fields["__EVENTARGUMENT"] = eventArgument
+        fields[MessagePostbackFields.FOLDERS_FIELD] = folderId
+        return when (val post = client.postForm(postPath, fields, priority)) {
+            is AppResult.Failure -> {
+                // Seed GET can already hold usable content (folder list); not for open-thread.
+                if (eventArgument.isEmpty() && !isLectioErrorPage(seedHtml)) {
+                    AppResult.Success(seedHtml)
+                } else {
+                    AppResult.Failure(post.error)
+                }
+            }
+            is AppResult.Success -> {
+                val body = post.data.body
+                if (isLectioErrorPage(body)) {
+                    if (eventArgument.isEmpty() && !isLectioErrorPage(seedHtml)) {
+                        AppResult.Success(seedHtml)
+                    } else {
+                        AppResult.Failure(AppError.Unknown("Kunne ikke hente beskeder (Lectio fejlside)"))
+                    }
+                } else {
+                    AppResult.Success(body)
+                }
+            }
+        }
+    }
+
+
 
     suspend fun refreshUnreadBadge() {
         loadFolder(MessageFolder.UNREAD, forceRefresh = true)
@@ -91,45 +186,151 @@ class MessageRepository @Inject constructor(
             return AppResult.Success(demoState.loadDetail(thread.id))
         }
 
-        val cacheKey = "message_thread_${student.studentId}_${thread.normalizedId}"
-        cache.get(cacheKey)?.let {
-            return AppResult.Success(MessageParser.parseThreadDetail(it, thread))
+        val cacheKey = threadCacheKey(student.studentId, thread.normalizedId)
+        cache.get(cacheKey)?.let { cached ->
+            // Drop poisoned cache: older builds stored list HTML after failed open postbacks.
+            if (MessageParser.looksLikeThreadDetail(cached)) {
+                return AppResult.Success(MessageParser.parseThreadDetail(cached, thread))
+            }
+            cache.remove(cacheKey)
         }
 
-        val path = "beskeder2.aspx?type=showthread&mappeid=${thread.folderId}&id=${thread.normalizedId}"
-        return when (val res = client.get(path, FetchPriority.Important)) {
+        val eventArg = openThreadEventArgument(thread)
+        timber.log.Timber.d(
+            "messages open thread normId=%s folder=%s eventArg=%s",
+            thread.normalizedId,
+            thread.folderId,
+            eventArg,
+        )
+
+        // iOS fetchMessageThread / Flutter MessageController.get: list postback opens thread
+        // (not type=showthread). Flutter posts the full `$LB2$_MC_$_…` id; iOS rebuilds it.
+        return when (
+            val res = postBeskederListPageBack(
+                folderId = thread.folderId,
+                eventArgument = eventArg,
+                priority = FetchPriority.Important,
+            )
+        ) {
             is AppResult.Failure -> res
             is AppResult.Success -> {
-                cache.put(cacheKey, res.data.body)
-                AppResult.Success(MessageParser.parseThreadDetail(res.data.body, thread))
+                val html = res.data
+                if (!MessageParser.looksLikeThreadDetail(html)) {
+                    timber.log.Timber.w(
+                        "messages open did not return thread HTML (len=%d) arg=%s",
+                        html.length,
+                        eventArg,
+                    )
+                    return AppResult.Failure(
+                        AppError.Unknown("Kunne ikke åbne beskeden"),
+                    )
+                }
+                cache.put(cacheKey, html)
+                AppResult.Success(MessageParser.parseThreadDetail(html, thread))
             }
         }
     }
 
-    suspend fun reply(thread: MessageThread, body: String): AppResult<Unit> {
+    suspend fun reply(
+        thread: MessageThread,
+        body: String,
+        attachments: List<ComposeAttachment> = emptyList(),
+        recipientIdsForSignature: List<String> = emptyList(),
+    ): AppResult<Unit> {
         if (session.currentStudent?.isDemo == true) {
-            settings.appendNotificationHistory("Svar sendt (demo): ${thread.topic}")
+            val attNote = if (attachments.isEmpty()) "" else " (+${attachments.size} filer)"
+            settings.appendNotificationHistory("Svar sendt (demo): ${thread.topic}$attNote")
             return AppResult.Success(Unit)
         }
-        val path =
-            "beskeder2.aspx?type=showthread&mappeid=${thread.folderId}&id=${thread.normalizedId}"
-        return when (val page = client.get(path, FetchPriority.Important)) {
+        // Seed reply form from the same iOS thread-open HTML (not type=showthread).
+        return when (
+            val page = postBeskederListPageBack(
+                folderId = thread.folderId,
+                eventArgument = openThreadEventArgument(thread),
+                priority = FetchPriority.Important,
+            )
+        ) {
             is AppResult.Failure -> page
             is AppResult.Success -> {
-                val html = page.data.body
+                var html = page.data
+                val priority = FetchPriority.Important
+                val postPath = folderListPostPath(thread.folderId)
+
+                // Optional attachments before send
+                when (val attached = attachAll(html, postPath, attachments, priority)) {
+                    is AppResult.Failure -> return attached
+                    is AppResult.Success -> html = attached.data
+                }
+
+                val finalBody = MessageSignature.appendIfNeeded(
+                    body = body,
+                    recipientIds = recipientIdsForSignature,
+                    disableSignature = settings.disableSignature.value,
+                )
                 val contentField = SmartPostback.findFieldName(
                     html,
-                    listOf("WriteContent", "CreateNewAnswer", "MessageBody", "txtMessage"),
+                    listOf(
+                        "EditModeContentBBTB",
+                        "WriteContent",
+                        "CreateNewAnswer",
+                        "MessageBody",
+                        "txtMessage",
+                    ),
                 ) ?: MessagePostbackFields.replyVariants.first().contentField
-                val targets = MessagePostbackFields.replyVariants.map { it.sendTarget }
+                val titleField = SmartPostback.findFieldName(
+                    html,
+                    listOf("EditModeHeaderTitleTB", "MessagesSubject"),
+                ) ?: MessagePostbackFields.replyVariants.first().titleField
+                val titleValue = SmartPostback.existingFieldValue(html, titleField)
+                    ?.takeIf { it.isNotBlank() }
+                    ?: "Re: ${thread.topic}"
+                val sendTarget = MessagePostbackFields.findSendMessageTarget(html)
+                timber.log.Timber.d(
+                    "messages reply target=%s contentField=%s bodyLen=%d",
+                    sendTarget,
+                    contentField,
+                    finalBody.length,
+                )
+                val preferredTargets = listOf(sendTarget) +
+                    MessagePostbackFields.replyVariants.map { it.sendTarget }
                 val resolved = SmartPostback.resolve(
                     html = html,
-                    preferredTargets = targets,
-                    extra = mapOf(contentField to body),
-                    nameContainsAny = listOf("SendAnswer", "Send", "Svar", "CreateNewAnswer"),
+                    preferredTargets = preferredTargets.distinct(),
+                    extra = mapOf(
+                        contentField to finalBody,
+                        titleField to titleValue,
+                    ),
+                    nameContainsAny = listOf("SendAnswer", "Send", "Svar", "CreateNewAnswer", "SendMessage"),
                 )
-                when (val post = client.postForm("beskeder2.aspx", resolved.fields)) {
+                when (
+                    val post = client.postForm(postPath, resolved.fields, priority)
+                ) {
                     is AppResult.Success -> {
+                        val responseHtml = post.data.body
+                        if (isLectioErrorPage(responseHtml)) {
+                            return AppResult.Failure(
+                                AppError.Unknown("Kunne ikke sende svar (Lectio fejlside)"),
+                            )
+                        }
+                        if (!looksLikeReplySendSuccess(responseHtml, finalBody)) {
+                            timber.log.Timber.w(
+                                "messages reply response did not look successful (len=%d)",
+                                responseHtml.length,
+                            )
+                            return AppResult.Failure(
+                                AppError.Unknown("Kunne ikke sende svar – prøv igen"),
+                            )
+                        }
+                        // Drop stale open-thread cache so the new reply is visible on reload.
+                        val studentId = session.currentStudent?.studentId
+                        if (studentId != null) {
+                            val key = threadCacheKey(studentId, thread.normalizedId)
+                            cache.remove(key)
+                            if (MessageParser.looksLikeThreadDetail(responseHtml)) {
+                                cache.put(key, responseHtml)
+                            }
+                        }
+                        invalidateMessageListCache()
                         settings.appendNotificationHistory("Svar sendt: ${thread.topic}")
                         AppResult.Success(Unit)
                     }
@@ -139,20 +340,43 @@ class MessageRepository @Inject constructor(
         }
     }
 
+    /**
+     * Reply succeeded if Lectio still shows the thread and our text appears in it
+     * (message body is echoed into the thread after a successful SendMessageBtn postback).
+     */
+    internal fun looksLikeReplySendSuccess(html: String, sentBody: String): Boolean {
+        if (isLectioErrorPage(html)) return false
+        if (!MessageParser.looksLikeThreadDetail(html)) return false
+        val snippet = sentBody.trim().lineSequence().firstOrNull { it.isNotBlank() }
+            ?.take(40)
+            .orEmpty()
+        if (snippet.isEmpty()) return true
+        return html.contains(snippet)
+    }
+
     suspend fun searchRecipients(query: String): AppResult<List<MessageRecipient>> {
         if (session.currentStudent?.isDemo == true) {
             val q = query.trim().lowercase()
             return AppResult.Success(
                 DemoData.directory
-                    .filter { it.kind == DirectoryEntityKind.STUDENT || it.kind == DirectoryEntityKind.TEACHER }
+                    .filter {
+                        it.kind == DirectoryEntityKind.STUDENT ||
+                            it.kind == DirectoryEntityKind.TEACHER
+                    }
                     .filter { q.isEmpty() || it.name.lowercase().contains(q) }
                     .map { MessageRecipient(it.id, it.name, it.kind.name) },
             )
         }
-        return when (val res = directoryRepository.search(query, DirectoryEntityKind.STUDENT)) {
+        // Students + teachers (extension compose directory includes both)
+        return when (val res = directoryRepository.search(query, kind = null)) {
             is AppResult.Failure -> res
             is AppResult.Success -> AppResult.Success(
-                res.data.map { MessageRecipient(it.id, it.name, it.kind.name) },
+                res.data
+                    .filter {
+                        it.kind == DirectoryEntityKind.STUDENT ||
+                            it.kind == DirectoryEntityKind.TEACHER
+                    }
+                    .map { MessageRecipient(it.id, it.name, it.kind.name) },
             )
         }
     }
@@ -209,7 +433,8 @@ class MessageRepository @Inject constructor(
     }
 
     /**
-     * GET folder page → merge VIEWSTATE → POST with iOS/Flutter event args.
+     * Best-effort list-page action (read/flag/delete). Prefer iOS EVENTARGUMENT path;
+     * fall back to legacy button names if the postback fails.
      */
     private suspend fun postListPageEvent(
         folderId: String,
@@ -218,97 +443,329 @@ class MessageRepository @Inject constructor(
         threadId: String,
         extra: Map<String, String> = emptyMap(),
     ) {
-        val path = "beskeder2.aspx"
-        val page = client.get("$path?type=liste&mappeid=$folderId")
-        val html = (page as? AppResult.Success)?.data?.body
-        if (html != null) {
-            val resolved = dk.betterlectio.android.core.lectio.scrape.SmartPostback.resolve(
-                html = html,
-                preferredTargets = listOf(MessagePostbackFields.PAGE_EVENT_TARGET),
-                extra = mapOf(
-                    "__EVENTARGUMENT" to eventArgument,
-                    MessagePostbackFields.FOLDERS_FIELD to folderId,
-                ) + extra,
-                nameContainsAny = emptyList(),
-            )
-            // Force __Page target + event argument
-            val fields = resolved.fields.toMutableMap()
-            fields["__EVENTTARGET"] = MessagePostbackFields.PAGE_EVENT_TARGET
-            fields["__EVENTARGUMENT"] = eventArgument
-            fields[MessagePostbackFields.FOLDERS_FIELD] = folderId
-            if (client.postForm(path, fields) is AppResult.Success) return
+        when (postBeskederListPageBack(folderId, eventArgument, extra)) {
+            is AppResult.Success -> return
+            is AppResult.Failure -> { /* try legacy targets */ }
         }
-        // Fallback: legacy button names
+        val postPath = folderListPostPath(folderId)
         val fallbackExtra = mapOf("threadid" to threadId) + extra + mapOf(
             MessagePostbackFields.FOLDERS_FIELD to folderId,
         )
         for (target in fallbackTargets) {
-            if (client.postback(path, target, fallbackExtra) is AppResult.Success) break
+            if (client.postback(postPath, target, fallbackExtra) is AppResult.Success) break
         }
     }
 
+    /**
+     * Multi-step Lectio compose (iOS `sendNewMessage` / extension `sendMessageViaIframe`):
+     * 1. GET messages page
+     * 2. POST NewMessageLnk / NewMessageThreadBtn → compose form
+     * 3. POST AddRecipientBtn for each recipient (inp + inpid) + no-reply when set
+     * 4. Upload each file to dokumentupload.aspx + attach postback
+     * 5. POST SendMessageBtn with title + body[+signature] + no-reply
+     *
+     * ViewState is sequential — each step uses the previous response HTML.
+     */
     suspend fun compose(draft: ComposeMessageDraft): AppResult<Unit> {
         if (draft.subject.isBlank() || draft.recipientIds.isEmpty()) {
             return AppResult.Failure(AppError.Unknown("Emne og modtager er påkrævet"))
         }
         if (session.currentStudent?.isDemo == true) {
+            val attNote = if (draft.attachments.isEmpty()) {
+                ""
+            } else {
+                " (+${draft.attachments.joinToString { it.displayName }})"
+            }
             settings.appendNotificationHistory(
-                "Ny besked (demo) til ${draft.recipientNames.joinToString()}: ${draft.subject}",
+                "Ny besked (demo) til ${draft.recipientNames.joinToString()}: ${draft.subject}$attNote",
             )
             return AppResult.Success(Unit)
         }
-        return when (val page = client.get("beskeder2.aspx?type=nybesked", FetchPriority.Important)) {
-            is AppResult.Failure -> {
-                // Fallback: try compose variants via classic postback
-                var lastError: AppError = page.error
-                for (variant in MessagePostbackFields.composeVariants) {
-                    val extra = mapOf(
-                        variant.recipientField to draft.recipientIds.first(),
-                        variant.subjectField to draft.subject,
-                        variant.bodyField to draft.body,
-                    )
-                    when (val post = client.postback("beskeder2.aspx", variant.sendTarget, extra)) {
-                        is AppResult.Success -> {
-                            settings.appendNotificationHistory("Ny besked: ${draft.subject}")
-                            return AppResult.Success(Unit)
-                        }
-                        is AppResult.Failure -> lastError = post.error
-                    }
-                }
-                AppResult.Failure(lastError)
-            }
-            is AppResult.Success -> {
-                val html = page.data.body
-                val subjectField = SmartPostback.findFieldName(
-                    html,
-                    listOf("Subject", "MessagesSubject", "emne"),
-                ) ?: MessagePostbackFields.composeVariants.first().subjectField
-                val bodyField = SmartPostback.findFieldName(
-                    html,
-                    listOf("WriteContent", "CreateNewMessage", "body"),
-                ) ?: MessagePostbackFields.composeVariants.first().bodyField
-                val recipientField = SmartPostback.findFieldName(
-                    html,
-                    listOf("Recipient", "addRecipient", "modtager"),
-                ) ?: MessagePostbackFields.composeVariants.first().recipientField
-                val resolved = SmartPostback.resolve(
-                    html = html,
-                    preferredTargets = MessagePostbackFields.composeVariants.map { it.sendTarget },
-                    extra = mapOf(
-                        recipientField to draft.recipientIds.first(),
-                        subjectField to draft.subject,
-                        bodyField to draft.body,
-                    ),
-                    nameContainsAny = listOf("CreateMessage", "Send", "Opret"),
+
+        val path = COMPOSE_PATH
+        val priority = FetchPriority.Important
+
+        // Step 1: seed list page (never one-shot query types Lectio rejects)
+        val seed = when (val page = client.get(path, priority)) {
+            is AppResult.Failure -> return page
+            is AppResult.Success -> page.data.body
+        }
+        if (isLectioErrorPage(seed)) {
+            return AppResult.Failure(AppError.Unknown("Kunne ikke åbne beskeder (Lectio fejlside)"))
+        }
+
+        // Step 2: open compose form
+        val openTarget = MessagePostbackFields.findNewMessageTarget(seed)
+        var html = when (
+            val opened = postFromHtml(path, seed, openTarget, emptyMap(), priority)
+        ) {
+            is AppResult.Failure -> return opened
+            is AppResult.Success -> opened.data
+        }
+        if (!MessagePostbackFields.looksLikeComposeForm(html)) {
+            val retry = postFromHtml(
+                path,
+                seed,
+                MessagePostbackFields.NEW_MESSAGE_LNK,
+                emptyMap(),
+                priority,
+            )
+            when (retry) {
+                is AppResult.Failure -> return AppResult.Failure(
+                    AppError.Unknown("Kunne ikke åbne ny-besked formularen"),
                 )
-                when (val post = client.postForm("beskeder2.aspx", resolved.fields)) {
-                    is AppResult.Success -> {
-                        settings.appendNotificationHistory("Ny besked: ${draft.subject}")
-                        AppResult.Success(Unit)
+                is AppResult.Success -> {
+                    html = retry.data
+                    if (!MessagePostbackFields.looksLikeComposeForm(html)) {
+                        return AppResult.Failure(
+                            AppError.Unknown("Kunne ikke åbne ny-besked formularen"),
+                        )
                     }
-                    is AppResult.Failure -> post
                 }
             }
+        }
+
+        val noReplyName = MessagePostbackFields.findNoReplyCheckboxName(html)
+
+        // Step 3: add each recipient
+        val names = draft.recipientNames
+        draft.recipientIds.forEachIndexed { index, recipientId ->
+            val name = names.getOrNull(index).orEmpty()
+            val extra = MessagePostbackFields.withNoReply(
+                extra = mapOf(
+                    MessagePostbackFields.RECIPIENT_INP to name,
+                    MessagePostbackFields.RECIPIENT_INPID to recipientId,
+                    MessagePostbackFields.COMPOSE_TITLE to "",
+                    MessagePostbackFields.COMPOSE_BODY to "",
+                    MessagePostbackFields.COMPOSE_ATTACHMENT_DOC_ID to "",
+                ),
+                repliesNotAllowed = draft.repliesNotAllowed,
+                checkboxName = noReplyName,
+            )
+            when (
+                val added = postFromHtml(
+                    path = path,
+                    html = html,
+                    eventTarget = MessagePostbackFields.ADD_RECIPIENT_BTN,
+                    extra = extra,
+                    priority = priority,
+                )
+            ) {
+                is AppResult.Failure -> return added
+                is AppResult.Success -> html = added.data
+            }
+        }
+
+        // Step 4: upload + attach files
+        when (val attached = attachAll(html, path, draft.attachments, priority, draft.repliesNotAllowed, noReplyName)) {
+            is AppResult.Failure -> return attached
+            is AppResult.Success -> html = attached.data
+        }
+
+        // Step 5: send
+        val finalBody = MessageSignature.appendIfNeeded(
+            body = draft.body,
+            recipientIds = draft.recipientIds,
+            disableSignature = settings.disableSignature.value,
+        )
+        val titleField = SmartPostback.findFieldName(
+            html,
+            listOf("EditModeHeaderTitleTB", "MessagesSubject"),
+        ) ?: MessagePostbackFields.COMPOSE_TITLE
+        val bodyField = SmartPostback.findFieldName(
+            html,
+            listOf("EditModeContentBBTB", "WriteContent"),
+        ) ?: MessagePostbackFields.COMPOSE_BODY
+        val sendExtra = MessagePostbackFields.withNoReply(
+            extra = mapOf(
+                MessagePostbackFields.RECIPIENT_INP to "",
+                MessagePostbackFields.RECIPIENT_INPID to "",
+                titleField to draft.subject,
+                bodyField to finalBody,
+            ),
+            repliesNotAllowed = draft.repliesNotAllowed,
+            checkboxName = noReplyName,
+        )
+        val sendTarget = MessagePostbackFields.findSendMessageTarget(html)
+        when (
+            val sent = postFromHtml(
+                path = path,
+                html = html,
+                eventTarget = sendTarget,
+                extra = sendExtra,
+                priority = priority,
+            )
+        ) {
+            is AppResult.Failure -> return sent
+            is AppResult.Success -> {
+                val body = sent.data
+                if (!MessagePostbackFields.looksLikeComposeSendSuccess(body)) {
+                    return AppResult.Failure(
+                        AppError.Unknown("Kunne ikke sende besked – tjek emne og modtagere"),
+                    )
+                }
+                invalidateMessageListCache()
+                settings.appendNotificationHistory("Ny besked: ${draft.subject}")
+                return AppResult.Success(Unit)
+            }
+        }
+    }
+
+    /**
+     * Upload each local file and attach via AttachmentDocChooser postback.
+     * Returns updated HTML ViewState after all attaches (or original [html] if none).
+     */
+    private suspend fun attachAll(
+        html: String,
+        path: String,
+        attachments: List<ComposeAttachment>,
+        priority: FetchPriority,
+        repliesNotAllowed: Boolean = false,
+        noReplyName: String = "",
+    ): AppResult<String> {
+        if (attachments.isEmpty()) return AppResult.Success(html)
+        var current = html
+        for (att in attachments) {
+            val bytes = readUriBytes(att.uri)
+                ?: return AppResult.Failure(AppError.Unknown("Kunne ikke læse fil: ${att.displayName}"))
+            val uploaded = documentUpload.upload(att.displayName, att.mimeType, bytes, priority)
+            val serializedId = when (uploaded) {
+                is AppResult.Failure -> return uploaded
+                is AppResult.Success -> uploaded.data
+            }
+            val targets = MessagePostbackFields.findAttachTargets(current)
+                ?: return AppResult.Failure(
+                    AppError.Unknown("Kunne ikke finde vedhæftningsfelt på beskedformularen"),
+                )
+            val attachExtra = MessagePostbackFields.withNoReply(
+                extra = mapOf(
+                    targets.docIdFieldName to """{"serializedId":"$serializedId"}""",
+                ),
+                repliesNotAllowed = repliesNotAllowed,
+                checkboxName = noReplyName,
+            )
+            when (
+                val post = postFromHtml(
+                    path = path,
+                    html = current,
+                    eventTarget = targets.postbackTarget,
+                    extra = attachExtra,
+                    priority = priority,
+                    eventArgument = "documentId",
+                )
+            ) {
+                is AppResult.Failure -> return AppResult.Failure(
+                    AppError.Unknown("Kunne ikke vedhæfte ${att.displayName}"),
+                )
+                is AppResult.Success -> current = post.data
+            }
+        }
+        return AppResult.Success(current)
+    }
+
+    private fun readUriBytes(uri: Uri): ByteArray? = try {
+        appContext.contentResolver.openInputStream(uri)?.use { it.readBytes() }
+    } catch (_: Exception) {
+        null
+    }
+
+    fun resolveAttachmentMeta(uri: Uri): ComposeAttachment {
+        val resolver = appContext.contentResolver
+        var name = "fil"
+        var size: Long? = null
+        resolver.query(uri, null, null, null, null)?.use { cursor ->
+            val nameIdx = cursor.getColumnIndex(OpenableColumns.DISPLAY_NAME)
+            val sizeIdx = cursor.getColumnIndex(OpenableColumns.SIZE)
+            if (cursor.moveToFirst()) {
+                if (nameIdx >= 0) name = cursor.getString(nameIdx) ?: name
+                if (sizeIdx >= 0 && !cursor.isNull(sizeIdx)) size = cursor.getLong(sizeIdx)
+            }
+        }
+        val mime = resolver.getType(uri) ?: "application/octet-stream"
+        return ComposeAttachment(
+            uri = uri,
+            displayName = name,
+            mimeType = mime,
+            sizeBytes = size,
+        )
+    }
+
+    /**
+     * POST using VIEWSTATE/fields from [html] (no intermediate GET).
+     * Required for multi-step compose — each response feeds the next postback.
+     */
+    private suspend fun postFromHtml(
+        path: String,
+        html: String,
+        eventTarget: String,
+        extra: Map<String, String>,
+        priority: FetchPriority,
+        eventArgument: String = "",
+    ): AppResult<String> {
+        val resolved = SmartPostback.resolve(
+            html = html,
+            preferredTargets = listOf(eventTarget),
+            extra = extra,
+        )
+        val fields = resolved.fields.toMutableMap()
+        fields["__EVENTTARGET"] = eventTarget
+        fields["__EVENTARGUMENT"] = eventArgument
+        fields.putAll(extra)
+        return when (val post = client.postForm(path, fields, priority)) {
+            is AppResult.Failure -> AppResult.Failure(post.error)
+            is AppResult.Success -> {
+                val body = post.data.body
+                if (isLectioErrorPage(body)) {
+                    AppResult.Failure(AppError.Unknown("Kunne ikke sende besked (Lectio fejlside)"))
+                } else {
+                    AppResult.Success(body)
+                }
+            }
+        }
+    }
+
+    private fun invalidateMessageListCache() {
+        val studentId = session.currentStudent?.studentId ?: return
+        for (folder in MessageFolder.defaults) {
+            cache.remove(listCacheKey(studentId, folder.id))
+        }
+    }
+
+    companion object {
+        /** Compose posts to the bare messages page (iOS/Flutter). */
+        const val COMPOSE_PATH = "beskeder2.aspx"
+
+        /** Lectio rejects `type=liste` (fejlhandled: Ukendt parameter: liste). */
+        fun folderListSeedPath(folderId: String): String =
+            "beskeder2.aspx?mappeid=$folderId"
+
+        fun folderListPostPath(folderId: String): String =
+            "beskeder2.aspx?mappeid=$folderId"
+
+        fun listCacheKey(studentId: String, folderId: String) =
+            "messages_${studentId}_${folderId}"
+
+        fun threadCacheKey(studentId: String, normalizedId: String) =
+            "message_thread_${studentId}_${normalizedId}"
+
+        fun isLectioErrorPage(html: String): Boolean {
+            val lower = html.lowercase()
+            return lower.contains("fejlhandled.aspx") ||
+                lower.contains("ukendt parameter") ||
+                (lower.contains("title=fejl") && lower.contains("message="))
+        }
+
+        /**
+         * Lectio open-thread `__EVENTARGUMENT`.
+         * Prefer the raw list-row id (`$LB2$_MC_$_…`) like Flutter; otherwise rebuild from
+         * normalized digits like iOS/extension.
+         */
+        fun openThreadEventArgument(thread: MessageThread): String {
+            val raw = thread.id.trim()
+            if (raw.contains("LB2") && raw.contains("MC")) return raw
+            // Numeric / already-normalized id
+            val norm = thread.normalizedId.ifBlank { MessageParser.normalizeThreadId(raw) }
+            return MessagePostbackFields.openThreadArg(norm)
         }
     }
 }

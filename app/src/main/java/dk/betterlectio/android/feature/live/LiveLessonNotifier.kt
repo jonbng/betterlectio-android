@@ -7,11 +7,13 @@ import android.content.Context
 import android.content.Intent
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.MainActivity
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.timeLabel
+import dk.betterlectio.android.feature.settings.SettingsStore
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
 import javax.inject.Inject
@@ -24,6 +26,7 @@ import javax.inject.Singleton
 @Singleton
 class LiveLessonNotifier @Inject constructor(
     @ApplicationContext private val context: Context,
+    private val settings: SettingsStore,
 ) {
     private val nm = context.getSystemService(NotificationManager::class.java)
     private val notifId = 42
@@ -60,6 +63,7 @@ class LiveLessonNotifier @Inject constructor(
 
         val builder = NotificationCompat.Builder(context, CHANNEL)
             .setSmallIcon(R.drawable.ic_notification)
+            .setColor(ContextCompat.getColor(context, R.color.brand_blue))
             .setOngoing(current != null)
             .setOnlyAlertOnce(true)
             .setSilent(true)
@@ -69,10 +73,11 @@ class LiveLessonNotifier @Inject constructor(
         if (current != null) {
             val remaining = ChronoUnit.MINUTES.between(now, current.end).coerceAtLeast(0)
             val minsLeft = context.getString(R.string.live_minutes_left, remaining.toInt())
+            val subject = friendlyTitle(current)
             val text = if (current.room.isNullOrBlank()) {
-                "${current.title} · $minsLeft"
+                "$subject · $minsLeft"
             } else {
-                "${current.title} · ${current.room} · $minsLeft"
+                "$subject · ${current.room} · $minsLeft"
             }
             val big = buildString {
                 appendLine(text)
@@ -92,7 +97,7 @@ class LiveLessonNotifier @Inject constructor(
                     append(
                         context.getString(
                             R.string.live_next_line,
-                            it.title,
+                            friendlyTitle(it),
                             it.timeLabel(context),
                         ),
                     )
@@ -111,14 +116,18 @@ class LiveLessonNotifier @Inject constructor(
                 context.getString(R.string.live_schedule_update_in, mins)
             }
             val clock = "%02d:%02d".format(next.at.hour, next.at.minute)
+            val nextName = next.title.let { raw ->
+                // Boundary titles are usually subject strings.
+                settings.displayNameForSubject(raw, fallback = raw)
+            }
             builder
                 .setContentTitle(title)
-                .setContentText(next.title)
+                .setContentText(nextName)
                 .setStyle(
                     NotificationCompat.BigTextStyle().bigText(
                         context.getString(
                             R.string.live_boundary_big,
-                            next.title,
+                            nextName,
                             next.kind.name,
                             clock,
                         ),
@@ -130,6 +139,11 @@ class LiveLessonNotifier @Inject constructor(
     }
 
     fun clear() = nm.cancel(notifId)
+
+    private fun friendlyTitle(event: ScheduleEvent): String {
+        val key = event.team.ifBlank { event.title }
+        return settings.displayNameForSubject(key, fallback = event.title.ifBlank { key })
+    }
 
     companion object {
         private const val CHANNEL = "live_lesson"

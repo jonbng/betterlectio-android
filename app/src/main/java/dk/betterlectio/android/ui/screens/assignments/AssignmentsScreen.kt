@@ -1,7 +1,5 @@
 package dk.betterlectio.android.ui.screens.assignments
 
-import android.content.Intent
-import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
@@ -25,16 +23,17 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -48,6 +47,7 @@ import dk.betterlectio.android.feature.assignments.AssignmentFilter
 import dk.betterlectio.android.feature.assignments.AssignmentItem
 import dk.betterlectio.android.ui.components.AppListDivider
 import dk.betterlectio.android.ui.components.AppListMeta
+import dk.betterlectio.android.ui.components.AttachmentRow
 import dk.betterlectio.android.ui.components.AppListPrimary
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
@@ -242,7 +242,7 @@ private fun AssignmentDetailPane(
     detail: AssignmentDetail,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
     val statusColor = when {
         detail.item.status.contains("mangler", ignoreCase = true) ||
             detail.item.status.contains("afventer", ignoreCase = true) ||
@@ -258,6 +258,7 @@ private fun AssignmentDetailPane(
     val urgent = isDueUrgent(detail.item.deadline) &&
         !detail.item.status.contains("aflever", ignoreCase = true)
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(detail.item.title, maxLines = 1) },
@@ -322,15 +323,25 @@ private fun AssignmentDetailPane(
                     Text(detail.description, style = MaterialTheme.typography.bodyLarge)
                 }
             }
-            if (detail.files.isNotEmpty()) {
+            val allFiles = buildList {
+                addAll(detail.files)
+                detail.submissions.forEach { sub ->
+                    val url = sub.documentUrl ?: return@forEach
+                    val name = sub.documentName?.takeIf { it.isNotBlank() }
+                        ?: sub.user.takeIf { it.isNotBlank() }
+                        ?: "Dokument"
+                    add(name to url)
+                }
+            }.distinctBy { it.second }
+            if (allFiles.isNotEmpty()) {
                 DetailSection(stringResource(R.string.assignment_files)) {
-                    detail.files.forEach { (name, url) ->
-                        TextButton(
-                            onClick = {
-                                context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(url)))
-                            },
-                            modifier = Modifier.fillMaxWidth(),
-                        ) { Text(name) }
+                    allFiles.forEach { (name, url) ->
+                        AttachmentRow(
+                            name = name,
+                            url = url,
+                            isFileHint = true,
+                            snackbarHostState = snackbarHostState,
+                        )
                     }
                 }
             }

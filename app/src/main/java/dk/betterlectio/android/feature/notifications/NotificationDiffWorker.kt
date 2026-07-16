@@ -5,6 +5,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.os.Build
 import androidx.core.app.NotificationCompat
+import androidx.core.content.ContextCompat
 import androidx.core.content.edit
 import androidx.work.CoroutineWorker
 import androidx.work.ExistingPeriodicWorkPolicy
@@ -87,6 +88,7 @@ class NotificationDiffWorker(
                                 notifId++,
                                 NotificationCompat.Builder(ctx, CHANNEL_ID)
                                     .setSmallIcon(R.drawable.ic_notification)
+                                    .setColor(ContextCompat.getColor(ctx, R.color.brand_blue))
                                     .setContentTitle(title)
                                     .setContentText(body)
                                     .setAutoCancel(true)
@@ -112,6 +114,7 @@ class NotificationDiffWorker(
                             notifId++,
                             NotificationCompat.Builder(ctx, CHANNEL_ID)
                                 .setSmallIcon(R.drawable.ic_notification)
+                                .setColor(ContextCompat.getColor(ctx, R.color.brand_blue))
                                 .setContentTitle(ctx.getString(R.string.notif_new_messages_title))
                                 .setContentText(
                                     ctx.getString(R.string.notif_new_messages_body, fresh.size),
@@ -143,6 +146,7 @@ class NotificationDiffWorker(
                             notifId++,
                             NotificationCompat.Builder(ctx, CHANNEL_ID)
                                 .setSmallIcon(R.drawable.ic_notification)
+                                .setColor(ContextCompat.getColor(ctx, R.color.brand_blue))
                                 .setContentTitle(ctx.getString(R.string.notif_assignment_title, item.title))
                                 .setContentText(
                                     ctx.getString(R.string.notif_assignment_body, item.team, item.status),

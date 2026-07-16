@@ -98,6 +98,14 @@ object SmartPostback {
         return null
     }
 
+    /** Current value of a named form field if present on the page. */
+    fun existingFieldValue(html: String, fieldName: String): String? {
+        if (fieldName.isBlank()) return null
+        return AspNetForm.parseAllFormFields(html)
+            .firstOrNull { it.first == fieldName }
+            ?.second
+    }
+
     private fun cssEscape(name: String): String =
         // Jsoup attribute selector: escape $ as they are special in CSS
         name.replace("\\", "\\\\").replace("$", "\\$")

@@ -3,9 +3,12 @@ package dk.betterlectio.android.core.lectio.http
 import dk.betterlectio.android.core.lectio.model.FetchPriority
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
+import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withTimeout
+import timber.log.Timber
 
 /**
  * Serializes Lectio HTTP attempts AND enforces a minimum gap between consecutive requests.
@@ -15,9 +18,13 @@ import kotlinx.coroutines.sync.withLock
  *
  * Cancellation-safe: cancelled waiters are removed from the queue; if a waiter already
  * received the permit and is then cancelled, the permit is released for the next waiter.
+ *
+ * [acquireTimeoutMs] prevents UI spins forever when a background job holds the slot
+ * (e.g. NotificationDiffWorker stuck on a hung request).
  */
 class PriorityRequestLimiter(
     private val minIntervalMs: Long = 100L,
+    private val acquireTimeoutMs: Long = DEFAULT_ACQUIRE_TIMEOUT_MS,
 ) {
     private val mutex = Mutex()
     private var busy = false
@@ -26,7 +33,20 @@ class PriorityRequestLimiter(
     private var lastEndedAtMs: Long = 0L
 
     suspend fun <T> withPermit(priority: FetchPriority, block: suspend () -> T): T {
-        acquire(priority)
+        try {
+            withTimeout(acquireTimeoutMs) {
+                acquire(priority)
+            }
+        } catch (e: TimeoutCancellationException) {
+            Timber.w(
+                "Lectio request limiter acquire timed out after %dms (priority=%s, busy, queue i=%d o=%d)",
+                acquireTimeoutMs,
+                priority,
+                importantWaiters.size,
+                opportunisticWaiters.size,
+            )
+            throw e
+        }
         try {
             val elapsed = System.currentTimeMillis() - lastEndedAtMs
             if (lastEndedAtMs > 0L && elapsed < minIntervalMs) {
@@ -48,6 +68,13 @@ class PriorityRequestLimiter(
                 busy = true
                 null
             } else {
+                Timber.d(
+                    "Lectio limiter queueing %s (busy=%s, i=%d o=%d)",
+                    priority,
+                    busy,
+                    importantWaiters.size,
+                    opportunisticWaiters.size,
+                )
                 val deferred = CompletableDeferred<Unit>()
                 when (priority) {
                     FetchPriority.Important -> importantWaiters.addLast(deferred)
@@ -87,5 +114,10 @@ class PriorityRequestLimiter(
                 if (next.complete(Unit)) break
             }
         }
+    }
+
+    companion object {
+        /** Max wait for a free slot before failing the request (not the HTTP timeout). */
+        const val DEFAULT_ACQUIRE_TIMEOUT_MS = 90_000L
     }
 }

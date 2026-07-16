@@ -1,0 +1,5 @@
+Device: Pixel 8 Pro (wireless)
+Package: dk.betterlectio.android
+Version: 1.0.0-debug (versionCode 7, DEBUGGABLE)
+App PID: 20510
+Full log: debug-logs/full-logcat.txt

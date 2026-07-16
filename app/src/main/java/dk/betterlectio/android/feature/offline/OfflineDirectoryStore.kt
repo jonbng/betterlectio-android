@@ -14,7 +14,11 @@ class OfflineDirectoryStore @Inject constructor(
     suspend fun loadAll(studentId: String): List<DirectoryEntity> =
         dao.loadAll(studentId).map { it.toModel() }
 
+    /**
+     * Upsert entities without removing other rows (e.g. hold-member bootstrap).
+     */
     suspend fun saveAll(studentId: String, entities: List<DirectoryEntity>) {
+        if (entities.isEmpty()) return
         val now = System.currentTimeMillis()
         dao.upsertAll(
             entities.map { e ->
@@ -29,6 +33,44 @@ class OfflineDirectoryStore @Inject constructor(
                     updatedAt = now,
                 )
             },
+        )
+    }
+
+    /**
+     * Replace the full offline snapshot for [studentId] (iOS `replaceDirectorySnapshot`).
+     * Clears prior rows first so bad HTML scrapes and stale entities are purged.
+     * Preserves previously resolved [DirectoryEntity.avatarUrl] values by entity id.
+     */
+    suspend fun replaceAll(studentId: String, entities: List<DirectoryEntity>) {
+        val previousAvatars = loadAll(studentId)
+            .mapNotNull { e -> e.avatarUrl?.takeIf { it.isNotBlank() }?.let { e.id to it } }
+            .toMap()
+        val merged = entities.map { e ->
+            if (e.avatarUrl.isNullOrBlank() && previousAvatars.containsKey(e.id)) {
+                e.copy(avatarUrl = previousAvatars[e.id])
+            } else {
+                e
+            }
+        }
+        dao.clearStudent(studentId)
+        saveAll(studentId, merged)
+    }
+
+    /**
+     * Patch a single entity's avatar URL without rewriting the full catalog.
+     * No-op when the entity row is not yet offline.
+     */
+    suspend fun updateAvatarUrl(studentId: String, entityId: String, avatarUrl: String) {
+        if (avatarUrl.isBlank()) return
+        val existing = dao.loadAll(studentId).firstOrNull { it.entityId == entityId } ?: return
+        if (existing.avatarUrl == avatarUrl) return
+        dao.upsertAll(
+            listOf(
+                existing.copy(
+                    avatarUrl = avatarUrl,
+                    updatedAt = System.currentTimeMillis(),
+                ),
+            ),
         )
     }
 

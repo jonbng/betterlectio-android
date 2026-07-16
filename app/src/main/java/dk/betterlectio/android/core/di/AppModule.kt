@@ -10,6 +10,8 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dagger.hilt.components.SingletonComponent
 import dk.betterlectio.android.core.cache.EntityOfflineStore
+import dk.betterlectio.android.core.lectio.http.LectioAuthInterceptor
+import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.feature.directory.RateLimitedAvatarLoader
 import dk.betterlectio.android.feature.offline.OfflineDatabase
 import dk.betterlectio.android.feature.supabase.SupabaseConfig
@@ -48,14 +50,19 @@ object AppModule {
             .build()
 
     /**
-     * Coil ImageLoader that rate-limits Lectio GetImage / avatar fetches.
+     * Coil ImageLoader for Lectio assets: attaches session cookies and rate-limits GetImage.
+     *
+     * Cookie injection is required — Lectio serves profile photos / QR only when authenticated.
+     * Coil does not share [dk.betterlectio.android.core.lectio.http.LectioHttpEngine]'s OkHttp client.
      */
     @Provides
     @Singleton
     fun provideImageLoader(
         @ApplicationContext context: Context,
         rateLimiter: RateLimitedAvatarLoader,
+        credentialStore: CredentialStore,
     ): ImageLoader {
+        val authInterceptor = LectioAuthInterceptor(credentialStore)
         val rateLimitInterceptor = Interceptor { chain ->
             val request = chain.request()
             val host = request.url.host
@@ -65,21 +72,31 @@ object AppModule {
                     (path.contains("GetImage", ignoreCase = true) ||
                         request.url.toString().contains("pictureid", ignoreCase = true))
             if (isAvatar) {
+                var acquired = false
                 var attempts = 0
-                while (!rateLimiter.acquire() && attempts < 40) {
+                while (attempts < 80) {
+                    if (rateLimiter.acquire()) {
+                        acquired = true
+                        break
+                    }
                     Thread.sleep(25)
                     attempts++
                 }
                 try {
+                    // Proceed even if we never acquired (avoid stalling forever);
+                    // only release a slot we actually took.
                     chain.proceed(request)
                 } finally {
-                    rateLimiter.release()
+                    if (acquired) rateLimiter.release()
                 }
             } else {
                 chain.proceed(request)
             }
         }
         val okHttp = OkHttpClient.Builder()
+            // No cookie jar — Cookie header is injected from CredentialStore (Lectio parity).
+            .cookieJar(okhttp3.CookieJar.NO_COOKIES)
+            .addInterceptor(authInterceptor)
             .addInterceptor(rateLimitInterceptor)
             .connectTimeout(20, TimeUnit.SECONDS)
             .readTimeout(20, TimeUnit.SECONDS)

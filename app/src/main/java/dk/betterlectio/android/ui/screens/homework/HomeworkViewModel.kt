@@ -9,9 +9,12 @@ import dk.betterlectio.android.feature.homework.HomeworkDayGroup
 import dk.betterlectio.android.feature.homework.HomeworkItem
 import dk.betterlectio.android.feature.homework.HomeworkRepository
 import dk.betterlectio.android.feature.homework.groupedByDate
+import dk.betterlectio.android.feature.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -27,9 +30,16 @@ data class HomeworkUiState(
 @HiltViewModel
 class HomeworkViewModel @Inject constructor(
     private val repository: HomeworkRepository,
+    private val settings: SettingsStore,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeworkUiState())
     val state: StateFlow<HomeworkUiState> = _state.asStateFlow()
+
+    val lessonMappings = settings.lessonMappings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
+
+    fun displayTeam(team: String): String =
+        settings.displayNameForSubject(team, fallback = team)
 
     init {
         refresh()

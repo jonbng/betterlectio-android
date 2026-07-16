@@ -9,6 +9,7 @@
 # sdk.dir=/Users/YOU/Library/Android/sdk
 
 ## Optional: PostHog (analytics). Leave blank to disable capture.
+## Read by app/build.gradle.kts into BuildConfig (not via project.findProperty).
 # posthog.apiKey=phc_...
 # posthog.host=https://eu.i.posthog.com
 

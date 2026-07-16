@@ -28,6 +28,8 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Scaffold
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -38,6 +40,7 @@ import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -55,14 +58,19 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dk.betterlectio.android.R
+import dk.betterlectio.android.feature.homework.HomeworkDetailLoader
 import dk.betterlectio.android.feature.homework.HomeworkItem
+import dk.betterlectio.android.feature.schedule.LessonDetailParser
 import dk.betterlectio.android.ui.components.AppListDivider
 import dk.betterlectio.android.ui.components.AppListMeta
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
+import dk.betterlectio.android.ui.components.AttachmentRow
 import dk.betterlectio.android.ui.components.DetailSection
 import dk.betterlectio.android.ui.components.EmptyBox
 import dk.betterlectio.android.ui.components.ErrorBox
+import dk.betterlectio.android.ui.components.LectioHtmlBody
+import dk.betterlectio.android.ui.components.LessonContentBlocks
 import dk.betterlectio.android.ui.components.ListSkeleton
 import dk.betterlectio.android.ui.components.SectionHeader
 import dk.betterlectio.android.ui.components.isDueUrgent
@@ -82,6 +90,8 @@ fun HomeworkScreen(
 ) {
     val navController = rememberNavController()
     val state by viewModel.state.collectAsStateWithLifecycle()
+    @Suppress("UNUSED_VARIABLE")
+    val lessonMappings by viewModel.lessonMappings.collectAsStateWithLifecycle()
 
     LaunchedEffect(state.selected) {
         if (state.selected == null) {
@@ -117,6 +127,7 @@ fun HomeworkScreen(
             } else {
                 HomeworkDetailPane(
                     item = item,
+                    displayTeam = viewModel::displayTeam,
                     onBack = {
                         viewModel.select(null)
                         navController.popBackStack()
@@ -179,6 +190,7 @@ private fun HomeworkListPane(
                         items(group.items, key = { it.id }) { item ->
                             SwipeableHomeworkRow(
                                 item = item,
+                                displayTeam = viewModel::displayTeam,
                                 onOpen = { onOpen(item) },
                                 onToggleDone = {
                                     viewModel.toggleDone(item.id)
@@ -198,6 +210,7 @@ private fun HomeworkListPane(
 @Composable
 private fun SwipeableHomeworkRow(
     item: HomeworkItem,
+    displayTeam: (String) -> String = { it },
     onOpen: () -> Unit,
     onToggleDone: () -> Unit,
 ) {
@@ -304,7 +317,7 @@ private fun SwipeableHomeworkRow(
                 AppListSecondary(item.note, maxLines = 2)
             }
             if (item.team.isNotBlank()) {
-                AppListMeta(item.team)
+                AppListMeta(displayTeam(item.team))
             }
         }
     }
@@ -314,11 +327,15 @@ private fun SwipeableHomeworkRow(
 @Composable
 private fun HomeworkDetailPane(
     item: HomeworkItem,
+    displayTeam: (String) -> String = { it },
     onBack: () -> Unit,
     onToggleDone: () -> Unit,
 ) {
     val haptics = LocalHapticFeedback.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    val linkedTasks = item.tasks.filter { !it.url.isNullOrBlank() }
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = { Text(item.activityTitle, maxLines = 1) },
@@ -352,7 +369,7 @@ private fun HomeworkDetailPane(
                 Spacer(Modifier.height(8.dp))
             }
             if (item.team.isNotBlank()) {
-                Text(item.team, style = MaterialTheme.typography.bodyMedium)
+                Text(displayTeam(item.team), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
             }
             DetailSection(stringResource(R.string.label_homework)) {
@@ -363,10 +380,24 @@ private fun HomeworkDetailPane(
             }
             item.detailHtml?.let { html ->
                 DetailSection(stringResource(R.string.homework_lesson_content)) {
-                    Text(
-                        dk.betterlectio.android.feature.homework.HomeworkDetailLoader.plainTextFromHtml(html),
-                        style = MaterialTheme.typography.bodyMedium,
+                    HomeworkDetailContent(
+                        html = html,
+                        itemId = item.id,
+                        title = item.activityTitle,
+                        snackbarHostState = snackbarHostState,
                     )
+                }
+            }
+            if (linkedTasks.isNotEmpty()) {
+                DetailSection(stringResource(R.string.homework_links)) {
+                    linkedTasks.forEach { task ->
+                        AttachmentRow(
+                            name = task.text.ifBlank { task.url.orEmpty() },
+                            url = task.url.orEmpty(),
+                            isFileHint = false,
+                            snackbarHostState = snackbarHostState,
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(16.dp))
@@ -396,4 +427,60 @@ private fun ColumnScroll(modifier: Modifier = Modifier, content: @Composable () 
         modifier = modifier.verticalScroll(rememberScrollState()),
         content = { content() },
     )
+}
+
+/**
+ * Prefer structured lesson parsing (activity pages with images/blocks); fall back to
+ * fragment HTML rendering so inline images still load with the Lectio session.
+ */
+@Composable
+private fun HomeworkDetailContent(
+    html: String,
+    itemId: String,
+    title: String,
+    snackbarHostState: SnackbarHostState,
+) {
+    val looksLikeActivityPage = remember(html) {
+        html.contains("inlineHomework", ignoreCase = true) ||
+            html.contains("homeworkContentContainer", ignoreCase = true) ||
+            html.contains("ls-paper", ignoreCase = true) ||
+            html.contains("tocAndToolbar", ignoreCase = true)
+    }
+    val lessonDetail = remember(html, itemId, title, looksLikeActivityPage) {
+        if (!looksLikeActivityPage) null
+        else LessonDetailParser.parse(html, itemId, title).takeIf { it.contentBlocks.isNotEmpty() }
+    }
+    when {
+        lessonDetail != null -> {
+            lessonDetail.note?.takeIf { it.isNotBlank() }?.let { note ->
+                Text(note, style = MaterialTheme.typography.bodyMedium)
+                Spacer(Modifier.height(8.dp))
+            }
+            LessonContentBlocks(lessonDetail.contentBlocks)
+            if (lessonDetail.resources.isNotEmpty()) {
+                Spacer(Modifier.height(8.dp))
+                lessonDetail.resources.forEach { r ->
+                    AttachmentRow(
+                        name = r.title,
+                        url = r.url,
+                        isFileHint = r.isFile,
+                        snackbarHostState = snackbarHostState,
+                    )
+                }
+            }
+        }
+        else -> {
+            val segmentsEmpty = remember(html) {
+                dk.betterlectio.android.feature.content.LectioHtmlSegments.parse(html).isEmpty()
+            }
+            if (segmentsEmpty) {
+                val plain = remember(html) { HomeworkDetailLoader.plainTextFromHtml(html) }
+                if (plain.isNotBlank()) {
+                    Text(plain, style = MaterialTheme.typography.bodyMedium)
+                }
+            } else {
+                LectioHtmlBody(html = html)
+            }
+        }
+    }
 }

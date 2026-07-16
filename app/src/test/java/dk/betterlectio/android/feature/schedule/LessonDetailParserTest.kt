@@ -16,6 +16,9 @@ class LessonDetailParserTest {
         assertTrue(detail.resources.any { it.title.contains("Opgavesæt") || it.isFile })
         assertTrue(detail.participants.any { it.name.contains("Jens") })
         assertTrue(detail.title.isNotBlank())
+        val images = detail.contentBlocks.filter { it.kind == "image" }
+        assertTrue("expected image content block from fixture", images.isNotEmpty())
+        assertTrue(images.any { it.url?.contains("documentid=55") == true })
     }
 
     @Test

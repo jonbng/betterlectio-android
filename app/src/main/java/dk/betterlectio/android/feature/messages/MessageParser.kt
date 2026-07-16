@@ -50,10 +50,17 @@ object MessageParser {
         val topic = link.text().trim().ifBlank { cells.getOrNull(3)?.text()?.trim().orEmpty() }
         if (topic.isBlank()) return null
 
-        val sender = cells.getOrNull(5)?.selectFirst("[title]")?.attr("title")
-            ?: cells.getOrNull(5)?.text()?.trim()
-            ?: cells.getOrNull(4)?.text()?.trim()
-            ?: ""
+        // Cell 4 = latest sender (extension/iOS list avatar); cell 5 = first sender.
+        val latestPerson = parsePersonCell(cells.getOrNull(4))
+            ?: parsePersonCell(cells.getOrNull(5))
+        // Mobile block also carries the latest sender with a full title attribute.
+        val mobilePerson = row.selectFirst("div.message-list-thread-from span[title], div.message-list-thread-from span")
+            ?.let { parsePersonElement(it) }
+        val person = when {
+            latestPerson != null && latestPerson.name.isNotBlank() -> latestPerson
+            mobilePerson != null && mobilePerson.name.isNotBlank() -> mobilePerson
+            else -> PersonRef("", null, null)
+        }
 
         val dateRaw = cells.getOrNull(7)?.text()?.trim()
             ?: cells.lastOrNull()?.text()?.trim()
@@ -73,12 +80,14 @@ object MessageParser {
         return MessageThread(
             id = id,
             topic = topic,
-            sender = sender,
+            sender = person.name,
             dateChanged = date,
             folderId = folderId,
             normalizedId = normalizeThreadId(id),
             unread = unread,
             flagged = flagged,
+            senderEntityId = person.entityId,
+            senderKind = person.kind,
         )
     }
 
@@ -89,26 +98,68 @@ object MessageParser {
         val id = extractThreadId(onclick, href) ?: return null
         val topic = link.text().trim()
         if (topic.isBlank()) return null
-        val sender = container.selectFirst("span[title]")?.attr("title")
-            ?: container.selectFirst(".message-list-sender, span")?.text()?.trim()
-            ?: ""
-        val dateRaw = container.selectFirst(".message-list-date, .lpm-datetime, div")?.text()?.trim().orEmpty()
+        val person = container.selectFirst("span[title], .message-list-sender, span")
+            ?.let { parsePersonElement(it) }
+            ?: PersonRef("", null, null)
+        val dateRaw = container.selectFirst(".message-list-date, .lpm-datetime, .message-list-thread-datetime, div")
+            ?.text()?.trim().orEmpty()
         val date = LectioDateUtils.parseLectioDate(dateRaw)
         val unread = container.className().contains("unread", true) ||
-            container.hasClass("ulæst")
+            container.hasClass("ulæst") ||
+            container.parent()?.className()?.contains("unread", true) == true
         val flagged = container.select("img[title*=flag]").any {
             it.attr("src").contains("flagon", ignoreCase = true)
         }
         return MessageThread(
             id = id,
             topic = topic,
-            sender = sender,
+            sender = person.name,
             dateChanged = date,
             folderId = folderId,
             normalizedId = normalizeThreadId(id),
             unread = unread,
             flagged = flagged,
+            senderEntityId = person.entityId,
+            senderKind = person.kind,
         )
+    }
+
+    private data class PersonRef(
+        val name: String,
+        val entityId: String?,
+        val kind: String?,
+    )
+
+    private fun parsePersonCell(cell: Element?): PersonRef? {
+        if (cell == null) return null
+        val el = cell.selectFirst("[data-lectiocontextcard], [data-lectioContextCard], span[title], span")
+            ?: return null
+        return parsePersonElement(el)
+    }
+
+    private fun parsePersonElement(el: Element): PersonRef {
+        val entityId = el.attr("data-lectiocontextcard").ifBlank {
+            el.attr("data-lectioContextCard")
+        }.ifBlank {
+            el.selectFirst("[data-lectiocontextcard], [data-lectioContextCard]")
+                ?.let { it.attr("data-lectiocontextcard").ifBlank { it.attr("data-lectioContextCard") } }
+                .orEmpty()
+        }.ifBlank { null }
+
+        val title = el.attr("title").trim()
+        val text = el.text().trim()
+        // Prefer full title ("Name (code)") over abbreviated cell text ("MPS")
+        val name = title.ifBlank { text }
+
+        val classes = el.className()
+        val kind = when {
+            classes.contains("prepend-fonticon-teacher") -> "TEACHER"
+            classes.contains("prepend-fonticon-student") -> "STUDENT"
+            entityId?.startsWith("T", ignoreCase = true) == true -> "TEACHER"
+            entityId?.startsWith("S", ignoreCase = true) == true -> "STUDENT"
+            else -> null
+        }
+        return PersonRef(name = name, entityId = entityId, kind = kind)
     }
 
     /**
@@ -124,12 +175,17 @@ object MessageParser {
 
     fun parseThreadDetail(html: String, ref: MessageThread): MessageThreadDetail {
         val doc = Jsoup.parse(html)
-        val receivers = doc.select("#s_m_Content_Content_MessageThreadCtrl_RecipientsReadMode span")
-            .mapNotNull { span ->
-                val name = span.text().trim()
-                if (name.isEmpty()) null
-                else name
-            }
+        val receiverPeople = doc.select(
+            "#s_m_Content_Content_MessageThreadCtrl_RecipientsReadMode span, " +
+                "#s_m_Content_Content_MessageThreadCtrl_RecipientsReadMode [data-lectiocontextcard], " +
+                "#s_m_Content_Content_MessageThreadCtrl_RecipientsReadMode [data-lectioContextCard]",
+        ).map { parsePersonElement(it) }
+            .filter { it.name.isNotBlank() || !it.entityId.isNullOrBlank() }
+            .distinctBy { it.entityId ?: it.name }
+        val receivers = receiverPeople.mapNotNull { p ->
+            p.name.takeIf { it.isNotBlank() }
+        }
+        val receiverEntityIds = receiverPeople.mapNotNull { it.entityId?.takeIf(String::isNotBlank) }
 
         // Prefer MessagesGV rows (iOS), skip textareas; also accept GridRowMessage (Flutter)
         val entryEls = buildList {
@@ -159,7 +215,9 @@ object MessageParser {
 
             val senderSpan = el.selectFirst(".message-thread-message-sender span")
             val senderBlock = el.selectFirst(".message-thread-message-sender")
-            val sender = senderSpan?.text()?.trim()
+            val person = senderSpan?.let { parsePersonElement(it) }
+            val sender = person?.name?.takeIf { it.isNotBlank() }
+                ?: senderSpan?.text()?.trim()
                 ?: senderBlock?.text()?.trim()?.substringBefore(',')?.trim()
             val infoText = senderBlock?.text().orEmpty()
             val sentAt = parseMessageTimestamp(infoText, sender)
@@ -171,6 +229,8 @@ object MessageParser {
                 senderName = sender,
                 sentAt = sentAt,
                 attachments = attachments,
+                senderEntityId = person?.entityId,
+                senderKind = person?.kind,
             )
         }
 
@@ -188,10 +248,13 @@ object MessageParser {
                         senderName = ref.sender,
                         sentAt = ref.dateChanged,
                         attachments = parseAttachments(contentEl),
+                        senderEntityId = ref.senderEntityId,
+                        senderKind = ref.senderKind,
                     ),
                 )
             },
             receivers = receivers,
+            receiverEntityIds = receiverEntityIds,
         )
     }
 
@@ -286,7 +349,15 @@ object MessageParser {
         return folders
     }
 
+    /**
+     * Prefer **numeric** Lectio thread ids (iOS / extension), not the full
+     * `$LB2$_MC_$_…` control token. Digits-only ids are safe for Navigation routes
+     * and match READMESSAGE_/FLAGMESSAGE_/openThreadArg reconstruction.
+     */
     private fun extractThreadId(onclick: String, href: String): String? {
+        val blob = "$onclick $href"
+        THREAD_ID_NUMERIC.find(blob)?.let { return it.groupValues[1] }
+        // Fallback: full `$…` token (older fixtures / odd layouts)
         val dollar = onclick.indexOf('$')
         if (dollar >= 0) {
             val end = onclick.indexOf('\'', dollar).takeIf { it > dollar }
@@ -298,7 +369,42 @@ object MessageParser {
         Regex("""threadid=([^&'"]+)""", RegexOption.IGNORE_CASE).find(href)?.let {
             return it.groupValues[1]
         }
-        Regex("""['"](\$[^'"]+)['"]""").find(onclick)?.let { return it.groupValues[1] }
         return null
     }
+
+    /** True when HTML is a message thread detail page (not the folder list). */
+    fun looksLikeThreadDetail(html: String): Boolean {
+        if (html.isBlank() || isLikelyErrorHtml(html)) return false
+        // Compose form is not a thread view
+        if (html.contains("addRecipientDD") && html.contains("SendMessageBtn") &&
+            !html.contains("message-thread-message-sender")
+        ) {
+            return false
+        }
+        return html.contains("message-thread-message-content") ||
+            html.contains("message-thread-message-sender") ||
+            html.contains("MessageThreadCtrl_RecipientsReadMode") ||
+            html.contains("RecipientsReadMode") ||
+            (html.contains("MessagesGV") && html.contains("message-thread"))
+    }
+
+    /** Folder list page with a thread table (or empty table). */
+    fun looksLikeThreadList(html: String): Boolean {
+        if (html.isBlank() || isLikelyErrorHtml(html)) return false
+        return html.contains("threadGV") ||
+            html.contains("message-list-thread-container") ||
+            html.contains("ListGridSelectionTree")
+    }
+
+    private fun isLikelyErrorHtml(html: String): Boolean {
+        val lower = html.lowercase()
+        return lower.contains("fejlhandled.aspx") ||
+            lower.contains("ukendt parameter") ||
+            lower.contains("robotdetection")
+    }
+
+    private val THREAD_ID_NUMERIC = Regex(
+        // Raw string: double $$ so Kotlin does not interpolate $LB2 / $_MC_
+        """(?:FLAGMESSAGE|VIEWTHREAD|(?:UN)?HIDEMESSAGE|UNREADMESSAGE|READMESSAGE|\${'$'}LB2\${'$'}_MC_\${'$'}_)(\d+)""",
+    )
 }

@@ -36,11 +36,14 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,12 +64,15 @@ fun LoginScreen(
     viewModel: LoginViewModel = hiltViewModel(),
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
 
     Scaffold { padding ->
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                .imePadding(),
         ) {
             // Brand moment
             Column(
@@ -151,7 +157,11 @@ fun LoginScreen(
                             shadowElevation = 0.dp,
                         ) {
                             AppListRow(
-                                onClick = { viewModel.select(school) },
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                    viewModel.select(school)
+                                },
                                 leading = {
                                     Box(
                                         Modifier
@@ -225,28 +235,35 @@ fun LoginScreen(
                         )
                     }
 
+                    // Primary path is tap-to-login on a school row. Sticky MitID is
+                    // only a retry after cancel / failed session install.
                     state.selected?.let { school ->
-                        Text(
-                            school.name,
-                            style = MaterialTheme.typography.labelLarge,
-                            color = MaterialTheme.colorScheme.primary,
-                        )
-                    }
-
-                    Button(
-                        onClick = viewModel::startMitId,
-                        enabled = state.selected != null && !state.loggingIn,
-                        modifier = Modifier.fillMaxWidth(),
-                    ) {
-                        if (state.loggingIn) {
-                            CircularProgressIndicator(
-                                Modifier.size(20.dp),
-                                strokeWidth = 2.dp,
-                                color = MaterialTheme.colorScheme.onPrimary,
+                        if (!school.isDemo) {
+                            Text(
+                                school.name,
+                                style = MaterialTheme.typography.labelLarge,
+                                color = MaterialTheme.colorScheme.primary,
                             )
-                            Spacer(Modifier.width(10.dp))
+                            Button(
+                                onClick = {
+                                    focusManager.clearFocus()
+                                    keyboardController?.hide()
+                                    viewModel.startMitId()
+                                },
+                                enabled = !state.loggingIn,
+                                modifier = Modifier.fillMaxWidth(),
+                            ) {
+                                if (state.loggingIn) {
+                                    CircularProgressIndicator(
+                                        Modifier.size(20.dp),
+                                        strokeWidth = 2.dp,
+                                        color = MaterialTheme.colorScheme.onPrimary,
+                                    )
+                                    Spacer(Modifier.width(10.dp))
+                                }
+                                Text(stringResource(R.string.login_mitid))
+                            }
                         }
-                        Text(stringResource(R.string.login_mitid))
                     }
 
                     TextButton(
@@ -267,6 +284,7 @@ fun LoginScreen(
             appSwitchError = state.mitIdAppSwitchError,
             onDismiss = viewModel::dismissWebView,
             onLoginComplete = { callbackUrl -> viewModel.onWebViewLoginSuccess(callbackUrl) },
+            onLoginDetected = viewModel::onWebViewLoginDetected,
             onAppSwitchFailed = viewModel::onMitIdAppSwitchFailed,
             onClearAppSwitchError = viewModel::clearMitIdAppSwitchError,
         )
@@ -285,6 +303,7 @@ private fun MitIdLoginDialog(
     appSwitchError: String?,
     onDismiss: () -> Unit,
     onLoginComplete: (callbackUrl: String) -> Unit,
+    onLoginDetected: () -> Unit,
     onAppSwitchFailed: (String) -> Unit,
     onClearAppSwitchError: () -> Unit,
 ) {
@@ -373,6 +392,7 @@ private fun MitIdLoginDialog(
                         MitIdWebView(
                             school = school,
                             onLoginComplete = onLoginComplete,
+                            onLoginDetected = onLoginDetected,
                             onExternalAppLaunchFailed = onAppSwitchFailed,
                             modifier = Modifier.fillMaxSize(),
                         )

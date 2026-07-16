@@ -9,7 +9,7 @@
     <string name="tab_more">More</string>
 
     <string name="login_title">Log in</string>
-    <string name="login_subtitle">Choose your school and log in with MitID via Lectio.</string>
+    <string name="login_subtitle">Search for your school and tap to sign in with MitID.</string>
     <string name="login_search_school">Search school</string>
     <string name="login_mitid">Log in with MitID</string>
     <string name="login_mitid_cancel">Cancel</string>
@@ -17,7 +17,6 @@
     <string name="login_mitid_app_missing">Could not open the MitID app. Install MitID from the Play Store and try again.</string>
     <string name="login_demo">Try demo</string>
     <string name="settings_sync_subjects">Sync subject colors (Supabase)</string>
-    <string name="studiekort_change_photo">Change profile photo</string>
 
     <string name="placeholder_coming_soon">Coming soon — under construction.</string>
     <string name="loading">Loading…</string>
@@ -30,6 +29,7 @@
     <string name="error_robot">Robot detection — try again in a moment.</string>
     <string name="error_robot_hint">Lectio temporarily blocked requests. Wait a few minutes.</string>
     <string name="action_retry">Try again</string>
+    <string name="action_cancel">Cancel</string>
     <string name="action_logout">Log out</string>
 
     <string name="empty_schedule">No schedule data</string>
@@ -47,13 +47,20 @@
     <string name="homework_swipe_done">Done</string>
     <string name="homework_swipe_undo">Undo</string>
     <string name="grades_average_label">Average %1$s</string>
+    <string name="grades_averages_title">Averages</string>
+    <string name="grades_averages_weighted_note">weighted</string>
     <string name="grades_type_all">All</string>
     <string name="grades_type_sp1">1.SP</string>
     <string name="grades_type_sp2">2.SP</string>
+    <string name="grades_type_sp3">3.SP</string>
+    <string name="grades_type_final">Final</string>
     <string name="grades_type_internal">Int.</string>
     <string name="grades_type_year">Year</string>
     <string name="grades_type_exam">Exam</string>
     <string name="grades_no_average">—</string>
+    <string name="grades_empty">No grades found</string>
+    <string name="grades_weight_label">Weight %1$s</string>
+    <string name="grades_subject_header">Subject</string>
     <string name="absence_regular">Regular</string>
     <string name="absence_written">Written</string>
     <string name="more_catalog">Catalog</string>
@@ -74,10 +81,46 @@
     <string name="cd_clear_search">Clear search</string>
     <string name="cd_search">Search</string>
     <string name="message_attachment">Attachment: %1$s</string>
+    <string name="attachment_open">Open</string>
+    <string name="attachment_save">Save</string>
+    <string name="attachment_share">Share</string>
+    <string name="attachment_downloading">Downloading %1$s…</string>
+    <string name="attachment_saved">Saved to Downloads</string>
+    <string name="attachment_error_generic">Could not open the file</string>
+    <string name="attachment_error_offline">No connection — try again when you are online</string>
+    <string name="attachment_error_session">Session expired — log in again to download the file</string>
+    <string name="attachment_error_robot">Lectio temporarily blocked requests — try again shortly</string>
+    <string name="attachment_error_empty">The file is empty</string>
+    <string name="attachment_error_html">Could not download the file (login page)</string>
+    <string name="attachment_error_no_app">No app can open this file type</string>
+    <string name="attachment_close_preview">Close preview</string>
+    <string name="image_load_failed">Could not load image</string>
+    <string name="homework_links">Links and files</string>
     <string name="message_compose_send_disabled_hint">Add subject, recipient, and message</string>
+    <string name="message_replies_not_allowed">Cannot be answered</string>
+    <string name="message_attach">Attach</string>
+    <string name="message_attach_photo">Photo or video</string>
+    <string name="message_attach_file">File</string>
+    <string name="message_attach_remove">Remove attachment</string>
+    <string name="message_sending">Sending…</string>
+    <string name="message_uploading">Uploading %1$s…</string>
+    <string name="message_bbcode_bold">Bold</string>
+    <string name="message_bbcode_italic">Italic</string>
+    <string name="message_bbcode_underline">Underline</string>
+    <string name="message_bbcode_link">Link</string>
+    <string name="message_bbcode_link_title">Insert link</string>
+    <string name="message_bbcode_link_url">URL</string>
+    <string name="message_bbcode_link_insert">Insert</string>
+    <string name="message_bbcode_list_bullet">Bullet list</string>
+    <string name="message_bbcode_list_numbered">Numbered list</string>
+    <string name="message_attachments_max">At most %1$d attachments</string>
+    <string name="settings_messages">Messages</string>
+    <string name="settings_disable_signature">Hide BetterLectio signature</string>
+    <string name="settings_disable_signature_hint">Do not append “Sent with BetterLectio” to new messages and replies</string>
     <string name="empty_directory">No results</string>
     <string name="empty_directory_hint">Try another search or category.</string>
     <string name="schedule_week_badge">Week %1$d</string>
+    <string name="schedule_go_to_today">Today</string>
     <string name="empty_assignments">No assignments</string>
     <string name="empty_assignments_hint">No assignments match this filter. Try another, or pull down to refresh.</string>
     <string name="empty_assignments_all_hint">When Lectio has submissions, they appear here.</string>
@@ -172,10 +215,16 @@
     <string name="settings_calendar_timeline_hint">Time grid like Google Calendar (recommended)</string>
     <string name="settings_calendar_list">List</string>
     <string name="settings_calendar_list_hint">Flat rows for the day\'s lessons</string>
-    <string name="settings_subject_colors">Subject colors</string>
-    <string name="settings_subject_colors_hint">Colors and names are used on the schedule.</string>
+    <string name="settings_subject_colors">Subjects</string>
+    <string name="settings_subject_colors_hint">Tap a subject to change its name and color. Synced via Supabase.</string>
+    <string name="settings_subject_color">Color</string>
+    <string name="settings_subject_customized">Customized</string>
+    <string name="settings_subject_reset">Reset</string>
+    <string name="settings_subject_reset_all">Reset all customizations</string>
+    <string name="msg_subject_reset">Subject reset to default</string>
+    <string name="msg_subjects_reset_all">All subject customizations reset</string>
     <string name="settings_subject_rename">Display name</string>
-    <string name="settings_subject_rename_save">Save subject name</string>
+    <string name="settings_subject_rename_save">Save</string>
     <string name="settings_notifications">Notifications</string>
     <string name="settings_notif_events">Cancelled and changed modules</string>
     <string name="settings_notif_messages">New messages</string>
@@ -213,6 +262,15 @@
     <string name="directory_pin">Pin</string>
     <string name="directory_unpin">Unpin</string>
     <string name="directory_pinned">Pinned</string>
+    <string name="directory_open_schedule">View schedule</string>
+    <string name="directory_write_message">Write message</string>
+    <string name="directory_view_class">View class</string>
+    <string name="directory_view_class_named">Everyone in %1$s</string>
+    <string name="directory_class_not_found">Could not find the class</string>
+    <string name="directory_person_schedule">Schedule</string>
+    <string name="directory_person_schedule_empty">No lessons this week</string>
+    <string name="directory_person_kind_student">Student</string>
+    <string name="directory_person_kind_teacher">Teacher</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Remove flag</string>
@@ -223,9 +281,6 @@
 
     <string name="homework_lesson_content">Lesson content</string>
 
-    <string name="more_help">Help</string>
-    <string name="help_title">Help for BetterLectio</string>
-    <string name="help_body">BetterLectio shows your Lectio schedule, messages, homework, and assignments on Android.\n\n• Log in with MitID via Lectio\n• Use demo to try without an account\n• Pin people in the directory\n• Professional calendar style under Settings\n• Add a schedule widget on the home screen\n\nPrivacy policy is available under Settings.</string>
     <string name="settings_check_updates">Check for updates</string>
     <string name="settings_version">Version %1$s</string>
 
@@ -262,7 +317,6 @@
     <string name="msg_absence_cause_history">Absence cause updated: %1$s</string>
     <string name="msg_subject_name_saved">Subject name saved</string>
     <string name="msg_notif_history_cleared">Notification history cleared</string>
-    <string name="msg_profile_photo_updated">Profile photo updated</string>
     <string name="msg_supabase_not_configured">Supabase not configured — using local subject colors</string>
     <string name="msg_no_remote_subject_mapping">No remote subject mapping found</string>
     <string name="msg_subjects_synced">Subject colors synced (%1$d)</string>

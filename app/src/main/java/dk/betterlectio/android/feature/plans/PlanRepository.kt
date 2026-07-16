@@ -41,12 +41,13 @@ class PlanRepository @Inject constructor(
                 ),
             )
         }
-        val href = plan.id
+        // List keys may append "#index" for uniqueness; strip before network fetch.
+        val href = plan.id.replace(Regex("#\\d+$"), "")
         if (!href.contains("http") && !href.contains(".aspx") && !href.contains("/")) {
             return AppResult.Success(plan.copy(detailHtml = plan.title))
         }
         val path = if (href.startsWith("http")) href else href.removePrefix("/")
-        val key = "plan_${student.studentId}_${plan.id.hashCode()}"
+        val key = "plan_${student.studentId}_${href.hashCode()}"
         cache.get(key)?.let {
             return AppResult.Success(plan.copy(detailHtml = extractBody(it)))
         }
@@ -61,15 +62,22 @@ class PlanRepository @Inject constructor(
 
     private fun parseList(html: String): List<StudyPlan> {
         val doc = Jsoup.parse(html)
-        return doc.select("a[href*=studieplan], table tr a, .lp-studieplan a").mapIndexed { i, a ->
-            StudyPlan(
-                id = a.attr("href").ifBlank { "plan-$i" },
-                title = a.text().trim().ifBlank { context.getString(R.string.plan_fallback_title) },
-                team = "",
-            )
-        }.distinctBy { it.title }.ifEmpty {
-            listOf(StudyPlan("empty", context.getString(R.string.plan_empty), ""))
-        }
+        // Prefer unique hrefs; fall back to index-stable ids so LazyColumn keys never collide
+        // when Lectio reuses the same studieplan.aspx URL for multiple rows.
+        return doc.select("a[href*=studieplan], table tr a, .lp-studieplan a")
+            .mapIndexed { i, a ->
+                val href = a.attr("href").trim()
+                val title = a.text().trim().ifBlank { context.getString(R.string.plan_fallback_title) }
+                StudyPlan(
+                    id = if (href.isNotBlank()) "$href#$i" else "plan-$i",
+                    title = title,
+                    team = "",
+                )
+            }
+            .distinctBy { it.title }
+            .ifEmpty {
+                listOf(StudyPlan("empty", context.getString(R.string.plan_empty), ""))
+            }
     }
 
     private fun extractBody(html: String): String {

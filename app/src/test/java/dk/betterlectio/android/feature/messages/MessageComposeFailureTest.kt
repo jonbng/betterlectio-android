@@ -33,8 +33,14 @@ class MessageComposeFailureTest {
         )
         assertTrue(
             "compose failure path must return AppResult.Failure",
-            src.contains("AppResult.Failure(lastError)") ||
-                src.contains("is AppResult.Failure -> post"),
+            src.contains("AppResult.Failure") &&
+                (src.contains("Kunne ikke sende besked") ||
+                    src.contains("is AppResult.Failure -> return")),
+        )
+        assertTrue(
+            "compose must use multi-step postFromHtml",
+            src.contains("postFromHtml") &&
+                !src.contains("beskeder2.aspx?type=nybesked"),
         )
     }
 

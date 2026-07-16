@@ -15,18 +15,15 @@ class GradeRepository @Inject constructor(
     private val cache: SimpleCache,
     private val session: SessionController,
 ) {
-    suspend fun load(forceRefresh: Boolean = false): AppResult<List<GradeRow>> {
+    suspend fun load(forceRefresh: Boolean = false): AppResult<GradesReport> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
-            return AppResult.Success(
-                DemoData.grades.map { row ->
-                    row.copy(notes = DemoData.gradeNotes[row.team].orEmpty())
-                },
-            )
+            return AppResult.Success(DemoData.gradesReport)
         }
         val key = "grades_${student.studentId}"
-        if (!forceRefresh) cache.get(key)?.let { return AppResult.Success(GradeParser.parse(it)) }
-        // Flutter/iOS: grades/grade_report.aspx?elevid=…
+        if (!forceRefresh) {
+            cache.get(key)?.let { return AppResult.Success(GradeParser.parse(it)) }
+        }
         val paths = listOf(
             "grades/grade_report.aspx?elevid=${student.studentId}",
             "grades/grade_report.aspx",
@@ -47,14 +44,43 @@ class GradeRepository @Inject constructor(
         return lastFailure ?: AppResult.Failure(AppError.Unknown("Kunne ikke hente karakterer"))
     }
 
-    suspend fun loadSubjectDetail(row: GradeRow): AppResult<GradeSubjectDetail> {
+    suspend fun loadSubjectDetail(
+        row: GradeRow,
+        report: GradesReport? = null,
+    ): AppResult<GradeSubjectDetail> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
+            val notes = GradeAverage.notesForHold(DemoData.gradesReport.notes, row.team)
             return AppResult.Success(
-                GradeSubjectDetail(row, DemoData.gradeNotes[row.team] ?: listOf("Ingen noter")),
+                GradeSubjectDetail(
+                    row = row,
+                    notes = notes.ifEmpty {
+                        listOf(
+                            GradeNoteEntry(
+                                hold = row.team,
+                                gradeType = "",
+                                grade = "",
+                                insertedAt = "",
+                                note = "Ingen noter",
+                            ),
+                        )
+                    },
+                    columns = DemoData.gradesReport.columns,
+                ),
             )
         }
-        // Notes live on grade_report page (Flutter); fallback grade_student_note
+
+        // Prefer notes already on the report (same page as grades).
+        if (report != null) {
+            return AppResult.Success(
+                GradeSubjectDetail(
+                    row = row,
+                    notes = GradeAverage.notesForHold(report.notes, row.team),
+                    columns = report.columns,
+                ),
+            )
+        }
+
         val paths = listOf(
             "grades/grade_report.aspx?elevid=${student.studentId}",
             "grades/grade_report.aspx",
@@ -63,14 +89,18 @@ class GradeRepository @Inject constructor(
         for (path in paths) {
             when (val res = client.get(path)) {
                 is AppResult.Success -> {
-                    val notes = GradeParser.parseNotes(res.data.body)
-                    if (notes.isNotEmpty()) {
-                        return AppResult.Success(GradeSubjectDetail(row, notes))
-                    }
+                    val parsed = GradeParser.parse(res.data.body)
+                    return AppResult.Success(
+                        GradeSubjectDetail(
+                            row = row,
+                            notes = GradeAverage.notesForHold(parsed.notes, row.team),
+                            columns = parsed.columns.ifEmpty { report?.columns.orEmpty() },
+                        ),
+                    )
                 }
                 is AppResult.Failure -> continue
             }
         }
-        return AppResult.Success(GradeSubjectDetail(row, row.notes))
+        return AppResult.Success(GradeSubjectDetail(row, emptyList()))
     }
 }

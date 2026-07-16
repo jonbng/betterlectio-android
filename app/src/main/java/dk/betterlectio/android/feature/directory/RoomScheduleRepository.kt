@@ -71,4 +71,37 @@ class RoomScheduleRepository @Inject constructor(
             )
         }
     }
+
+    /**
+     * Week schedule for a directory person (student or teacher).
+     * Lectio: `SkemaNy.aspx?type=elev&elevid=` / `type=laerer&laererid=`.
+     */
+    suspend fun loadPersonWeek(
+        entity: DirectoryEntity,
+        year: Int = LectioDateUtils.isoWeekYear(),
+        week: Int = LectioDateUtils.isoWeek(),
+    ): AppResult<ScheduleWeek> {
+        val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
+        if (student.isDemo) {
+            return AppResult.Success(DemoData.scheduleWeek(year, week))
+        }
+        val numericId = DirectoryParser.numericId(entity.id)
+        if (numericId.isBlank()) {
+            return AppResult.Failure(AppError.Unknown("Missing entity id for schedule"))
+        }
+        val weekParam = "%02d%d".format(week, year)
+        val path = when (entity.kind) {
+            DirectoryEntityKind.STUDENT ->
+                "SkemaNy.aspx?type=elev&elevid=$numericId&week=$weekParam"
+            DirectoryEntityKind.TEACHER ->
+                "SkemaNy.aspx?type=laerer&laererid=$numericId&week=$weekParam"
+            else -> return AppResult.Failure(AppError.Unknown("Entity has no person schedule"))
+        }
+        return when (val res = client.get(path, FetchPriority.Important)) {
+            is AppResult.Failure -> res
+            is AppResult.Success -> AppResult.Success(
+                ScheduleParser.parseWeek(res.data.body, year, week),
+            )
+        }
+    }
 }

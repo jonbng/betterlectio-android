@@ -207,6 +207,8 @@ class LectioHttpEngine @Inject constructor(
                                 bytes = bytes,
                                 finalUrl = finalUrl,
                                 statusCode = response.code,
+                                contentType = response.header("Content-Type"),
+                                contentDisposition = response.header("Content-Disposition"),
                             ),
                             currentCredentials,
                         )

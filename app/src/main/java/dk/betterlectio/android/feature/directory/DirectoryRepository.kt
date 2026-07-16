@@ -6,6 +6,7 @@ import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.demo.DemoData
+import dk.betterlectio.android.feature.offline.OfflineDirectoryStore
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -14,59 +15,60 @@ class DirectoryRepository @Inject constructor(
     private val client: LectioClient,
     private val cache: SimpleCache,
     private val session: SessionController,
-    private val offline: dk.betterlectio.android.feature.offline.OfflineDirectoryStore,
+    private val offline: OfflineDirectoryStore,
+    private val syncService: DirectorySyncService,
+    private val avatars: AvatarRepository,
 ) {
+    /**
+     * Search the school directory. Prefers the offline full-catalog snapshot
+     * (from [DirectorySyncService]); triggers a full dropdown sync when empty.
+     * Never scrapes a single FindSkema letter page as the catalog source.
+     */
     suspend fun search(query: String, kind: DirectoryEntityKind? = null): AppResult<List<DirectoryEntity>> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
-            val q = query.trim().lowercase()
-            val all = DemoData.directory
-            return AppResult.Success(
-                all.filter {
-                    (kind == null || it.kind == kind) &&
-                        (q.isEmpty() || it.name.lowercase().contains(q) ||
-                            it.subtitle?.lowercase()?.contains(q) == true)
-                },
-            )
+            return AppResult.Success(filterParsed(DemoData.directory, query, kind))
         }
 
-        val path = when (kind) {
-            DirectoryEntityKind.TEACHER -> "FindSkema.aspx?type=laerer"
-            DirectoryEntityKind.CLASS -> "FindSkema.aspx?type=klasse"
-            DirectoryEntityKind.ROOM -> "FindSkema.aspx?type=lokale"
-            DirectoryEntityKind.HOLD -> "FindSkema.aspx?type=hold"
-            else -> "FindSkema.aspx?type=elev"
+        var catalog = offline.loadAll(student.studentId)
+        if (catalog.isEmpty()) {
+            // Try in-memory/file cache of the dropdown JSON before hitting network again.
+            val cachedJson = cache.get(DirectorySyncService.dropdownCacheKey(student.gymId))
+            if (cachedJson != null) {
+                catalog = DirectoryParser.parseDropdownJson(cachedJson)
+                if (catalog.isNotEmpty()) {
+                    offline.replaceAll(student.studentId, catalog)
+                }
+            }
         }
-        val key = "dir_${student.gymId}_${kind ?: "all"}"
-        fun filterParsed(parsed: List<DirectoryEntity>): List<DirectoryEntity> {
-            val q = query.trim().lowercase()
-            return if (q.isEmpty()) parsed
-            else parsed.filter {
-                it.name.lowercase().contains(q) ||
+
+        if (catalog.isEmpty()) {
+            when (val sync = syncService.syncFullCatalog()) {
+                is AppResult.Failure -> return sync
+                is AppResult.Success -> catalog = offline.loadAll(student.studentId)
+            }
+        }
+
+        return AppResult.Success(filterParsed(catalog, query, kind))
+    }
+
+    private fun filterParsed(
+        parsed: List<DirectoryEntity>,
+        query: String,
+        kind: DirectoryEntityKind?,
+    ): List<DirectoryEntity> {
+        val q = query.trim().lowercase()
+        return parsed.asSequence()
+            .filter { kind == null || it.kind == kind }
+            // Drop legacy HTML scrapes (nav chrome, fake item-* ids) still in Room.
+            .filter { DirectoryParser.isValidPrefixedId(it.id) }
+            .filter { !DirectoryParser.looksLikeNavChrome(it.name) }
+            .filter {
+                q.isEmpty() ||
+                    it.name.lowercase().contains(q) ||
                     it.subtitle?.lowercase()?.contains(q) == true
-            }.let { list ->
-                if (kind == null) list else list.filter { it.kind == kind }
             }
-        }
-
-        cache.get(key)?.let { html ->
-            val parsed = DirectoryParser.parseFindList(html, kind ?: DirectoryEntityKind.STUDENT)
-            return AppResult.Success(filterParsed(parsed))
-        }
-
-        return when (val res = client.get(path)) {
-            is AppResult.Failure -> {
-                val room = offline.loadAll(student.studentId)
-                if (room.isNotEmpty()) AppResult.Success(filterParsed(room))
-                else res
-            }
-            is AppResult.Success -> {
-                cache.put(key, res.data.body)
-                val parsed = DirectoryParser.parseFindList(res.data.body, kind ?: DirectoryEntityKind.STUDENT)
-                offline.saveAll(student.studentId, parsed)
-                AppResult.Success(filterParsed(parsed))
-            }
-        }
+            .toList()
     }
 
     /** Members of a class/hold (demo always works; live parses elevliste HTML). */
@@ -81,17 +83,56 @@ class DirectoryRepository @Inject constructor(
                     ),
             )
         }
+
+        val holdElementId = DirectoryParser.numericId(entity.id)
         val path = when (entity.kind) {
-            DirectoryEntityKind.CLASS, DirectoryEntityKind.HOLD ->
-                "subnav/members.aspx?holdelementid=${entity.id}"
-            else -> "FindSkemaBew.aspx?type=elev&nosubnav=1&relatedto=${entity.id}"
+            DirectoryEntityKind.CLASS, DirectoryEntityKind.HOLD, DirectoryEntityKind.GROUP ->
+                "subnav/members.aspx?holdelementid=$holdElementId"
+            else -> "FindSkemaBew.aspx?type=elev&nosubnav=1&relatedto=$holdElementId"
         }
+
+        val membersCacheKey = "dir_members_${student.gymId}_${entity.id}"
+        cache.get(membersCacheKey)?.let { html ->
+            val parsed = DirectoryParser.parseMembers(html, entity, gymId = student.gymId)
+            if (parsed.isNotEmpty()) {
+                rememberMemberAvatars(student.studentId, parsed)
+                return AppResult.Success(parsed)
+            }
+        }
+
         return when (val res = client.get(path)) {
             is AppResult.Failure -> when (val alt = client.get("ElevKlasseListe.aspx")) {
-                is AppResult.Success -> AppResult.Success(DirectoryParser.parseMembers(alt.data.body, entity))
+                is AppResult.Success -> {
+                    val members = DirectoryParser.parseMembers(
+                        alt.data.body,
+                        entity,
+                        gymId = student.gymId,
+                    )
+                    rememberMemberAvatars(student.studentId, members)
+                    AppResult.Success(members)
+                }
                 is AppResult.Failure -> res
             }
-            is AppResult.Success -> AppResult.Success(DirectoryParser.parseMembers(res.data.body, entity))
+            is AppResult.Success -> {
+                cache.put(membersCacheKey, res.data.body)
+                val members = DirectoryParser.parseMembers(
+                    res.data.body,
+                    entity,
+                    gymId = student.gymId,
+                )
+                if (members.isNotEmpty()) {
+                    offline.saveAll(student.studentId, members)
+                    rememberMemberAvatars(student.studentId, members)
+                }
+                AppResult.Success(members)
+            }
+        }
+    }
+
+    private suspend fun rememberMemberAvatars(studentId: String, members: List<DirectoryEntity>) {
+        for (m in members) {
+            val url = m.avatarUrl ?: continue
+            avatars.remember(m.id, url, studentId)
         }
     }
 
@@ -99,5 +140,7 @@ class DirectoryRepository @Inject constructor(
     suspend fun offlineCatalog(): List<DirectoryEntity> {
         val student = session.currentStudent ?: return emptyList()
         return offline.loadAll(student.studentId)
+            .filter { DirectoryParser.isValidPrefixedId(it.id) }
+            .filter { !DirectoryParser.looksLikeNavChrome(it.name) }
     }
 }

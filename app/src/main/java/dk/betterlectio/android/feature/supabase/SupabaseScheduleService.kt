@@ -61,7 +61,13 @@ class SupabaseScheduleService @Inject constructor(
 
             Timber.i("Synced week %s to Supabase (%d events)", weekKey, events.size)
         } catch (e: Exception) {
-            Timber.w(e, "Supabase schedule sync failed for week %s", weekKey)
+            // Common failure: RLS on audit table `updates` when a lessons trigger logs changes.
+            // Local Lectio schedule still works; cloud sync is best-effort.
+            Timber.w(
+                e,
+                "Supabase schedule sync failed for week %s (often RLS on updates audit trigger)",
+                weekKey,
+            )
         }
     }
 

@@ -1,16 +1,18 @@
 package dk.betterlectio.android
 
 import android.os.Bundle
-import androidx.activity.ComponentActivity
-import com.posthog.PostHog
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import com.posthog.PostHog
 import dagger.hilt.android.AndroidEntryPoint
 import dk.betterlectio.android.core.lectio.auth.AuthSessionInstaller
 import dk.betterlectio.android.core.lectio.session.AuthState
@@ -22,8 +24,13 @@ import dk.betterlectio.android.ui.navigation.BetterLectioRoot
 import dk.betterlectio.android.ui.theme.BetterLectioTheme
 import javax.inject.Inject
 
+/**
+ * [AppCompatActivity] (not ComponentActivity) so per-app language works on API 29–32
+ * via AppCompatDelegate, and so AppCompat has an active delegate when needed.
+ * On API 33+ [dk.betterlectio.android.core.i18n.AppLocale] uses LocaleManager directly.
+ */
 @AndroidEntryPoint
-class MainActivity : ComponentActivity() {
+class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var sessionController: SessionController
@@ -35,6 +42,11 @@ class MainActivity : ComponentActivity() {
     lateinit var authSessionInstaller: AuthSessionInstaller
 
     override fun onCreate(savedInstanceState: Bundle?) {
+        // Must run before super.onCreate — keeps system splash until first Compose frame.
+        val splashScreen = installSplashScreen()
+        var keepSplash = true
+        splashScreen.setKeepOnScreenCondition { keepSplash }
+
         super.onCreate(savedInstanceState)
         settingsStore.applyStoredLanguage()
         sessionController.restore()
@@ -65,6 +77,8 @@ class MainActivity : ComponentActivity() {
                 AppearanceMode.LIGHT -> false
                 AppearanceMode.DARK -> true
             }
+            // Dismiss splash after the first successful composition/apply.
+            SideEffect { keepSplash = false }
             BetterLectioTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     BetterLectioRoot(sessionController = sessionController)

@@ -8,7 +8,11 @@ import dk.betterlectio.android.feature.absence.AbsenceTeamRow
 import dk.betterlectio.android.feature.assignments.AssignmentItem
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.grades.GradeCellValue
+import dk.betterlectio.android.feature.grades.GradeColumn
+import dk.betterlectio.android.feature.grades.GradeNoteEntry
 import dk.betterlectio.android.feature.grades.GradeRow
+import dk.betterlectio.android.feature.grades.GradesReport
 import dk.betterlectio.android.feature.homework.HomeworkItem
 import dk.betterlectio.android.feature.messages.MessageAttachment
 import dk.betterlectio.android.feature.messages.MessageFolder
@@ -125,11 +129,14 @@ object DemoData {
                 id = "e1",
                 topic = "Besked",
                 contentHtml = "<p>Dette er en <b>demo-besked</b>. Log ind med MitID for rigtige data.</p>" +
+                    "<p>Nedenfor er et indlejret billede (demo).</p>" +
+                    "<img src=\"https://picsum.photos/seed/msg-demo/640/280\" alt=\"Demo figur\"/>" +
                     "<div class=\"message-attachements\"><a href=\"https://www.lectio.dk/demo.pdf\">Opgavesæt.pdf</a></div>",
                 senderName = "System",
                 sentAt = LocalDateTime.now().minusHours(2),
                 attachments = listOf(
                     MessageAttachment("Opgavesæt.pdf", "https://www.lectio.dk/demo.pdf"),
+                    MessageAttachment("diagram.png", "https://picsum.photos/seed/betterlectio/640/360"),
                 ),
             ),
         ),
@@ -161,6 +168,7 @@ object DemoData {
         <h2>${item.activityTitle}</h2>
         <p><b>Lektie:</b> ${item.note}</p>
         <p>Demo lektieindhold for hold ${item.team}. Gennemgå materialet inden timen.</p>
+        <img src="https://picsum.photos/seed/hw-${item.id}/640/280" alt="Demo figur"/>
         <ul><li>Medbring bog</li><li>Noter fra sidste gang</li></ul>
         """.trimIndent()
 
@@ -189,10 +197,84 @@ object DemoData {
         ),
     )
 
-    val grades = listOf(
-        GradeRow("Ma A", "Matematik", "A", "10", "12", "10", null, null, null),
-        GradeRow("Da A", "Dansk", "A", "7", "10", null, null, null, null),
-        GradeRow("En A", "Engelsk", "A", "10", null, null, null, null, null),
+    val gradesReport = GradesReport(
+        columns = listOf(
+            GradeColumn("1.standpunkt", "1.standpunkt"),
+            GradeColumn("2.standpunkt", "2.standpunkt"),
+            GradeColumn("intern prøve", "Intern prøve"),
+            GradeColumn("årskarakter", "Årskarakter"),
+            GradeColumn("eksamenskarakter", "Eksamens-/årsprøvekarakter"),
+        ),
+        grades = listOf(
+            GradeRow(
+                team = "Ma A",
+                subject = "Matematik A, Skriftlig",
+                teamId = "demo-ma",
+                grades = mapOf(
+                    "1.standpunkt" to GradeCellValue("10", weight = 2.0),
+                    "2.standpunkt" to GradeCellValue("12", weight = 1.0),
+                    "årskarakter" to GradeCellValue("10", weight = 1.0),
+                ),
+            ),
+            GradeRow(
+                team = "Ma A",
+                subject = "Matematik A, Mundtlig",
+                teamId = "demo-ma",
+                grades = mapOf(
+                    "1.standpunkt" to GradeCellValue("10", weight = 1.0),
+                    "2.standpunkt" to GradeCellValue("10", weight = 1.0),
+                ),
+            ),
+            GradeRow(
+                team = "Da A",
+                subject = "Dansk A, Skriftlig",
+                teamId = "demo-da",
+                grades = mapOf(
+                    "1.standpunkt" to GradeCellValue("7", weight = 1.0),
+                    "2.standpunkt" to GradeCellValue("10", weight = 1.0),
+                ),
+            ),
+            GradeRow(
+                team = "En A",
+                subject = "Engelsk A, Mundtlig",
+                teamId = "demo-en",
+                grades = mapOf(
+                    "1.standpunkt" to GradeCellValue("10", weight = 0.75),
+                ),
+            ),
+            GradeRow(
+                team = "Ap",
+                subject = "Almen sprogforståelse, Skriftlig",
+                teamId = "demo-ap",
+                grades = mapOf(
+                    "intern prøve" to GradeCellValue("12", weight = 0.25),
+                ),
+            ),
+        ),
+        notes = listOf(
+            GradeNoteEntry(
+                hold = "Ma A",
+                gradeType = "1. standpunkt - skriftlig Matematik A",
+                grade = "10",
+                insertedAt = "22/2-2026 20:41 - AB",
+                note = "God indsats til terminsprøve",
+            ),
+            GradeNoteEntry(
+                hold = "Ma A",
+                gradeType = "2. standpunkt - mundtlig Matematik A",
+                grade = "12",
+                insertedAt = "15/3-2026 12:00 - AB",
+                note = "Mundtlig fremlæggelse: 10",
+            ),
+            GradeNoteEntry(
+                hold = "Da A",
+                gradeType = "1. standpunkt - skriftlig Dansk A",
+                grade = "7",
+                insertedAt = "22/2-2026 18:00 - MR",
+                note = "Essay mangler kildehenvisninger",
+            ),
+        ),
+        alerts = emptyList(),
     )
 
     val absence = AbsenceOverview(
@@ -233,8 +315,8 @@ object DemoData {
             "T1", "Jens Jensen", DirectoryEntityKind.TEACHER, "Matematik",
             avatarUrl = "https://www.gravatar.com/avatar/22222222222222222222222222222222?d=identicon&s=128",
         ),
-        DirectoryEntity("C1", "3x", DirectoryEntityKind.CLASS, null),
-        DirectoryEntity("R1", "201", DirectoryEntityKind.ROOM, "Bygning A"),
+        DirectoryEntity("SC1", "3x", DirectoryEntityKind.CLASS, null),
+        DirectoryEntity("RO1", "201", DirectoryEntityKind.ROOM, "Bygning A"),
         DirectoryEntity(
             "S2", "Anna Andersen", DirectoryEntityKind.STUDENT, "3x",
             avatarUrl = "https://www.gravatar.com/avatar/33333333333333333333333333333333?d=identicon&s=128",
@@ -260,6 +342,11 @@ object DemoData {
         contentBlocks = listOf(
             LessonContentBlock("heading", "Indhold"),
             LessonContentBlock("paragraph", "Gennemgang af opgaver og fælles opsamling."),
+            LessonContentBlock(
+                kind = "image",
+                text = "Tavle-figur",
+                url = "https://picsum.photos/seed/lesson-${event.id}/640/300",
+            ),
             LessonContentBlock("note", "Husk bog."),
         ),
         participants = listOf(
@@ -274,15 +361,11 @@ object DemoData {
     )
 
     val directoryMembers = mapOf(
-        "C1" to listOf(
+        "SC1" to listOf(
             DirectoryEntity("S1", "Demo Elev", DirectoryEntityKind.STUDENT, "3x"),
             DirectoryEntity("S2", "Anna Andersen", DirectoryEntityKind.STUDENT, "3x"),
             DirectoryEntity("S3", "Bo Berg", DirectoryEntityKind.STUDENT, "3x"),
         ),
     )
 
-    val gradeNotes = mapOf(
-        "Ma A" to listOf("God indsats til terminsprøve", "Mundtlig fremlæggelse: 10"),
-        "Da A" to listOf("Essay mangler kildehenvisninger"),
-    )
 }

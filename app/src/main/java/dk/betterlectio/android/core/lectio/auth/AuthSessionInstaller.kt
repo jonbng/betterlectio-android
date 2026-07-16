@@ -15,6 +15,7 @@ import dk.betterlectio.android.core.lectio.session.SessionExternalWiper
 import dk.betterlectio.android.core.model.School
 import dk.betterlectio.android.core.model.Student
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.feature.directory.AvatarRepository
 import dk.betterlectio.android.feature.directory.DirectorySyncService
 import dk.betterlectio.android.feature.messages.MessageListPrefetcher
 import dk.betterlectio.android.feature.settings.SettingsStore
@@ -46,6 +47,7 @@ class AuthSessionInstaller @Inject constructor(
     private val settingsStore: SettingsStore,
     private val directorySync: DirectorySyncService,
     private val messagePrefetcher: MessageListPrefetcher,
+    private val avatarRepository: AvatarRepository,
 ) {
     private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -272,6 +274,7 @@ class AuthSessionInstaller @Inject constructor(
 
         bgScope.launch {
             supabaseAuth.authenticateAndMarkReady(finalCreds, school.id)
+            settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
             schedulePostLoginSync()
         }
@@ -322,6 +325,13 @@ class AuthSessionInstaller @Inject constructor(
      */
     private fun schedulePostLoginSync() {
         bgScope.launch {
+            sessionController.currentStudent?.let { s ->
+                if (!s.pictureId.isNullOrBlank()) {
+                    runCatching {
+                        avatarRepository.seedSelf(s.pictureId, s.studentId, s.gymId)
+                    }
+                }
+            }
             runCatching { directorySync.syncFullCatalog() }
                 .onFailure { Timber.w(it, "Directory catalog sync failed") }
         }
@@ -388,6 +398,7 @@ class AuthSessionInstaller @Inject constructor(
             }
 
             supabaseAuth.ensureSessionIfNeeded(student)
+            settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
             schedulePostLoginSync()
         }

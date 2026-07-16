@@ -8,10 +8,38 @@ import androidx.compose.ui.res.stringResource
 import dk.betterlectio.android.R
 
 fun ScheduleEvent.timeLabel(context: Context): String = when {
+    isAllDay && ScheduleMultiDay.isMultiDay(this) && start != null && end != null -> {
+        val range = formatDayMonthRange(start, end)
+        "$range · ${context.getString(R.string.event_all_day)}"
+    }
     isAllDay -> context.getString(R.string.event_all_day)
+    start != null && end != null && ScheduleMultiDay.isMultiDay(this) -> {
+        val s = start
+        val e = end
+        "%d/%d %02d:%02d – %d/%d %02d:%02d".format(
+            s.dayOfMonth, s.monthValue, s.hour, s.minute,
+            e.dayOfMonth, e.monthValue, e.hour, e.minute,
+        )
+    }
     start != null && end != null ->
         "%02d:%02d – %02d:%02d".format(start.hour, start.minute, end.hour, end.minute)
     else -> ""
+}
+
+private fun formatDayMonthRange(start: java.time.LocalDateTime, end: java.time.LocalDateTime): String {
+    val endDay = if (end.toLocalTime() == java.time.LocalTime.MIDNIGHT &&
+        end.toLocalDate().isAfter(start.toLocalDate())
+    ) {
+        end.toLocalDate().minusDays(1)
+    } else {
+        end.toLocalDate()
+    }
+    val s = start.toLocalDate()
+    return if (s == endDay) {
+        "%d/%d".format(s.dayOfMonth, s.monthValue)
+    } else {
+        "%d/%d – %d/%d".format(s.dayOfMonth, s.monthValue, endDay.dayOfMonth, endDay.monthValue)
+    }
 }
 
 fun ScheduleEvent.statusLabel(context: Context): String? = when (status) {

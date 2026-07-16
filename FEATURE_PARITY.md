@@ -49,7 +49,7 @@ Android is a **first-class Lectio client**: MitID + demo, 5-tab iOS IA, full dai
 | Week/day/timeline | ✅ | Professional hour-grid + all-day + now line |
 | Lesson detail | ✅ | Blocks, participants, resources |
 | Private create/update/delete | ✅ | Lectio post; create fails when rejected; edit from detail |
-| Subject colors/rename | ✅ | Local + Supabase subject sync when configured |
+| Subject colors/rename | ✅ | Lesson-mapping v2: SubjectMapper + scoped Supabase sync (friendly names + hues) |
 | Live lesson | ✅ | Ongoing notif + next boundary + open-app action + WorkManager/alarm |
 
 ### Messages
@@ -58,8 +58,12 @@ Android is a **first-class Lectio client**: MitID + demo, 5-tab iOS IA, full dai
 |------------|---------|-------|
 | Folders + list | ✅ | |
 | Full-screen thread | ✅ | Nested NavHost (not sheet) |
-| Compose + recipients | ✅ | Full-screen compose |
-| Reply / mark read / flag / delete | ✅ | SmartPostback (live form scrape + multi-variant targets) |
+| Compose + recipients | ✅ | Full-screen compose; students + teachers |
+| BBCode formatting toolbar | ✅ | B/I/U/link/lists (native Compose; tags visible) |
+| Compose attachments | ✅ | Photo Picker + SAF → `dokumentupload.aspx` + attach postback |
+| BetterLectio signature | ✅ | Append BBCode link; skip for teachers / settings toggle |
+| “Skal ikke kunne besvares” | ✅ | `RepliesNotAllowedChkBox` on compose postbacks |
+| Reply / mark read / flag / delete | ✅ | SmartPostback; reply has BBCode + attachments + signature |
 | Attachments open | ✅ | |
 | Cache | ✅ | SimpleCache + Room OfflineMessageStore / OfflineDirectoryStore |
 | Prefetch unread/newest | ✅ | MessageListPrefetcher after auth |
@@ -115,6 +119,7 @@ Android is a **first-class Lectio client**: MitID + demo, 5-tab iOS IA, full dai
 
 | Date | Note |
 |------|------|
+| 2026-07-16 | Compose parity with extension: BBCode toolbar, file/image attach, signature, no-reply checkbox, reply composer upgrade |
 | 2026-07-10 | Initial audit → Phase A/B → full §5 close-out |
 | 2026-07-10 | Thin/optional close: full-screen messages, password login, profile photo, IAU flow, directory smart search, rate limiter, multi-variant postbacks, richer live notif, subject sync |
 | 2026-07-10 | SmartPostback; Room offline messages/directory; Coil rate-limit ImageLoader; full-screen homework + assignments NavHost |

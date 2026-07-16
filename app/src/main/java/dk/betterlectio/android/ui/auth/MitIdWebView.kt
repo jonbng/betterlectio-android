@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.SystemClock
 import android.view.ViewGroup
 import android.webkit.CookieManager
 import android.webkit.WebResourceError
@@ -24,6 +25,7 @@ import androidx.lifecycle.compose.LocalLifecycleOwner
 import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.lectio.auth.MitIdAuthUrls
+import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.model.School
 import timber.log.Timber
 import java.util.concurrent.atomic.AtomicBoolean
@@ -38,28 +40,88 @@ import kotlinx.coroutines.launch
  * Holds latest Compose callbacks so a long-lived WebView never sees stale lambdas.
  */
 private class MitIdWebViewCallbacks {
+    /** Fired immediately when auth success is detected — show loading overlay over Lectio chrome. */
+    var onLoginDetected: () -> Unit = {}
     var onLoginComplete: (callbackUrl: String) -> Unit = {}
     var onExternalAppLaunchFailed: ((String) -> Unit)? = null
     val completed = AtomicBoolean(false)
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
 
+    /** Show loading overlay as soon as we know auth succeeded (before cookies settle). */
+    fun signalDetected() {
+        onLoginDetected()
+    }
+
     /**
-     * iOS LectioWebView: allow callback page to load, then wait ~0.3s for cookies.
-     * Pass the final URL so login can HTTP-replay UniLogin (Flutter) if needed.
+     * Finish as soon as Lectio session cookies are readable (or after a short cap).
+     *
+     * Previously a fixed 500ms sleep after [onPageFinished] left users staring at a fully
+     * loaded forside. iOS uses ~0.3s only after UniLogin callback; forside completes
+     * immediately. We poll CookieManager so the common case exits in one frame.
+     *
+     * UniLogin integration must load first (see [shouldOverrideUrlLoading]) so Lectio can
+     * mint cookies; only forside is completed from navigation without waiting for paint.
      */
     fun completeOnce(callbackUrl: String) {
         if (!completed.compareAndSet(false, true)) return
+        onLoginDetected()
         scope.launch {
-            CookieManager.getInstance().flush()
-            // Slightly longer than iOS 0.3s — Android CookieManager is process-wide + async flush.
-            delay(500)
-            CookieManager.getInstance().flush()
+            val cm = CookieManager.getInstance()
+            cm.flush()
+            val deadline = SystemClock.elapsedRealtime() + COOKIE_WAIT_MAX_MS
+            var waited = 0L
+            while (SystemClock.elapsedRealtime() < deadline) {
+                if (hasLectioSessionCookies(cm)) {
+                    Timber.d(
+                        "MitID cookies ready after %dms (url=%s)",
+                        waited,
+                        callbackUrl.take(120),
+                    )
+                    break
+                }
+                delay(COOKIE_POLL_MS)
+                waited += COOKIE_POLL_MS
+            }
+            if (!hasLectioSessionCookies(cm)) {
+                Timber.w(
+                    "MitID cookie poll timed out after %dms — proceeding (HTTP replay may still recover)",
+                    COOKIE_WAIT_MAX_MS,
+                )
+            }
+            cm.flush()
             onLoginComplete(callbackUrl)
         }
     }
 
     fun dispose() {
         scope.cancel()
+    }
+
+    companion object {
+        /** Cap matches iOS UniLogin didFinish delay; usually exit much earlier via poll. */
+        private const val COOKIE_WAIT_MAX_MS = 300L
+        private const val COOKIE_POLL_MS = 40L
+
+        /**
+         * True when CookieManager has the two cookies required by [WebViewCookieExtractor].
+         * Probe a few Lectio URLs — cookies can be path-scoped.
+         */
+        fun hasLectioSessionCookies(cm: CookieManager): Boolean {
+            val probes = listOf(
+                "https://www.lectio.dk/",
+                "https://www.lectio.dk/lectio/",
+                "https://www.lectio.dk/lectio/integration/unilogin.aspx",
+            )
+            var hasAutologin = false
+            var hasSession = false
+            for (url in probes) {
+                val header = cm.getCookie(url) ?: continue
+                if (header.contains(LectioCredentials.COOKIE_AUTOLOGIN)) hasAutologin = true
+                if (header.contains(LectioCredentials.COOKIE_SESSION_ID)) hasSession = true
+                if (hasAutologin && hasSession) return true
+            }
+            return false
+        }
     }
 }
 
@@ -75,6 +137,7 @@ private class MitIdWebViewCallbacks {
 fun MitIdWebView(
     school: School,
     onLoginComplete: (callbackUrl: String) -> Unit,
+    onLoginDetected: () -> Unit = {},
     onExternalAppLaunchFailed: ((String) -> Unit)? = null,
     modifier: Modifier = Modifier,
 ) {
@@ -85,6 +148,7 @@ fun MitIdWebView(
     }
 
     val callbacks = remember { MitIdWebViewCallbacks() }
+    callbacks.onLoginDetected = onLoginDetected
     callbacks.onLoginComplete = onLoginComplete
     callbacks.onExternalAppLaunchFailed = onExternalAppLaunchFailed
 
@@ -126,11 +190,20 @@ fun MitIdWebView(
                         return true
                     }
 
-                    // Auth success: MUST allow WebView to load (iOS .allow on unilogin;
-                    // cancel only after forside was optional). Completing before the
-                    // integration callback loads left cookies incomplete.
                     if (MitIdAuthUrls.isAuthSuccessUrl(url)) {
-                        Timber.d("MitID auth success URL — allowing load: %s", url)
+                        val lower = url.lowercase()
+                        // iOS: cancel forside and extract immediately — cookies already
+                        // minted on the redirect chain; no need to paint Lectio chrome.
+                        if (lower.contains("/forside.aspx")) {
+                            Timber.d("MitID forside success — completing without painting: %s", url)
+                            callbacks.completeOnce(url)
+                            return true
+                        }
+                        // UniLogin integration: MUST allow load so Lectio can mint cookies
+                        // (cancelling here was the original "Could not parse student id" bug).
+                        // Show overlay now; complete from onPageFinished once the page settled.
+                        Timber.d("MitID UniLogin callback — allowing load (overlay on): %s", url)
+                        callbacks.signalDetected()
                         return false
                     }
 
@@ -161,6 +234,7 @@ fun MitIdWebView(
                             Timber.d("MitID WebView DOM probe: %s", result)
                         }
                     }
+                    // Backup if success was reached without shouldOverride (e.g. after app switch).
                     if (MitIdAuthUrls.isAuthSuccessUrl(u)) {
                         callbacks.completeOnce(u)
                     }

@@ -1,9 +1,10 @@
 package dk.betterlectio.android.ui.screens.messages
 
-import android.content.Intent
-import android.net.Uri
-import android.webkit.WebView
 import androidx.activity.compose.BackHandler
+import android.net.Uri
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.PickVisualMediaRequest
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
@@ -12,11 +13,14 @@ import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
-import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
@@ -38,8 +42,10 @@ import androidx.compose.material.icons.filled.Drafts
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material.icons.outlined.MailOutline
-import androidx.compose.material3.AssistChip
 import androidx.compose.material3.Button
+import androidx.compose.material3.CircularProgressIndicator
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.FloatingActionButton
@@ -53,6 +59,7 @@ import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.Switch
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
 import androidx.compose.material3.Text
@@ -72,11 +79,9 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.viewinterop.AndroidView
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavType
@@ -85,7 +90,10 @@ import androidx.navigation.compose.composable
 import androidx.navigation.compose.rememberNavController
 import androidx.navigation.navArgument
 import dk.betterlectio.android.R
+import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.i18n.asString
+import dk.betterlectio.android.feature.attachments.AttachmentMime
+import dk.betterlectio.android.feature.messages.ComposeAttachment
 import dk.betterlectio.android.feature.messages.MessageSearch
 import dk.betterlectio.android.feature.messages.MessageThread
 import dk.betterlectio.android.feature.messages.MessageThreadDetail
@@ -94,12 +102,16 @@ import dk.betterlectio.android.ui.components.AppListMeta
 import dk.betterlectio.android.ui.components.AppListPrimary
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
+import dk.betterlectio.android.ui.components.AttachmentChip
 import dk.betterlectio.android.ui.components.EmptyBox
 import dk.betterlectio.android.ui.components.ErrorBox
-import dk.betterlectio.android.ui.components.InitialsAvatar
+import dk.betterlectio.android.ui.components.LectioAsyncImage
+import dk.betterlectio.android.ui.components.PersonAvatar
+import dk.betterlectio.android.ui.components.LectioHtmlBody
 import dk.betterlectio.android.ui.components.ListSkeleton
 import dk.betterlectio.android.ui.components.SectionHeader
 import dk.betterlectio.android.ui.components.UnreadDot
+import dk.betterlectio.android.ui.components.bbcode.BbcodeEditor
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
@@ -132,6 +144,19 @@ fun MessagesScreen(
         }
     }
 
+    // When compose is opened without going through the FAB (e.g. external handoff),
+    // push the compose route once showCompose becomes true.
+    LaunchedEffect(state.showCompose) {
+        if (state.showCompose) {
+            val route = navController.currentBackStackEntry?.destination?.route
+            if (route != MsgRoutes.COMPOSE) {
+                navController.navigate(MsgRoutes.COMPOSE) {
+                    launchSingleTop = true
+                }
+            }
+        }
+    }
+
     NavHost(
         navController = navController,
         startDestination = MsgRoutes.LIST,
@@ -143,7 +168,8 @@ fun MessagesScreen(
                 scrollToTopToken = scrollToTopToken,
                 onOpenThread = { thread ->
                     viewModel.openThread(thread)
-                    navController.navigate(MsgRoutes.thread(thread.id))
+                    // Digits-only id — full `$LB2$_MC_$_…` tokens break Navigation paths.
+                    navController.navigate(MsgRoutes.thread(thread.normalizedId.ifBlank { thread.id }))
                 },
                 onCompose = {
                     viewModel.openCompose()
@@ -158,7 +184,7 @@ fun MessagesScreen(
             BackHandler { viewModel.closeDetail(); navController.popBackStack() }
             val detail = state.detail
             if (detail == null) {
-                // Still loading or missing — show spinner scaffold
+                // Loading, or open failed — never leave the user on a blank skeleton forever.
                 Scaffold(
                     topBar = {
                         TopAppBar(
@@ -177,14 +203,31 @@ fun MessagesScreen(
                         )
                     },
                 ) { p ->
-                    ListSkeleton(modifier = Modifier.padding(p))
+                    when {
+                        state.loading -> ListSkeleton(modifier = Modifier.padding(p))
+                        state.error != null -> ErrorBox(
+                            error = state.error,
+                            onRetry = {
+                                // Pop back so the user can re-open from the list
+                                viewModel.closeDetail()
+                                navController.popBackStack()
+                            },
+                            modifier = Modifier.padding(p),
+                        )
+                        else -> ListSkeleton(modifier = Modifier.padding(p))
+                    }
                 }
             } else {
                 MessageThreadPane(
                     detail = detail,
                     replyText = state.replyText,
+                    replyAttachments = state.replyAttachments,
+                    replyError = state.replyError,
+                    isSending = state.isSending,
                     onReplyChange = viewModel::onReplyChange,
                     onSendReply = viewModel::sendReply,
+                    onAddReplyAttachments = viewModel::addReplyAttachments,
+                    onRemoveReplyAttachment = viewModel::removeReplyAttachment,
                     onMarkRead = viewModel::markRead,
                     onToggleFlag = viewModel::toggleFlag,
                     onDelete = {
@@ -475,7 +518,15 @@ private fun SwipeableMessageRow(
                 Row(verticalAlignment = Alignment.CenterVertically) {
                     UnreadDot(visible = thread.unread)
                     Spacer(Modifier.width(8.dp))
-                    InitialsAvatar(thread.sender.ifBlank { thread.topic })
+                    PersonAvatar(
+                        name = thread.sender.ifBlank { thread.topic },
+                        entityId = thread.senderEntityId,
+                        kind = thread.senderKind?.let {
+                            runCatching {
+                                dk.betterlectio.android.feature.directory.DirectoryEntityKind.valueOf(it)
+                            }.getOrNull()
+                        },
+                    )
                 }
             },
             trailing = {
@@ -507,15 +558,26 @@ private fun SwipeableMessageRow(
 private fun MessageThreadPane(
     detail: MessageThreadDetail,
     replyText: String,
+    replyAttachments: List<ComposeAttachment>,
+    replyError: UiText?,
+    isSending: Boolean,
     onReplyChange: (String) -> Unit,
     onSendReply: () -> Unit,
+    onAddReplyAttachments: (List<Uri>) -> Unit,
+    onRemoveReplyAttachment: (Uri) -> Unit,
     onMarkRead: () -> Unit,
     onToggleFlag: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
 ) {
-    val context = LocalContext.current
+    val snackbarHostState = remember { SnackbarHostState() }
+    // adjustResize already shrinks the window for the keyboard. Do not also apply
+    // IME content insets / imePadding or we get a large empty band above the keyboard.
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
+        ),
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -573,8 +635,7 @@ private fun MessageThreadPane(
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding)
-                .imePadding(),
+                .padding(padding),
         ) {
             Column(
                 Modifier
@@ -606,7 +667,15 @@ private fun MessageThreadPane(
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
-                        InitialsAvatar(entry.senderName.orEmpty().ifBlank { "?" })
+                        PersonAvatar(
+                            name = entry.senderName.orEmpty().ifBlank { "?" },
+                            entityId = entry.senderEntityId,
+                            kind = entry.senderKind?.let {
+                                runCatching {
+                                    dk.betterlectio.android.feature.directory.DirectoryEntityKind.valueOf(it)
+                                }.getOrNull()
+                            },
+                        )
                         Column(Modifier.weight(1f)) {
                             Text(
                                 entry.senderName.orEmpty().ifBlank { "—" },
@@ -628,54 +697,32 @@ private fun MessageThreadPane(
                             .fillMaxWidth()
                             .clip(RoundedCornerShape(12.dp))
                             .background(MaterialTheme.colorScheme.surfaceContainerLow)
-                            .padding(8.dp),
+                            .padding(12.dp),
                     ) {
-                        AndroidView(
-                            factory = { ctx ->
-                                WebView(ctx).apply {
-                                    settings.javaScriptEnabled = false
-                                    setBackgroundColor(android.graphics.Color.TRANSPARENT)
-                                    loadDataWithBaseURL(
-                                        "https://www.lectio.dk",
-                                        wrapMessageHtml(entry.contentHtml.orEmpty()),
-                                        "text/html",
-                                        "UTF-8",
-                                        null,
-                                    )
-                                }
-                            },
-                            modifier = Modifier
-                                .fillMaxWidth()
-                                .height(280.dp),
-                            update = { wv ->
-                                wv.loadDataWithBaseURL(
-                                    "https://www.lectio.dk",
-                                    wrapMessageHtml(entry.contentHtml.orEmpty()),
-                                    "text/html",
-                                    "UTF-8",
-                                    null,
-                                )
-                            },
-                        )
+                        LectioHtmlBody(html = entry.contentHtml)
                     }
                     if (entry.attachments.isNotEmpty()) {
-                        Spacer(Modifier.height(4.dp))
+                        Spacer(Modifier.height(8.dp))
                         entry.attachments.forEach { att ->
-                            AssistChip(
-                                onClick = {
-                                    context.startActivity(Intent(Intent.ACTION_VIEW, Uri.parse(att.url)))
-                                },
-                                label = {
-                                    Text(stringResource(R.string.message_attachment, att.name))
-                                },
-                                leadingIcon = {
-                                    Icon(
-                                        Icons.Default.AttachFile,
-                                        contentDescription = null,
-                                        modifier = Modifier.size(18.dp),
-                                    )
-                                },
+                            val isImage = AttachmentMime.isImageExtension(
+                                AttachmentMime.extensionOf(att.name)
+                                    ?: AttachmentMime.extensionOf(att.url),
                             )
+                            if (isImage) {
+                                LectioAsyncImage(
+                                    url = att.url,
+                                    contentDescription = att.name,
+                                    modifier = Modifier.padding(vertical = 4.dp),
+                                )
+                            } else {
+                                AttachmentChip(
+                                    name = att.name,
+                                    url = att.url,
+                                    isFileHint = true,
+                                    snackbarHostState = snackbarHostState,
+                                    modifier = Modifier.padding(vertical = 2.dp),
+                                )
+                            }
                         }
                     }
                     Spacer(Modifier.height(8.dp))
@@ -685,11 +732,15 @@ private fun MessageThreadPane(
                 color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
                 thickness = 0.5.dp,
             )
-            // Sticky reply composer (keyboard-aware)
             SurfaceReplyBar(
                 replyText = replyText,
+                replyAttachments = replyAttachments,
+                replyError = replyError,
+                isSending = isSending,
                 onReplyChange = onReplyChange,
                 onSendReply = onSendReply,
+                onAddAttachments = onAddReplyAttachments,
+                onRemoveAttachment = onRemoveReplyAttachment,
             )
         }
     }
@@ -698,31 +749,72 @@ private fun MessageThreadPane(
 @Composable
 private fun SurfaceReplyBar(
     replyText: String,
+    replyAttachments: List<ComposeAttachment>,
+    replyError: UiText?,
+    isSending: Boolean,
     onReplyChange: (String) -> Unit,
     onSendReply: () -> Unit,
+    onAddAttachments: (List<Uri>) -> Unit,
+    onRemoveAttachment: (Uri) -> Unit,
 ) {
     Column(
         Modifier
             .fillMaxWidth()
             .background(MaterialTheme.colorScheme.surface)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        OutlinedTextField(
+        BbcodeEditor(
             value = replyText,
             onValueChange = onReplyChange,
+            placeholder = stringResource(R.string.message_reply_hint),
+            minLines = 2,
+            maxLines = 8,
+            enabled = !isSending,
             modifier = Modifier.fillMaxWidth(),
-            placeholder = { Text(stringResource(R.string.message_reply_hint)) },
-            minLines = 1,
-            maxLines = 5,
-            shape = RoundedCornerShape(16.dp),
         )
-        Button(
-            onClick = onSendReply,
-            enabled = replyText.isNotBlank(),
-            modifier = Modifier.fillMaxWidth(),
+        PendingAttachmentsRow(
+            attachments = replyAttachments,
+            onRemove = onRemoveAttachment,
+            enabled = !isSending,
+        )
+        replyError?.let {
+            Text(
+                it.asString(),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (isSending) {
+            Text(
+                stringResource(R.string.message_sending),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        Row(
+            Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Text(stringResource(R.string.message_send))
+            AttachMenuButton(
+                enabled = !isSending && replyAttachments.size < MessagesViewModel.MAX_ATTACHMENTS,
+                onPicked = onAddAttachments,
+            )
+            Spacer(Modifier.weight(1f))
+            Button(
+                onClick = onSendReply,
+                enabled = replyText.isNotBlank() && !isSending,
+            ) {
+                if (isSending) {
+                    CircularProgressIndicator(
+                        modifier = Modifier.size(18.dp),
+                        strokeWidth = 2.dp,
+                    )
+                } else {
+                    Text(stringResource(R.string.message_send))
+                }
+            }
         }
     }
 }
@@ -740,17 +832,37 @@ private fun MessageComposePane(
     }
     val canSend = state.composeSubject.isNotBlank() &&
         state.composeBody.isNotBlank() &&
-        state.selectedRecipients.isNotEmpty()
+        state.selectedRecipients.isNotEmpty() &&
+        !state.isSending
+    // See MessageThreadPane: no IME insets here — MainActivity uses adjustResize.
     Scaffold(
+        contentWindowInsets = WindowInsets.safeDrawing.only(
+            WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
+        ),
         topBar = {
             TopAppBar(
                 title = { Text(stringResource(R.string.message_compose)) },
                 navigationIcon = {
-                    IconButton(onClick = onBack) {
+                    IconButton(onClick = onBack, enabled = !state.isSending) {
                         Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back),
                         )
+                    }
+                },
+                actions = {
+                    TextButton(
+                        onClick = viewModel::sendCompose,
+                        enabled = canSend,
+                    ) {
+                        if (state.isSending) {
+                            CircularProgressIndicator(
+                                modifier = Modifier.size(18.dp),
+                                strokeWidth = 2.dp,
+                            )
+                        } else {
+                            Text(stringResource(R.string.message_send))
+                        }
                     }
                 },
             )
@@ -758,25 +870,19 @@ private fun MessageComposePane(
     ) { padding ->
         Column(
             Modifier
+                .fillMaxSize()
                 .padding(padding)
-                .padding(16.dp)
-                .imePadding()
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
         ) {
-            OutlinedTextField(
-                value = state.composeSubject,
-                onValueChange = { viewModel.updateCompose(subject = it) },
-                label = { Text(stringResource(R.string.message_subject)) },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true,
-            )
             OutlinedTextField(
                 value = state.recipientQuery,
                 onValueChange = viewModel::onRecipientQuery,
                 label = { Text(stringResource(R.string.message_recipients)) },
                 modifier = Modifier.fillMaxWidth(),
                 singleLine = true,
+                enabled = !state.isSending,
             )
             if (state.selectedRecipients.isNotEmpty()) {
                 FlowRow(
@@ -786,7 +892,7 @@ private fun MessageComposePane(
                     state.selectedRecipients.forEach { r ->
                         InputChip(
                             selected = true,
-                            onClick = { viewModel.toggleRecipient(r) },
+                            onClick = { if (!state.isSending) viewModel.toggleRecipient(r) },
                             label = { Text(r.name) },
                             trailingIcon = {
                                 Icon(
@@ -804,8 +910,15 @@ private fun MessageComposePane(
                 .take(8)
                 .forEach { r ->
                     AppListRow(
-                        onClick = { viewModel.toggleRecipient(r) },
-                        leading = { InitialsAvatar(r.name) },
+                        onClick = { if (!state.isSending) viewModel.toggleRecipient(r) },
+                        leading = {
+                            PersonAvatar(
+                                name = r.name,
+                                entityId = r.id.takeIf {
+                                    it.startsWith("S") || it.startsWith("T")
+                                },
+                            )
+                        },
                     ) {
                         AppListPrimary(r.name, emphasized = true)
                         if (r.kind.isNotBlank()) {
@@ -813,23 +926,71 @@ private fun MessageComposePane(
                         }
                     }
                 }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween,
+            ) {
+                Text(
+                    stringResource(R.string.message_replies_not_allowed),
+                    style = MaterialTheme.typography.bodyMedium,
+                    modifier = Modifier.weight(1f),
+                )
+                Switch(
+                    checked = state.repliesNotAllowed,
+                    onCheckedChange = viewModel::setRepliesNotAllowed,
+                    enabled = !state.isSending,
+                )
+            }
+
             OutlinedTextField(
+                value = state.composeSubject,
+                onValueChange = { viewModel.updateCompose(subject = it.take(100)) },
+                label = { Text(stringResource(R.string.message_subject)) },
+                modifier = Modifier.fillMaxWidth(),
+                singleLine = true,
+                enabled = !state.isSending,
+            )
+
+            BbcodeEditor(
                 value = state.composeBody,
                 onValueChange = { viewModel.updateCompose(body = it) },
-                label = { Text(stringResource(R.string.message_body)) },
-                modifier = Modifier.fillMaxWidth().height(160.dp),
-            )
-            state.composeMessage?.let {
-                Text(it.asString(), color = MaterialTheme.colorScheme.primary)
-            }
-            Button(
-                onClick = viewModel::sendCompose,
-                enabled = canSend,
+                label = stringResource(R.string.message_body),
+                minLines = 4,
+                maxLines = 12,
+                enabled = !state.isSending,
                 modifier = Modifier.fillMaxWidth(),
-            ) {
-                Text(stringResource(R.string.message_send))
+            )
+
+            PendingAttachmentsRow(
+                attachments = state.composeAttachments,
+                onRemove = viewModel::removeComposeAttachment,
+                enabled = !state.isSending,
+            )
+            AttachMenuButton(
+                enabled = !state.isSending &&
+                    state.composeAttachments.size < MessagesViewModel.MAX_ATTACHMENTS,
+                onPicked = viewModel::addComposeAttachments,
+            )
+
+            state.composeMessage?.let {
+                Text(
+                    it.asString(),
+                    color = if (state.showCompose) {
+                        MaterialTheme.colorScheme.error
+                    } else {
+                        MaterialTheme.colorScheme.primary
+                    },
+                )
             }
-            if (!canSend) {
+            if (state.isSending) {
+                Text(
+                    stringResource(R.string.message_sending),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            } else if (!canSend) {
                 Text(
                     stringResource(R.string.message_compose_send_disabled_hint),
                     style = MaterialTheme.typography.bodySmall,
@@ -840,21 +1001,93 @@ private fun MessageComposePane(
     }
 }
 
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun PendingAttachmentsRow(
+    attachments: List<ComposeAttachment>,
+    onRemove: (Uri) -> Unit,
+    enabled: Boolean,
+) {
+    if (attachments.isEmpty()) return
+    FlowRow(
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        attachments.forEach { att ->
+            InputChip(
+                selected = false,
+                onClick = { },
+                enabled = enabled,
+                label = { Text(att.displayName, maxLines = 1) },
+                leadingIcon = {
+                    Icon(
+                        Icons.Default.AttachFile,
+                        contentDescription = null,
+                        modifier = Modifier.size(16.dp),
+                    )
+                },
+                trailingIcon = {
+                    Icon(
+                        Icons.Default.Close,
+                        contentDescription = stringResource(R.string.message_attach_remove),
+                        modifier = Modifier
+                            .size(16.dp)
+                            .clickable(enabled = enabled) { onRemove(att.uri) },
+                    )
+                },
+            )
+        }
+    }
+}
+
+@Composable
+private fun AttachMenuButton(
+    enabled: Boolean,
+    onPicked: (List<Uri>) -> Unit,
+) {
+    var menuOpen by remember { mutableStateOf(false) }
+    val photoPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.PickMultipleVisualMedia(
+            maxItems = MessagesViewModel.MAX_ATTACHMENTS,
+        ),
+    ) { uris -> if (uris.isNotEmpty()) onPicked(uris) }
+    val docPicker = rememberLauncherForActivityResult(
+        contract = ActivityResultContracts.OpenMultipleDocuments(),
+    ) { uris -> if (uris.isNotEmpty()) onPicked(uris) }
+
+    Box {
+        TextButton(
+            onClick = { menuOpen = true },
+            enabled = enabled,
+        ) {
+            Icon(
+                Icons.Default.AttachFile,
+                contentDescription = null,
+                modifier = Modifier.size(18.dp),
+            )
+            Spacer(Modifier.width(6.dp))
+            Text(stringResource(R.string.message_attach))
+        }
+        DropdownMenu(expanded = menuOpen, onDismissRequest = { menuOpen = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_attach_photo)) },
+                onClick = {
+                    menuOpen = false
+                    photoPicker.launch(
+                        PickVisualMediaRequest(ActivityResultContracts.PickVisualMedia.ImageAndVideo),
+                    )
+                },
+            )
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.message_attach_file)) },
+                onClick = {
+                    menuOpen = false
+                    docPicker.launch(arrayOf("*/*"))
+                },
+            )
+        }
+    }
+}
+
 private fun formatMessageTimestamp(value: LocalDateTime, fmt: DateTimeFormatter): String =
     value.format(fmt)
-
-/** Light Lectio HTML wrapper so bodies match app text size/color better. */
-private fun wrapMessageHtml(body: String): String {
-    if (body.isBlank()) return ""
-    return """
-        <!DOCTYPE html><html><head>
-        <meta name="viewport" content="width=device-width, initial-scale=1"/>
-        <style>
-          body { font-family: sans-serif; font-size: 15px; line-height: 1.45;
-                 color: #1a1c1e; margin: 0; padding: 4px; word-wrap: break-word; }
-          a { color: #3362E1; }
-          img { max-width: 100%; height: auto; }
-          table { max-width: 100%; }
-        </style></head><body>$body</body></html>
-    """.trimIndent()
-}

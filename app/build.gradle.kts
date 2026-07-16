@@ -17,6 +17,15 @@ val keystoreProperties = Properties().apply {
         load(FileInputStream(keystorePropertiesFile))
     }
 }
+
+// local.properties is gitignored (sdk.dir + optional secrets). AGP does not expose
+// custom keys via project.findProperty — load them explicitly for BuildConfig.
+val localPropertiesFile = rootProject.file("local.properties")
+val localProperties = Properties().apply {
+    if (localPropertiesFile.exists()) {
+        load(FileInputStream(localPropertiesFile))
+    }
+}
 val hasReleaseKeystore =
     keystorePropertiesFile.exists() &&
         keystoreProperties["storeFile"] != null &&
@@ -58,10 +67,12 @@ android {
         buildConfigField("String", "SUPABASE_URL", "\"${supabaseUrl.replace("\"", "\\\"")}\"")
         buildConfigField("String", "SUPABASE_ANON_KEY", "\"${supabaseKey.replace("\"", "\\\"")}\"")
 
-        val posthogApiKey = (project.findProperty("posthog.apiKey") as String?)
+        val posthogApiKey = localProperties.getProperty("posthog.apiKey")
+            ?: (project.findProperty("posthog.apiKey") as String?)
             ?: System.getenv("POSTHOG_API_KEY")
             ?: ""
-        val posthogHost = (project.findProperty("posthog.host") as String?)
+        val posthogHost = localProperties.getProperty("posthog.host")
+            ?: (project.findProperty("posthog.host") as String?)
             ?: System.getenv("POSTHOG_HOST")
             ?: "https://eu.i.posthog.com"
         buildConfigField("String", "POSTHOG_API_KEY", "\"${posthogApiKey.replace("\"", "\\\"")}\"")
@@ -127,6 +138,7 @@ dependencies {
     androidTestImplementation(composeBom)
 
     implementation(libs.androidx.core.ktx)
+    implementation(libs.androidx.core.splashscreen)
     implementation(libs.androidx.appcompat)
     implementation(libs.androidx.activity.compose)
     implementation(libs.androidx.lifecycle.runtime.ktx)

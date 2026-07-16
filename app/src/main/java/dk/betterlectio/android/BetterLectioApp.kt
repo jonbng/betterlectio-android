@@ -27,16 +27,23 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
         // Hilt injection for Application happens after super.onCreate in @HiltAndroidApp.
         // restore() is called from MainActivity to ensure injection is ready.
 
-        val posthogConfig = PostHogAndroidConfig(
-            apiKey = BuildConfig.POSTHOG_API_KEY,
-            host = BuildConfig.POSTHOG_HOST,
-        ).apply {
-            captureApplicationLifecycleEvents = true
-            captureScreenViews = true
-            debug = BuildConfig.DEBUG
-            errorTrackingConfig.autoCapture = true
+        if (BuildConfig.POSTHOG_API_KEY.isNotBlank()) {
+            val posthogConfig = PostHogAndroidConfig(
+                apiKey = BuildConfig.POSTHOG_API_KEY,
+                host = BuildConfig.POSTHOG_HOST,
+            ).apply {
+                captureApplicationLifecycleEvents = true
+                captureScreenViews = true
+                debug = BuildConfig.DEBUG
+                errorTrackingConfig.autoCapture = true
+            }
+            PostHogAndroid.setup(this, posthogConfig)
+        } else if (BuildConfig.DEBUG) {
+            Timber.w(
+                "PostHog disabled: POSTHOG_API_KEY empty. " +
+                    "Set posthog.apiKey in local.properties or POSTHOG_API_KEY env.",
+            )
         }
-        PostHogAndroid.setup(this, posthogConfig)
     }
 
     /** Coil uses the rate-limited ImageLoader from [dk.betterlectio.android.core.di.AppModule]. */

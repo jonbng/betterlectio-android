@@ -16,6 +16,7 @@ import dk.betterlectio.android.feature.live.LiveLessonScheduler
 import dk.betterlectio.android.feature.schedule.LessonDetail
 import dk.betterlectio.android.feature.schedule.PrivateEventDraft
 import dk.betterlectio.android.feature.schedule.PrivateEventIds
+import dk.betterlectio.android.feature.schedule.ScheduleDay
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.ScheduleRepository
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
@@ -84,6 +85,10 @@ class ScheduleViewModel @Inject constructor(
     val subjectNames: StateFlow<Map<String, String>> = settings.subjectNames
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectNames.value)
 
+    /** Collect so schedule recomposes when Supabase lesson mappings arrive. */
+    val lessonMappings = settings.lessonMappings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
+
     /** Weeks currently in memory: key = "year-week". */
     private val weekCache = ConcurrentHashMap<String, ScheduleWeek>()
     private val loadingWeeks = ConcurrentHashMap.newKeySet<String>()
@@ -109,22 +114,25 @@ class ScheduleViewModel @Inject constructor(
     }
 
     fun displayTitle(event: ScheduleEvent): String {
+        // Prefer team hold code (e.g. "1x MA") so canonical-key resolution works;
+        // fall back to title for private events / all-day without team.
         val key = event.team.ifBlank { event.title }
-        return settings.displayNameForSubject(key, event.title)
+        return settings.displayNameForSubject(key, fallback = event.title.ifBlank { key })
     }
 
     fun eventsFor(date: LocalDate): List<ScheduleEvent> =
         _state.value.eventsByDate[date].orEmpty()
 
     /**
-     * Whether the day has lessons. Unknown/unloaded days return true so the strip
-     * only mutes days we know are empty (iOS-style empty-day tint).
+     * Whether the day has lessons for the date-strip tint.
+     * Unknown/unloaded days return false so weekends/empty days never look busy by default.
      */
     fun hasEvents(date: LocalDate): Boolean {
         val s = _state.value
+        if (date in s.knownEmptyDays) return false
         if (date in s.eventsByDate) return s.eventsByDate[date].orEmpty().isNotEmpty()
         s.week?.days?.find { it.date == date }?.let { return it.events.isNotEmpty() }
-        return true
+        return false
     }
 
     fun refresh(force: Boolean = false) {
@@ -215,19 +223,30 @@ class ScheduleViewModel @Inject constructor(
         _state.update { s ->
             val map = s.eventsByDate.toMutableMap()
             val empty = s.knownEmptyDays.toMutableSet()
-            for (day in week.days) {
-                map[day.date] = day.events
-                if (day.events.isEmpty()) empty.add(day.date) else empty.remove(day.date)
+            val eventsByDate = week.days.associate { it.date to it.events }
+
+            // Always materialise Mon–Sun for the ISO week. Lectio often omits empty
+            // weekend columns, which used to leave Sat/Sun "unknown" and tinted busy.
+            val weekStart = LectioDateUtils.weekStart(week.year, week.week)
+            val fullDays = (0 until 7).map { offset ->
+                val date = weekStart.plusDays(offset.toLong())
+                val events = eventsByDate[date].orEmpty()
+                map[date] = events
+                if (events.isEmpty()) empty.add(date) else empty.remove(date)
+                week.days.find { it.date == date }
+                    ?: ScheduleDay(date = date, events = events)
             }
+
+            val normalizedWeek = week.copy(days = fullDays)
             val selected = s.selectedDate
             val primary = if (setAsPrimary) {
-                week
+                normalizedWeek
             } else if (
                 s.week == null ||
                 (LectioDateUtils.isoWeekYear(selected) == week.year &&
                     LectioDateUtils.isoWeek(selected) == week.week)
             ) {
-                week
+                normalizedWeek
             } else {
                 s.week
             }

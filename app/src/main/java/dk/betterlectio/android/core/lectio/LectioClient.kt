@@ -46,6 +46,20 @@ interface LectioClient {
         gymId: Int? = null,
     ): AppResult<LectioResponse>
 
+    /**
+     * Multipart POST (e.g. Lectio `dokumentupload.aspx`).
+     * [contentType] must include the multipart boundary.
+     */
+    suspend fun postMultipart(
+        pathOrUrl: String,
+        body: ByteArray,
+        contentType: String,
+        priority: FetchPriority = FetchPriority.Important,
+        credentials: LectioCredentials? = null,
+        studentId: String? = null,
+        gymId: Int? = null,
+    ): AppResult<LectioResponse>
+
     suspend fun getBytes(
         pathOrUrl: String,
         priority: FetchPriority = FetchPriority.Important,
@@ -118,6 +132,25 @@ class DefaultLectioClient @Inject constructor(
             gymId = gymId,
         )
     }
+
+    override suspend fun postMultipart(
+        pathOrUrl: String,
+        body: ByteArray,
+        contentType: String,
+        priority: FetchPriority,
+        credentials: LectioCredentials?,
+        studentId: String?,
+        gymId: Int?,
+    ): AppResult<LectioResponse> = execute(
+        pathOrUrl = pathOrUrl,
+        method = "POST",
+        body = body,
+        headers = mapOf("Content-Type" to contentType),
+        priority = priority,
+        credentials = credentials,
+        studentId = studentId,
+        gymId = gymId,
+    )
 
     override suspend fun getBytes(
         pathOrUrl: String,
@@ -220,6 +253,9 @@ class DefaultLectioClient @Inject constructor(
         return try {
             val result = engine.execute(request, creds)
             AppResult.Success(result.response)
+        } catch (e: kotlinx.coroutines.CancellationException) {
+            // Must not convert cancel into Failure — LazyList disposal cancels callers.
+            throw e
         } catch (e: LectioError) {
             AppResult.Failure(e.toAppError())
         } catch (e: Exception) {

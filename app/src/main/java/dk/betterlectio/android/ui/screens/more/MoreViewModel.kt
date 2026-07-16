@@ -26,7 +26,9 @@ import dk.betterlectio.android.feature.grades.GradeAverage
 import dk.betterlectio.android.feature.grades.GradeRepository
 import dk.betterlectio.android.feature.grades.GradeRow
 import dk.betterlectio.android.feature.grades.GradeSubjectDetail
-import dk.betterlectio.android.feature.grades.GradeType
+import dk.betterlectio.android.feature.grades.GradesReport
+import dk.betterlectio.android.feature.messages.MessageRecipient
+import dk.betterlectio.android.feature.messages.PendingComposeRecipient
 import dk.betterlectio.android.feature.plans.PlanRepository
 import dk.betterlectio.android.feature.plans.StudyPlan
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
@@ -34,10 +36,10 @@ import dk.betterlectio.android.feature.settings.AppLanguage
 import dk.betterlectio.android.feature.settings.AppearanceMode
 import dk.betterlectio.android.feature.settings.CalendarStyle
 import dk.betterlectio.android.feature.settings.SettingsStore
-import dk.betterlectio.android.feature.studiekort.ProfilePictureUploader
+import dk.betterlectio.android.feature.settings.SubjectInfo
+import dk.betterlectio.android.feature.settings.SubjectMapper
 import dk.betterlectio.android.feature.studiekort.StudentCard
 import dk.betterlectio.android.feature.studiekort.StudiekortRepository
-import dk.betterlectio.android.feature.supabase.SupabaseSubjectSync
 import dk.betterlectio.android.feature.teams.ModuleStat
 import dk.betterlectio.android.feature.teams.ModuleStatRepository
 import dk.betterlectio.android.feature.terms.SchoolTerm
@@ -53,7 +55,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class MoreDestination {
-    ROOT, GRADES, ABSENCE, DIRECTORY, ROOMS, STUDIEKORT, PLANS, MODULE_STATS, TERM, SETTINGS, HELP
+    ROOT, GRADES, ABSENCE, DIRECTORY, ROOMS, STUDIEKORT, PLANS, MODULE_STATS, TERM, SETTINGS
 }
 
 data class MoreUiState(
@@ -61,8 +63,9 @@ data class MoreUiState(
     val student: Student? = null,
     val profilePhotoUrl: String? = null,
     val loading: Boolean = false,
-    val grades: List<GradeRow> = emptyList(),
-    val gradeType: GradeType = GradeType.FIRST_STANDPOINT,
+    val gradesReport: GradesReport? = null,
+    /** null = Alle (show every column; multi-stat averages). */
+    val selectedGradeColumnKey: String? = null,
     val gradeDetail: GradeSubjectDetail? = null,
     val absence: AbsenceOverview? = null,
     val directory: List<DirectoryEntity> = emptyList(),
@@ -70,6 +73,11 @@ data class MoreUiState(
     val directoryKind: DirectoryEntityKind? = null,
     val directoryMembers: List<DirectoryEntity> = emptyList(),
     val directoryParent: DirectoryEntity? = null,
+    /** Person selected for action sheet (large photo + actions). */
+    val selectedPerson: DirectoryEntity? = null,
+    /** Other person schedule (student/teacher) under directory. */
+    val personEntity: DirectoryEntity? = null,
+    val personSchedule: ScheduleWeek? = null,
     val pinnedIds: Set<String> = emptySet(),
     val roomSchedule: ScheduleWeek? = null,
     val roomEntity: DirectoryEntity? = null,
@@ -80,7 +88,8 @@ data class MoreUiState(
     val planDetail: StudyPlan? = null,
     val moduleStats: List<ModuleStat> = emptyList(),
     val terms: List<SchoolTerm> = emptyList(),
-    val subjectRenameDrafts: Map<String, String> = emptyMap(),
+    /** Subject currently open in the edit sheet (canonical code). */
+    val editingSubjectCode: String? = null,
     val updateMessage: String? = null,
     val message: UiText? = null,
 )
@@ -95,14 +104,13 @@ class MoreViewModel @Inject constructor(
     private val directoryRepo: DirectoryRepository,
     private val pinRepo: DirectoryPinRepository,
     private val roomScheduleRepo: RoomScheduleRepository,
+    private val pendingCompose: PendingComposeRecipient,
     private val studiekortRepo: StudiekortRepository,
     private val plansRepo: PlanRepository,
     private val moduleStatRepo: ModuleStatRepository,
     private val termRepo: TermRepository,
     private val cache: SimpleCache,
     private val appUpdateProbe: AppUpdateProbe,
-    private val profilePictureUploader: ProfilePictureUploader,
-    private val subjectSync: SupabaseSubjectSync,
     val settings: SettingsStore,
 ) : ViewModel() {
 
@@ -135,10 +143,9 @@ class MoreViewModel @Inject constructor(
     val notifEvents = settings.notifEvents
     val notifMessages = settings.notifMessages
     val notifAssignments = settings.notifAssignments
-    val subjectColors = settings.subjectColors
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectColors.value)
-    val subjectNames = settings.subjectNames
-        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectNames.value)
+    val disableSignature = settings.disableSignature
+    val lessonMappings = settings.lessonMappings
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
     val notificationHistory = settings.notificationHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.notificationHistory.value)
 
@@ -150,6 +157,9 @@ class MoreViewModel @Inject constructor(
                 gradeDetail = null,
                 directoryMembers = emptyList(),
                 directoryParent = null,
+                selectedPerson = null,
+                personEntity = null,
+                personSchedule = null,
                 roomSchedule = null,
                 roomEntity = null,
                 planDetail = null,
@@ -171,12 +181,15 @@ class MoreViewModel @Inject constructor(
             MoreDestination.MODULE_STATS -> loadModuleStats()
             MoreDestination.TERM -> loadTerms()
             MoreDestination.SETTINGS -> {
-                val drafts = settings.editableSubjects().associateWith { key ->
-                    settings.displayNameForSubject(key, key)
+                session.currentStudent?.let { student ->
+                    if (!student.isDemo) {
+                        settings.activateScope(student.studentId, student.gymId.toString())
+                        viewModelScope.launch {
+                            settings.syncSubjectsFromSupabaseNow(student)
+                        }
+                    }
                 }
-                _state.update { it.copy(subjectRenameDrafts = drafts) }
             }
-            MoreDestination.HELP -> Unit
             else -> Unit
         }
     }
@@ -186,6 +199,9 @@ class MoreViewModel @Inject constructor(
         when {
             s.gradeDetail != null -> _state.update { it.copy(gradeDetail = null) }
             s.planDetail != null -> _state.update { it.copy(planDetail = null) }
+            s.personSchedule != null || s.personEntity != null -> _state.update {
+                it.copy(personSchedule = null, personEntity = null)
+            }
             s.roomSchedule != null || s.roomEntity != null -> _state.update {
                 it.copy(roomSchedule = null, roomEntity = null)
             }
@@ -193,6 +209,25 @@ class MoreViewModel @Inject constructor(
                 it.copy(directoryParent = null, directoryMembers = emptyList())
             }
             else -> _state.update { it.copy(destination = MoreDestination.ROOT) }
+        }
+    }
+
+    /** Jump straight to the top-level More menu (used when reselecting the More tab). */
+    fun popToRoot() {
+        _state.update {
+            it.copy(
+                destination = MoreDestination.ROOT,
+                message = null,
+                gradeDetail = null,
+                directoryMembers = emptyList(),
+                directoryParent = null,
+                selectedPerson = null,
+                personEntity = null,
+                personSchedule = null,
+                roomSchedule = null,
+                roomEntity = null,
+                planDetail = null,
+            )
         }
     }
 
@@ -206,28 +241,49 @@ class MoreViewModel @Inject constructor(
     private fun loadGrades() = viewModelScope.launch {
         _state.update { it.copy(loading = true) }
         when (val res = gradesRepo.load(true)) {
-            is AppResult.Success -> _state.update { it.copy(loading = false, grades = res.data) }
-            is AppResult.Failure -> _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            is AppResult.Success -> {
+                val report = res.data
+                val defaultKey = GradeAverage.defaultColumnKey(report.columns, report.grades)
+                _state.update {
+                    it.copy(
+                        loading = false,
+                        gradesReport = report,
+                        selectedGradeColumnKey = defaultKey,
+                    )
+                }
+            }
+            is AppResult.Failure -> _state.update {
+                it.copy(loading = false, message = res.error.toUiText())
+            }
         }
     }
 
     fun openGradeDetail(row: GradeRow) = viewModelScope.launch {
         _state.update { it.copy(loading = true) }
-        when (val res = gradesRepo.loadSubjectDetail(row)) {
+        val report = _state.value.gradesReport
+        when (val res = gradesRepo.loadSubjectDetail(row, report)) {
             is AppResult.Success -> _state.update { it.copy(loading = false, gradeDetail = res.data) }
-            is AppResult.Failure -> _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            is AppResult.Failure -> _state.update {
+                it.copy(loading = false, message = res.error.toUiText())
+            }
         }
     }
 
-    fun setGradeType(type: GradeType) {
-        _state.update { it.copy(gradeType = type) }
+    /** null = Alle. */
+    fun setGradeColumnKey(columnKey: String?) {
+        _state.update { it.copy(selectedGradeColumnKey = columnKey) }
     }
 
-    fun visibleGrades(): List<GradeRow> =
-        GradeAverage.filterRows(_state.value.grades, _state.value.gradeType)
+    fun visibleGrades(): List<GradeRow> {
+        val report = _state.value.gradesReport ?: return emptyList()
+        return GradeAverage.filterRows(report.grades, _state.value.selectedGradeColumnKey)
+    }
 
-    fun gradesAverageDisplay(): String? =
-        GradeAverage.weightedAverageDisplay(_state.value.grades, _state.value.gradeType)
+    fun gradesAverageDisplay(): String? {
+        val report = _state.value.gradesReport ?: return null
+        val key = _state.value.selectedGradeColumnKey ?: return null
+        return GradeAverage.weightedAverageDisplay(report.grades, key)
+    }
 
     fun openDirectoryKind(kind: DirectoryEntityKind) {
         _state.update {
@@ -316,8 +372,107 @@ class MoreViewModel @Inject constructor(
 
     fun isPinned(id: String): Boolean = pinRepo.isPinned(id)
 
+    fun openPersonSheet(entity: DirectoryEntity) {
+        if (entity.kind != DirectoryEntityKind.STUDENT && entity.kind != DirectoryEntityKind.TEACHER) {
+            return
+        }
+        _state.update { it.copy(selectedPerson = entity) }
+    }
+
+    fun dismissPersonSheet() {
+        _state.update { it.copy(selectedPerson = null) }
+    }
+
+    fun openPersonSchedule(entity: DirectoryEntity) = viewModelScope.launch {
+        _state.update {
+            it.copy(
+                selectedPerson = null,
+                loading = true,
+                personEntity = entity,
+                personSchedule = null,
+            )
+        }
+        when (val res = roomScheduleRepo.loadPersonWeek(entity)) {
+            is AppResult.Success -> _state.update {
+                it.copy(loading = false, personSchedule = res.data)
+            }
+            is AppResult.Failure -> _state.update {
+                it.copy(loading = false, message = res.error.toUiText())
+            }
+        }
+    }
+
+    /**
+     * Queue compose recipient and dismiss sheet. Caller navigates to the Messages tab.
+     */
+    fun composeToPerson(entity: DirectoryEntity) {
+        pendingCompose.offer(
+            MessageRecipient(
+                id = entity.id,
+                name = entity.name,
+                kind = entity.kind.name,
+            ),
+        )
+        _state.update { it.copy(selectedPerson = null) }
+    }
+
+    fun openPersonClass(entity: DirectoryEntity) = viewModelScope.launch {
+        val label = entity.subtitle?.trim().orEmpty()
+        if (label.isEmpty()) {
+            _state.update { it.copy(message = UiText.Res(R.string.directory_class_not_found)) }
+            return@launch
+        }
+        when (val res = directoryRepo.search(label, DirectoryEntityKind.CLASS)) {
+            is AppResult.Failure -> _state.update {
+                it.copy(message = res.error.toUiText())
+            }
+            is AppResult.Success -> {
+                val match = res.data.firstOrNull {
+                    it.name.equals(label, ignoreCase = true)
+                } ?: res.data.firstOrNull {
+                    it.name.contains(label, ignoreCase = true) ||
+                        label.contains(it.name, ignoreCase = true)
+                }
+                if (match == null) {
+                    // Fallback: hold with same label (member lists often use hold names).
+                    when (val holdRes = directoryRepo.search(label, DirectoryEntityKind.HOLD)) {
+                        is AppResult.Failure -> _state.update {
+                            it.copy(message = UiText.Res(R.string.directory_class_not_found))
+                        }
+                        is AppResult.Success -> {
+                            val hold = holdRes.data.firstOrNull {
+                                it.name.equals(label, ignoreCase = true)
+                            } ?: holdRes.data.firstOrNull {
+                                it.name.contains(label, ignoreCase = true)
+                            }
+                            if (hold == null) {
+                                _state.update {
+                                    it.copy(message = UiText.Res(R.string.directory_class_not_found))
+                                }
+                            } else {
+                                _state.update { it.copy(selectedPerson = null) }
+                                openDirectoryMembers(hold)
+                            }
+                        }
+                    }
+                } else {
+                    _state.update { it.copy(selectedPerson = null) }
+                    openDirectoryMembers(match)
+                }
+            }
+        }
+    }
+
     fun openDirectoryMembers(entity: DirectoryEntity) = viewModelScope.launch {
-        _state.update { it.copy(loading = true, directoryParent = entity) }
+        _state.update {
+            it.copy(
+                loading = true,
+                directoryParent = entity,
+                selectedPerson = null,
+                personEntity = null,
+                personSchedule = null,
+            )
+        }
         when (val res = directoryRepo.loadMembers(entity)) {
             is AppResult.Success -> _state.update {
                 it.copy(loading = false, directoryMembers = res.data)
@@ -424,24 +579,54 @@ class MoreViewModel @Inject constructor(
     fun setNotifEvents(v: Boolean) = settings.setNotifEvents(v)
     fun setNotifMessages(v: Boolean) = settings.setNotifMessages(v)
     fun setNotifAssignments(v: Boolean) = settings.setNotifAssignments(v)
+    fun setDisableSignature(v: Boolean) = settings.setDisableSignature(v)
 
-    fun subjectColorOptions(): List<Long> = SettingsStore.DEFAULT_PALETTE
-    fun editableSubjects(): List<String> = settings.editableSubjects()
-    fun setSubjectColor(subject: String, colorArgb: Long) = settings.setSubjectColor(subject, colorArgb)
+    fun curatedHues(): List<Int> = SubjectMapper.CURATED_HUES
+
+    fun availableSubjects(): List<SubjectInfo> = settings.availableSubjects()
+
     fun colorForSubject(subject: String): Long = settings.colorForSubject(subject)
-    fun displayNameForSubject(subject: String): String = settings.displayNameForSubject(subject, subject)
 
-    fun updateSubjectRenameDraft(subject: String, name: String) {
+    fun displayNameForSubject(subject: String): String =
+        settings.displayNameForSubject(subject, subject)
+
+    fun defaultNameFor(subject: String): String = settings.defaultNameFor(subject)
+
+    fun colorHueForSubject(subject: String): Int = settings.colorHueForSubject(subject)
+
+    fun hasSubjectOverride(subject: String): Boolean = settings.hasAnyOverride(subject)
+
+    fun openSubjectEditor(code: String) {
+        _state.update { it.copy(editingSubjectCode = code) }
+    }
+
+    fun dismissSubjectEditor() {
+        _state.update { it.copy(editingSubjectCode = null) }
+    }
+
+    fun saveSubjectCustomization(code: String, displayName: String?, colorHue: Int?) {
+        settings.saveCustomization(code, displayName = displayName, colorHue = colorHue)
         _state.update {
-            it.copy(subjectRenameDrafts = it.subjectRenameDrafts + (subject to name))
+            it.copy(
+                editingSubjectCode = null,
+                message = UiText.Res(R.string.msg_subject_name_saved),
+            )
         }
     }
 
-    fun saveSubjectRename(subject: String) {
-        val name = _state.value.subjectRenameDrafts[subject] ?: return
-        settings.setSubjectName(subject, name)
-        pushSubjectSync(subject)
-        _state.update { it.copy(message = UiText.Res(R.string.msg_subject_name_saved)) }
+    fun resetSubject(code: String) {
+        settings.resetMapping(code)
+        _state.update {
+            it.copy(
+                editingSubjectCode = null,
+                message = UiText.Res(R.string.msg_subject_reset),
+            )
+        }
+    }
+
+    fun resetAllSubjects() {
+        settings.resetAllLessonMappings()
+        _state.update { it.copy(message = UiText.Res(R.string.msg_subjects_reset_all)) }
     }
 
     fun clearNotificationHistory() {
@@ -473,46 +658,18 @@ class MoreViewModel @Inject constructor(
 
     fun appVersion(): String = appUpdateProbe.appVersionName()
 
-    fun uploadProfilePicture(uri: android.net.Uri) = viewModelScope.launch {
-        when (val res = profilePictureUploader.upload(uri)) {
-            is AppResult.Success -> {
-                _state.update { it.copy(message = UiText.Res(R.string.msg_profile_photo_updated)) }
-                loadCard()
-            }
-            is AppResult.Failure -> _state.update { it.copy(message = res.error.toUiText()) }
-        }
-    }
-
     fun pullSubjectSync() = viewModelScope.launch {
         val student = session.currentStudent ?: return@launch
-        if (!subjectSync.isConfigured()) {
+        if (student.isDemo) {
             _state.update { it.copy(message = UiText.Res(R.string.msg_supabase_not_configured)) }
             return@launch
         }
-        val mappings = subjectSync.fetchMappings(student.studentId, student.gymId.toString())
-        if (mappings.isNullOrEmpty()) {
+        val count = settings.syncSubjectsFromSupabaseNow(student)
+        if (count == 0) {
             _state.update { it.copy(message = UiText.Res(R.string.msg_no_remote_subject_mapping)) }
-            return@launch
+        } else {
+            _state.update { it.copy(message = UiText.Res(R.string.msg_subjects_synced, count)) }
         }
-        mappings.forEach { m ->
-            m.displayName?.let { settings.setSubjectName(m.subjectKey, it) }
-            m.colorArgb?.let { settings.setSubjectColor(m.subjectKey, it) }
-        }
-        _state.update { it.copy(message = UiText.Res(R.string.msg_subjects_synced, mappings.size)) }
-    }
-
-    fun pushSubjectSync(subject: String) = viewModelScope.launch {
-        val student = session.currentStudent ?: return@launch
-        if (!subjectSync.isConfigured()) return@launch
-        subjectSync.upsertMapping(
-            studentId = student.studentId,
-            schoolId = student.gymId.toString(),
-            mapping = dk.betterlectio.android.feature.supabase.SupabaseSubjectSync.SubjectMapping(
-                subjectKey = subject,
-                displayName = settings.displayNameForSubject(subject, subject),
-                colorArgb = settings.colorForSubject(subject),
-            ),
-        )
     }
 
     val privacyPolicyUrl: String get() = SettingsStore.PRIVACY_POLICY_URL

@@ -1,7 +1,9 @@
 package dk.betterlectio.android.ui.components
 
+import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -33,10 +35,12 @@ import dk.betterlectio.android.ui.theme.Dimens
 /**
  * Flat inbox-style row — no card elevation. Gmail / Files density.
  */
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
 fun AppListRow(
     onClick: (() -> Unit)? = null,
     modifier: Modifier = Modifier,
+    onLongClick: (() -> Unit)? = null,
     leading: @Composable (RowScope.() -> Unit)? = null,
     trailing: @Composable (RowScope.() -> Unit)? = null,
     content: @Composable ColumnScope.() -> Unit,
@@ -46,7 +50,14 @@ fun AppListRow(
             .fillMaxWidth()
             .heightIn(min = Dimens.rowMinHeight)
             .then(
-                if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier,
+                when {
+                    onClick != null && onLongClick != null ->
+                        Modifier.combinedClickable(onClick = onClick, onLongClick = onLongClick)
+                    onClick != null -> Modifier.clickable(onClick = onClick)
+                    onLongClick != null ->
+                        Modifier.combinedClickable(onClick = {}, onLongClick = onLongClick)
+                    else -> Modifier
+                },
             )
             .padding(horizontal = Dimens.rowHorizontal, vertical = Dimens.rowVertical),
         verticalAlignment = Alignment.CenterVertically,

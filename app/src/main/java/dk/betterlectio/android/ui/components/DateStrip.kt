@@ -43,6 +43,7 @@ import java.time.LocalDate
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 data class DateStripDay(
     val date: LocalDate,
@@ -53,12 +54,12 @@ private const val TOTAL_WEEKS = 104
 private const val CENTER_WEEK_INDEX = 52
 
 /**
- * iOS-style calendar week strip:
- * - Full-width week (7 equal columns, no LazyRow gaps)
- * - Horizontal swipe between weeks
- * - Selected day: primary fill with top-only rounded corners
- * - Empty days (no events): muted tint
- * - Today (unselected): primary text color
+ * Compact calendar week strip:
+ * - Full-width week, swipe between weeks
+ * - Selected day: primary tab (top corners only — sits flush with content)
+ * - Days with events: full-strength text + subtle neutral wash
+ * - Empty days: muted text, no fill
+ * - Today (unselected): primary text
  */
 @Composable
 fun DateStrip(
@@ -70,14 +71,13 @@ fun DateStrip(
     onWeekChanged: ((LocalDate) -> Unit)? = null,
     hasEvents: ((LocalDate) -> Boolean)? = null,
 ) {
-    // Prefer explicit hasEvents lookup; fall back to the provided week days list.
     val hasEventsLookup by rememberUpdatedState(
         hasEvents ?: { date -> days.find { it.date == date }?.hasEvents == true },
     )
     val onSelectState by rememberUpdatedState(onSelect)
     val onWeekChangedState by rememberUpdatedState(onWeekChanged)
+    val selectedState by rememberUpdatedState(selected)
 
-    // Anchor Monday of the week containing the first known selection / today.
     val anchorMonday = remember {
         selected.with(DayOfWeek.MONDAY)
     }
@@ -96,39 +96,55 @@ fun DateStrip(
         pageCount = { TOTAL_WEEKS },
     )
 
-    // Keep pager in sync when selected date jumps (day pager / programmatic).
+    // Programmatic snaps (day swipe / today) should not emit week-changed callbacks.
+    val ignoreWeekCallback = remember { AtomicBoolean(false) }
+
+    // External selection → snap week strip. Don't skip when a previous scroll is mid-flight
+    // (rapid day taps used to leave the strip on the wrong week).
     LaunchedEffect(selected) {
         val target = indexForDate(selected)
-        if (pagerState.settledPage != target && !pagerState.isScrollInProgress) {
-            pagerState.animateScrollToPage(target)
+        if (pagerState.settledPage == target && pagerState.currentPage == target) {
+            return@LaunchedEffect
+        }
+        // User is week-swiping toward this week already — let them finish.
+        if (pagerState.isScrollInProgress && pagerState.targetPage == target) {
+            return@LaunchedEffect
+        }
+        // User is week-swiping elsewhere — don't fight the gesture.
+        if (pagerState.isScrollInProgress && !ignoreWeekCallback.get()) {
+            return@LaunchedEffect
+        }
+        ignoreWeekCallback.set(true)
+        try {
+            pagerState.scrollToPage(target)
+        } finally {
+            ignoreWeekCallback.set(false)
         }
     }
 
-    // Week swipe settled → keep same weekday offset.
-    var suppressWeekCallback by remember { mutableStateOf(false) }
+    // Only propagate week changes that come from the user swiping this strip.
     LaunchedEffect(pagerState) {
-        snapshotFlow { pagerState.settledPage }
+        var userInitiatedScroll = false
+        snapshotFlow { pagerState.isScrollInProgress }
             .distinctUntilChanged()
-            .collect { page ->
-                if (suppressWeekCallback) {
-                    suppressWeekCallback = false
+            .collect { scrolling ->
+                if (scrolling) {
+                    if (!ignoreWeekCallback.get()) {
+                        userInitiatedScroll = true
+                    }
                     return@collect
                 }
-                val newWeekStart = weekStartForIndex(page)
-                val currentWeekStart = selected.with(DayOfWeek.MONDAY)
+                if (!userInitiatedScroll) return@collect
+                userInitiatedScroll = false
+
+                val newWeekStart = weekStartForIndex(pagerState.settledPage)
+                val currentWeekStart = selectedState.with(DayOfWeek.MONDAY)
                 if (newWeekStart == currentWeekStart) return@collect
-                val dayOffset = (selected.dayOfWeek.value - DayOfWeek.MONDAY.value + 7) % 7
+                val dayOffset =
+                    (selectedState.dayOfWeek.value - DayOfWeek.MONDAY.value + 7) % 7
                 val targetDate = newWeekStart.plusDays(dayOffset.toLong())
                 onWeekChangedState?.invoke(targetDate) ?: onSelectState(targetDate)
             }
-    }
-
-    // When parent drives selected into another week (e.g. day swipe), don't re-fire week callback.
-    LaunchedEffect(selected) {
-        val target = indexForDate(selected)
-        if (pagerState.currentPage != target) {
-            suppressWeekCallback = true
-        }
     }
 
     val haptics = LocalHapticFeedback.current
@@ -144,12 +160,11 @@ fun DateStrip(
         state = pagerState,
         modifier = modifier
             .fillMaxWidth()
-            .height(72.dp),
+            .height(62.dp),
         beyondViewportPageCount = 1,
     ) { page ->
-        val weekStart = weekStartForIndex(page)
         WeekRow(
-            weekStart = weekStart,
+            weekStart = weekStartForIndex(page),
             selected = selected,
             locale = locale,
             hasEvents = hasEventsLookup,
@@ -170,7 +185,7 @@ private fun WeekRow(
         modifier = Modifier
             .fillMaxSize()
             .padding(horizontal = 10.dp),
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+        horizontalArrangement = Arrangement.spacedBy(3.dp),
     ) {
         for (i in 0 until 7) {
             val date = weekStart.plusDays(i.toLong())
@@ -178,7 +193,7 @@ private fun WeekRow(
                 date = date,
                 selected = date == selected,
                 isToday = date == LocalDate.now(),
-                empty = !hasEvents(date),
+                hasEvents = hasEvents(date),
                 locale = locale,
                 onClick = { onSelect(date) },
                 modifier = Modifier
@@ -194,7 +209,7 @@ private fun DayCell(
     date: LocalDate,
     selected: Boolean,
     isToday: Boolean,
-    empty: Boolean,
+    hasEvents: Boolean,
     locale: Locale,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
@@ -202,8 +217,8 @@ private fun DayCell(
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
     val scale by animateFloatAsState(
-        targetValue = if (pressed) 0.92f else 1f,
-        animationSpec = tween(160),
+        targetValue = if (pressed) 0.94f else 1f,
+        animationSpec = tween(140),
         label = "dayScale",
     )
 
@@ -211,48 +226,65 @@ private fun DayCell(
     val dayName = date.dayOfWeek
         .getDisplayName(TextStyle.SHORT, locale)
         .replace(".", "")
-        .take(3)
+        .take(2)
         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
 
     val primary = MaterialTheme.colorScheme.primary
     val onPrimary = MaterialTheme.colorScheme.onPrimary
     val onSurface = MaterialTheme.colorScheme.onSurface
-    val muted = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-    val todayColor = primary
+    val onSurfaceVariant = MaterialTheme.colorScheme.onSurfaceVariant
+    val surfaceVariant = MaterialTheme.colorScheme.surfaceVariant
 
-    val contentColor: Color = when {
+    // Tab shape: rounded top only so the selection reads as connected to content below.
+    val shape = RoundedCornerShape(topStart = 10.dp, topEnd = 10.dp)
+
+    val backgroundColor: Color = when {
+        selected -> primary
+        // Neutral wash — not primary — so busy days read clearly without looking “selected”
+        hasEvents -> surfaceVariant.copy(alpha = 0.55f)
+        else -> Color.Transparent
+    }
+
+    val numberColor: Color = when {
         selected -> onPrimary
-        isToday -> todayColor
-        empty -> muted
-        else -> onSurface.copy(alpha = 0.55f)
+        isToday -> primary
+        hasEvents -> onSurface
+        else -> onSurfaceVariant.copy(alpha = 0.40f)
+    }
+
+    val labelColor: Color = when {
+        selected -> onPrimary.copy(alpha = 0.90f)
+        isToday -> primary.copy(alpha = 0.85f)
+        hasEvents -> onSurfaceVariant
+        else -> onSurfaceVariant.copy(alpha = 0.35f)
     }
 
     Column(
         modifier = modifier
             .scale(scale)
-            .clip(RoundedCornerShape(topStart = 12.dp, topEnd = 12.dp))
-            .background(if (selected) primary else Color.Transparent)
+            .clip(shape)
+            .background(backgroundColor)
             .clickable(
                 interactionSource = interaction,
                 indication = null,
                 onClick = onClick,
             )
-            .padding(vertical = 8.dp),
+            .padding(top = 9.dp, bottom = 7.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
+        verticalArrangement = Arrangement.spacedBy(1.dp, Alignment.CenterVertically),
     ) {
         Text(
             text = dayNumber,
-            fontSize = 20.sp,
-            fontWeight = FontWeight.SemiBold,
-            color = contentColor,
+            fontSize = 18.sp,
+            fontWeight = if (selected || isToday || hasEvents) FontWeight.SemiBold else FontWeight.Medium,
+            color = numberColor,
             maxLines = 1,
         )
         Text(
             text = dayName,
-            style = MaterialTheme.typography.labelSmall,
+            fontSize = 11.sp,
             fontWeight = FontWeight.Medium,
-            color = contentColor,
+            color = labelColor,
             maxLines = 1,
         )
     }

@@ -33,6 +33,12 @@ class MessagePostbackFieldsTest {
         assertEquals("READMESSAGE_42", MessagePostbackFields.readMessageArg("42"))
         assertEquals("FLAGMESSAGE_42", MessagePostbackFields.flagMessageArg("42"))
         assertEquals("HIDEMESSAGE_42", MessagePostbackFields.hideMessageArg("42"))
+        // Must match Lectio onclick: $LB2$_MC_$_42 (underscore before the second $)
+        assertEquals("\$LB2\$_MC_\$_42", MessagePostbackFields.openThreadArg("42"))
+        assertEquals(
+            "\$LB2\$_MC_\$_76896476427",
+            MessagePostbackFields.openThreadArg("76896476427"),
+        )
         assertTrue(MessagePostbackFields.replyVariants.any { it.sendTarget.contains("SendMessageBtn") })
     }
 }

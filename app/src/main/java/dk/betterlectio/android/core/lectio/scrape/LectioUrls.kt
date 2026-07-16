@@ -35,6 +35,11 @@ object LectioUrls {
 
     fun resolve(pathOrUrl: String, gymId: Int?): HttpUrl {
         pathOrUrl.toHttpUrlOrNull()?.let { return it }
+        // Absolute site path from Lectio scripts, e.g. /lectio/94/cache/DropDown.aspx?…
+        // Must not be resolved relative to the gym base (would double-prefix /lectio/{id}/).
+        if (pathOrUrl.startsWith("/lectio/")) {
+            return "$ORIGIN$pathOrUrl".toHttpUrl()
+        }
         requireNotNull(gymId) { "gymId required for relative Lectio path: $pathOrUrl" }
         return buildUrl(gymId, pathOrUrl)
     }

@@ -13,10 +13,13 @@ class MessageParserTest {
         val threads = MessageParser.parseThreadList(html)
         assertEquals(1, threads.size)
         assertEquals("Velkomst", threads[0].topic)
-        assertTrue(threads[0].id.contains("$") || threads[0].id.isNotBlank())
+        assertTrue(threads[0].id.isNotBlank())
         assertEquals("-70", threads[0].folderId)
-        // Flutter parity: `$ABC_$_42` → normalized `42` (not `_42`).
+        // Prefer numeric id (iOS/extension); fixtures with `$ABC_$_42` still normalize to 42.
         assertEquals("42", threads[0].normalizedId)
+        assertTrue(
+            threads[0].id == "42" || threads[0].id.contains("$") || threads[0].id.contains("42"),
+        )
     }
 
     @Test

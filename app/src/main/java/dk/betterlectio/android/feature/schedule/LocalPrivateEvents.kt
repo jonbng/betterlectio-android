@@ -79,11 +79,19 @@ class LocalPrivateEvents {
 
     fun mergeIntoWeek(week: ScheduleWeek): ScheduleWeek {
         if (events.isEmpty()) return week
-        val byDate = events.groupBy { it.date }
+        // Expand multi-day private events onto every covered day before merging.
+        val expanded = events.flatMap { ScheduleMultiDay.expandEventAcrossDays(it) }
+        val byDate = expanded.groupBy { it.date }
         val days = week.days.map { day ->
             val extra = byDate[day.date].orEmpty()
             if (extra.isEmpty()) day
-            else day.copy(events = (extra + day.events).sortedBy { it.start ?: LocalDateTime.MIN })
+            else {
+                day.copy(
+                    events = (extra + day.events)
+                        .distinctBy { it.id.ifBlank { "${it.title}|${it.start}|${it.end}" } }
+                        .sortedBy { it.start ?: LocalDateTime.MIN },
+                )
+            }
         }.toMutableList()
         byDate.forEach { (date, list) ->
             if (days.none { it.date == date }) {

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
 data class LoginUiState(
@@ -37,6 +38,9 @@ class LoginViewModel @Inject constructor(
 
     private val _state = MutableStateFlow(LoginUiState())
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
+
+    /** Session install in flight — separate from [LoginUiState.loggingIn] UI flag. */
+    private val sessionInstallInFlight = AtomicBoolean(false)
 
     init {
         refreshSchools()
@@ -66,15 +70,31 @@ class LoginViewModel @Inject constructor(
         }
     }
 
+    /**
+     * School pick is the primary CTA: real schools open MitID immediately,
+     * demo enters the sandbox. Selection is kept if the user cancels the WebView
+     * so [startMitId] remains available as a retry.
+     */
     fun select(school: School) {
-        _state.update { it.copy(selected = school) }
+        _state.update { it.copy(selected = school, error = null) }
+        if (school.isDemo) {
+            enterDemo()
+        } else {
+            startMitId()
+        }
     }
 
     fun startMitId() {
         if (_state.value.selected == null) return
+        if (_state.value.selected?.isDemo == true) {
+            enterDemo()
+            return
+        }
+        sessionInstallInFlight.set(false)
         _state.update {
             it.copy(
                 showWebView = true,
+                loggingIn = false,
                 error = null,
                 mitIdAppSwitchError = null,
             )
@@ -82,6 +102,7 @@ class LoginViewModel @Inject constructor(
     }
 
     fun dismissWebView() {
+        sessionInstallInFlight.set(false)
         _state.update {
             it.copy(
                 showWebView = false,
@@ -103,10 +124,20 @@ class LoginViewModel @Inject constructor(
         _state.update { it.copy(mitIdAppSwitchError = null) }
     }
 
+    /**
+     * Auth success URL hit — show overlay immediately while cookies settle / install runs.
+     * Safe to call multiple times; does not start session install by itself.
+     */
+    fun onWebViewLoginDetected() {
+        _state.update {
+            it.copy(loggingIn = true, error = null, mitIdAppSwitchError = null)
+        }
+    }
+
     fun onWebViewLoginSuccess(callbackUrl: String) {
         val school = _state.value.selected ?: return
-        // Guard against double-fire from onPageFinished + onResume.
-        if (_state.value.loggingIn) return
+        // Guard against double-fire from onPageFinished + onResume / early nav.
+        if (!sessionInstallInFlight.compareAndSet(false, true)) return
         viewModelScope.launch {
             _state.update { it.copy(loggingIn = true, error = null, mitIdAppSwitchError = null) }
             when (
@@ -119,6 +150,7 @@ class LoginViewModel @Inject constructor(
                     it.copy(loggingIn = false, showWebView = false)
                 }
                 is AppResult.Failure -> {
+                    sessionInstallInFlight.set(false)
                     PostHog.capture(
                         event = "login_failed",
                         properties = mapOf(

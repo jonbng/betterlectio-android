@@ -7,6 +7,7 @@ import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Badge
 import androidx.compose.material3.BadgedBox
 import androidx.compose.material3.Icon
@@ -24,7 +25,10 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.unit.sp
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.navigation.NavDestination.Companion.hierarchy
 import androidx.navigation.NavGraph.Companion.findStartDestination
@@ -114,13 +118,19 @@ private fun AuthenticatedShell() {
                     NavigationBarItem(
                         selected = selected,
                         onClick = {
+                            // More: always land on the top-level menu (not a nested sub-page).
+                            // Bump the token whether reselecting or switching from another tab so
+                            // MoreScreen pops to root when it (re)appears.
+                            if (destination == AppDestination.More) {
+                                moreScroll++
+                            }
                             if (selected) {
                                 when (destination) {
                                     AppDestination.Schedule -> scheduleScroll++
                                     AppDestination.Messages -> messagesScroll++
                                     AppDestination.Homework -> homeworkScroll++
                                     AppDestination.Assignments -> assignmentsScroll++
-                                    AppDestination.More -> moreScroll++
+                                    AppDestination.More -> Unit // already bumped above
                                 }
                                 scrollTokens[destination.route] =
                                     (scrollTokens[destination.route] ?: 0) + 1
@@ -150,7 +160,26 @@ private fun AuthenticatedShell() {
                                 Icon(icon, contentDescription = stringResource(destination.labelRes))
                             }
                         },
-                        label = { Text(stringResource(destination.labelRes)) },
+                        // Keep labels on one line on narrow phones (e.g. "Assignments").
+                        // Auto-size down a bit, then ellipsize rather than wrap to two lines.
+                        label = {
+                            Text(
+                                text = stringResource(destination.labelRes),
+                                maxLines = 1,
+                                softWrap = false,
+                                overflow = TextOverflow.Ellipsis,
+                                textAlign = TextAlign.Center,
+                                style = MaterialTheme.typography.labelMedium.copy(
+                                    letterSpacing = 0.sp,
+                                    lineHeight = 14.sp,
+                                ),
+                                autoSize = TextAutoSize.StepBased(
+                                    minFontSize = 9.sp,
+                                    maxFontSize = 12.sp,
+                                    stepSize = 0.5.sp,
+                                ),
+                            )
+                        },
                     )
                 }
             }
@@ -178,7 +207,20 @@ private fun AuthenticatedShell() {
                 AssignmentsScreen(scrollToTopToken = assignmentsScroll)
             }
             composable(AppDestination.More.route) {
-                MoreScreen(scrollToTopToken = moreScroll)
+                MoreScreen(
+                    scrollToTopToken = moreScroll,
+                    onComposeToPerson = {
+                        // PendingComposeRecipient is already offered by MoreViewModel;
+                        // switch tab so MessagesViewModel can open compose.
+                        navController.navigate(AppDestination.Messages.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
             }
         }
     }

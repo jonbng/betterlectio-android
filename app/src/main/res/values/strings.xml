@@ -9,7 +9,7 @@
     <string name="tab_more">Mere</string>
 
     <string name="login_title">Log ind</string>
-    <string name="login_subtitle">Vælg dit gymnasium og log ind med MitID via Lectio.</string>
+    <string name="login_subtitle">Søg dit gymnasium og tryk for at logge ind med MitID.</string>
     <string name="login_search_school">Søg gymnasium</string>
     <string name="login_mitid">Log ind med MitID</string>
     <string name="login_mitid_cancel">Annuller</string>
@@ -17,8 +17,6 @@
     <string name="login_mitid_app_missing">Kunne ikke åbne MitID-appen. Installér MitID fra Play Butik, og prøv igen.</string>
     <string name="login_demo">Prøv demo</string>
     <string name="settings_sync_subjects">Synkroniser fagfarver (Supabase)</string>
-    <string name="studiekort_change_photo">Skift profilbillede</string>
-
     <string name="placeholder_coming_soon">Kommer snart — under opbygning.</string>
     <string name="loading">Indlæser…</string>
     <string name="error_generic">Noget gik galt</string>
@@ -30,6 +28,7 @@
     <string name="error_robot">Robot-detektion — prøv igen om lidt.</string>
     <string name="error_robot_hint">Lectio har midlertidigt blokeret anmodninger. Vent et par minutter.</string>
     <string name="action_retry">Prøv igen</string>
+    <string name="action_cancel">Annuller</string>
     <string name="action_logout">Log ud</string>
 
     <string name="empty_schedule">Ingen skemadata</string>
@@ -47,13 +46,20 @@
     <string name="homework_swipe_done">Færdig</string>
     <string name="homework_swipe_undo">Fortryd</string>
     <string name="grades_average_label">Gennemsnit %1$s</string>
+    <string name="grades_averages_title">Gennemsnit</string>
+    <string name="grades_averages_weighted_note">vægtet</string>
     <string name="grades_type_all">Alle</string>
     <string name="grades_type_sp1">1.SP</string>
     <string name="grades_type_sp2">2.SP</string>
+    <string name="grades_type_sp3">3.SP</string>
+    <string name="grades_type_final">Afsl.</string>
     <string name="grades_type_internal">Int.</string>
     <string name="grades_type_year">Års</string>
     <string name="grades_type_exam">Eks.</string>
     <string name="grades_no_average">—</string>
+    <string name="grades_empty">Ingen karakterer fundet</string>
+    <string name="grades_weight_label">Vægt %1$s</string>
+    <string name="grades_subject_header">Fag</string>
     <string name="absence_regular">Almindeligt</string>
     <string name="absence_written">Skriftligt</string>
     <string name="more_catalog">Katalog</string>
@@ -74,10 +80,46 @@
     <string name="cd_clear_search">Ryd søgning</string>
     <string name="cd_search">Søg</string>
     <string name="message_attachment">Vedhæftet: %1$s</string>
+    <string name="attachment_open">Åbn</string>
+    <string name="attachment_save">Gem</string>
+    <string name="attachment_share">Del</string>
+    <string name="attachment_downloading">Henter %1$s…</string>
+    <string name="attachment_saved">Gemt i Downloads</string>
+    <string name="attachment_error_generic">Kunne ikke åbne filen</string>
+    <string name="attachment_error_offline">Ingen forbindelse — prøv igen når du er online</string>
+    <string name="attachment_error_session">Session udløbet — log ind igen for at hente filen</string>
+    <string name="attachment_error_robot">Lectio blokerede midlertidigt — prøv igen om lidt</string>
+    <string name="attachment_error_empty">Filen er tom</string>
+    <string name="attachment_error_html">Filen kunne ikke hentes (login-side)</string>
+    <string name="attachment_error_no_app">Ingen app kan åbne denne filtype</string>
+    <string name="attachment_close_preview">Luk forhåndsvisning</string>
+    <string name="image_load_failed">Kunne ikke indlæse billede</string>
+    <string name="homework_links">Links og filer</string>
     <string name="message_compose_send_disabled_hint">Tilføj emne, modtager og besked</string>
+    <string name="message_replies_not_allowed">Skal ikke kunne besvares</string>
+    <string name="message_attach">Vedhæft</string>
+    <string name="message_attach_photo">Foto eller video</string>
+    <string name="message_attach_file">Fil</string>
+    <string name="message_attach_remove">Fjern vedhæftning</string>
+    <string name="message_sending">Sender…</string>
+    <string name="message_uploading">Uploader %1$s…</string>
+    <string name="message_bbcode_bold">Fed</string>
+    <string name="message_bbcode_italic">Kursiv</string>
+    <string name="message_bbcode_underline">Understreget</string>
+    <string name="message_bbcode_link">Link</string>
+    <string name="message_bbcode_link_title">Indsæt link</string>
+    <string name="message_bbcode_link_url">URL</string>
+    <string name="message_bbcode_link_insert">Indsæt</string>
+    <string name="message_bbcode_list_bullet">Punktliste</string>
+    <string name="message_bbcode_list_numbered">Nummereret liste</string>
+    <string name="message_attachments_max">Højst %1$d vedhæftninger</string>
+    <string name="settings_messages">Beskeder</string>
+    <string name="settings_disable_signature">Skjul BetterLectio-signatur</string>
+    <string name="settings_disable_signature_hint">Send ikke “Sendt med BetterLectio” i nye beskeder og svar</string>
     <string name="empty_directory">Ingen resultater</string>
     <string name="empty_directory_hint">Prøv en anden søgning eller kategori.</string>
     <string name="schedule_week_badge">Uge %1$d</string>
+    <string name="schedule_go_to_today">I dag</string>
     <string name="empty_assignments">Ingen opgaver</string>
     <string name="empty_assignments_hint">Ingen opgaver matcher dette filter. Prøv et andet, eller træk ned for at opdatere.</string>
     <string name="empty_assignments_all_hint">Når der er afleveringer i Lectio, vises de her.</string>
@@ -172,10 +214,16 @@
     <string name="settings_calendar_timeline_hint">Timegrid som Google Kalender (anbefalet)</string>
     <string name="settings_calendar_list">Liste</string>
     <string name="settings_calendar_list_hint">Flade rækker for dagens lektioner</string>
-    <string name="settings_subject_colors">Fagfarver</string>
-    <string name="settings_subject_colors_hint">Farverne og navnene bruges på skemaet.</string>
+    <string name="settings_subject_colors">Fag</string>
+    <string name="settings_subject_colors_hint">Tryk på et fag for at ændre dets navn og farve. Synkroniseres via Supabase.</string>
     <string name="settings_subject_rename">Visningsnavn</string>
-    <string name="settings_subject_rename_save">Gem fagnavn</string>
+    <string name="settings_subject_rename_save">Gem</string>
+    <string name="settings_subject_color">Farve</string>
+    <string name="settings_subject_customized">Tilpasset</string>
+    <string name="settings_subject_reset">Nulstil</string>
+    <string name="settings_subject_reset_all">Nulstil alle tilpasninger</string>
+    <string name="msg_subject_reset">Fag nulstillet til standard</string>
+    <string name="msg_subjects_reset_all">Alle fagtilpasninger nulstillet</string>
     <string name="settings_notifications">Notifikationer</string>
     <string name="settings_notif_events">Aflyste og ændrede moduler</string>
     <string name="settings_notif_messages">Nye beskeder</string>
@@ -213,6 +261,15 @@
     <string name="directory_pin">Fastgør</string>
     <string name="directory_unpin">Fjern fastgørelse</string>
     <string name="directory_pinned">Fastgjorte</string>
+    <string name="directory_open_schedule">Se skema</string>
+    <string name="directory_write_message">Skriv besked</string>
+    <string name="directory_view_class">Se klasse</string>
+    <string name="directory_view_class_named">Alle i %1$s</string>
+    <string name="directory_class_not_found">Kunne ikke finde klassen</string>
+    <string name="directory_person_schedule">Skema</string>
+    <string name="directory_person_schedule_empty">Ingen lektioner denne uge</string>
+    <string name="directory_person_kind_student">Elev</string>
+    <string name="directory_person_kind_teacher">Lærer</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Fjern flag</string>
@@ -223,9 +280,6 @@
 
     <string name="homework_lesson_content">Lektionens indhold</string>
 
-    <string name="more_help">Hjælp</string>
-    <string name="help_title">Hjælp til BetterLectio</string>
-    <string name="help_body">BetterLectio viser dit Lectio-skema, beskeder, lektier og opgaver på Android.\n\n• Log ind med MitID via Lectio\n• Brug demo for at prøve uden konto\n• Fastgør personer i kataloget\n• Professionel kalenderstil under Indstillinger\n• Tilføj skema-widget på startskærmen\n\nPrivatlivspolitik findes under Indstillinger.</string>
     <string name="settings_check_updates">Tjek opdateringer</string>
     <string name="settings_version">Version %1$s</string>
 
@@ -262,7 +316,6 @@
     <string name="msg_absence_cause_history">Fraværsårsag opdateret: %1$s</string>
     <string name="msg_subject_name_saved">Fagnavn gemt</string>
     <string name="msg_notif_history_cleared">Notifikationshistorik ryddet</string>
-    <string name="msg_profile_photo_updated">Profilbillede opdateret</string>
     <string name="msg_supabase_not_configured">Supabase ikke konfigureret — lokale fagfarver bruges</string>
     <string name="msg_no_remote_subject_mapping">Ingen remote fagmapping fundet</string>
     <string name="msg_subjects_synced">Fagfarver synkroniseret (%1$d)</string>

@@ -1,0 +1,45 @@
+07-16 14:07:09.247 21558 21599 D PostHog : Flushing failed: PostHogApiError(statusCode=401, message='').
+07-16 14:07:33.011 24615 24696 D LectioHttpEngine: Lectio GET /lectio/94/SkemaNy.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:33.713 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/FindSkemaAdv.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:34.091 24615 24696 D LectioHttpEngine: Lectio GET /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:34.549 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/cache/DropDown.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:34.953 24615 24696 D LectioHttpEngine: Lectio POST /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:35.162 24615 24696 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:35.351 24615 24696 D LectioHttpEngine: Lectio GET /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:35.572 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:35.771 24615 24745 D LectioHttpEngine: Lectio POST /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.005 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.191 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.385 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.575 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.758 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:36.936 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:37.110 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:37.590 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:37.769 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:07:37.947 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/subnav/members.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:08.442 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:08.663 24615 24743 D LectioHttpEngine: Lectio POST /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:12.398 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/digitaltStudiekort.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:13.619 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/grades/grade_report.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:17.718 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/subnav/fravaerelev.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:17.989 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/subnav/fravaerelev_fravaersaarsager.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:21.281 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/studieplan.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:29.148 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/digitaltStudiekort.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:55.671 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/ElevAflevering.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:08:56.993 24615 24743 D LectioHttpEngine: Lectio GET /lectio/94/ExerciseFileGet.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:16.758 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:17.148 24615 24743 D LectioHttpEngine: Lectio POST /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:17.440 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:17.665 24615 24695 D LectioHttpEngine: Lectio POST /lectio/94/beskeder2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:31.979 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/grades/grade_report.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:33.762 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/grades/grade_report.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:09:35.247 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/digitaltStudiekort.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:03.896 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/privat_aftale.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:10.904 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/proevehold.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:12.655 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/aktivitet/aktivitetforside2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:15.046 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/SkemaNy.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:15.612 24615 24695 W SupabaseScheduleService: Supabase schedule sync failed for week 2026-W20 (often RLS on updates audit trigger)
+07-16 14:10:15.612 24615 24695 W SupabaseScheduleService: io.github.jan.supabase.postgrest.exception.PostgrestRestException:         ON CONFLICT DO UPDATE command cannot affect row a second time
+07-16 14:10:16.332 24615 24695 D LectioHttpEngine: Lectio GET /lectio/94/aktivitet/aktivitetforside2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify
+07-16 14:10:19.836 24615 24745 D LectioHttpEngine: Lectio GET /lectio/94/aktivitet/aktivitetforside2.aspx | session=66QR…BA autologin=PPQJ…nS extras=isloggedin3,lectiogsc,pbnotify

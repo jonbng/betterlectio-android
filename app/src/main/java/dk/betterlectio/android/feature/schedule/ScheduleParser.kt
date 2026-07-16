@@ -68,7 +68,7 @@ object ScheduleParser {
             }
         }
 
-        return ScheduleWeek(year, week, days.sortedBy { it.date })
+        return ScheduleMultiDay.expandWeek(ScheduleWeek(year, week, days.sortedBy { it.date }))
     }
 
     /** Flutter-style tbody fallback when data-date columns missing. */
@@ -96,7 +96,7 @@ object ScheduleParser {
                 .mapNotNull { parseBrick(it, date) }
             days += ScheduleDay(date, events)
         }
-        return ScheduleWeek(year, week, days)
+        return ScheduleMultiDay.expandWeek(ScheduleWeek(year, week, days))
     }
 
     fun parseBrick(brick: Element, date: LocalDate): ScheduleEvent? {

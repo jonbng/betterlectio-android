@@ -1,7 +1,8 @@
 package dk.betterlectio.android.ui.screens.schedule
 
-import android.content.Intent
-import android.net.Uri
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -28,7 +29,8 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.Surface
+import androidx.compose.material3.SnackbarHost
+import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
@@ -47,7 +49,6 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -61,12 +62,14 @@ import dk.betterlectio.android.feature.schedule.statusLabelText
 import dk.betterlectio.android.feature.schedule.timeLabelText
 import dk.betterlectio.android.feature.settings.CalendarStyle
 import dk.betterlectio.android.ui.components.AppListPrimary
+import dk.betterlectio.android.ui.components.AttachmentRow
 import dk.betterlectio.android.ui.components.DateStrip
 import dk.betterlectio.android.ui.components.DateStripDay
 import dk.betterlectio.android.ui.components.DetailSection
 import dk.betterlectio.android.ui.components.DetailSheetHeader
 import dk.betterlectio.android.ui.components.DetailSheetPadding
 import dk.betterlectio.android.ui.components.ErrorBox
+import dk.betterlectio.android.ui.components.LessonContentBlocks
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.components.StatusChip
 import dk.betterlectio.android.ui.theme.BetterLectioThemeExtras
@@ -77,6 +80,7 @@ import java.time.LocalDateTime
 import java.time.format.TextStyle
 import java.time.temporal.ChronoUnit
 import java.util.Locale
+import java.util.concurrent.atomic.AtomicBoolean
 
 /** Large day index space so users can swipe across many weeks. */
 private const val DAY_CENTER_PAGE = 5000
@@ -89,8 +93,10 @@ fun ScheduleScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val calendarStyle by viewModel.calendarStyle.collectAsStateWithLifecycle()
+    // Subscribe so bricks recompose when Supabase lesson mappings arrive.
+    @Suppress("UNUSED_VARIABLE")
+    val lessonMappings by viewModel.lessonMappings.collectAsStateWithLifecycle()
     val extended = BetterLectioThemeExtras.extendedColors
-    val context = LocalContext.current
 
     // Anchor "today" for day-page ↔ date mapping (stable for session).
     val dayAnchor = remember { LocalDate.now() }
@@ -109,11 +115,21 @@ fun ScheduleScreen(
     val selectDate by rememberUpdatedState(viewModel::selectDate)
     val selectedDate by rememberUpdatedState(state.selectedDate)
 
-    // Day swipe → select date
+    // While we programmatically move the day pager (strip tap / today), ignore pager→state
+    // echoes so intermediate pages don't fight the intended selection.
+    val ignoreDayPagerSync = remember { AtomicBoolean(false) }
+
+    // User day-swipe → selection. Prefer targetPage (destination) over currentPage
+    // (which steps through intermediates during flings/animations).
     LaunchedEffect(dayPagerState) {
-        snapshotFlow { dayPagerState.settledPage }
+        snapshotFlow {
+            val scrolling = dayPagerState.isScrollInProgress
+            val page = if (scrolling) dayPagerState.targetPage else dayPagerState.settledPage
+            page to scrolling
+        }
             .distinctUntilChanged()
-            .collect { page ->
+            .collect { (page, scrolling) ->
+                if (ignoreDayPagerSync.get()) return@collect
                 val date = dateForPage(page)
                 if (date != selectedDate) {
                     selectDate(date)
@@ -121,11 +137,22 @@ fun ScheduleScreen(
             }
     }
 
-    // Programmatic date change (strip / week swipe) → day pager
+    // Strip tap / today / week change → snap day pager to match.
+    // Never skip because a previous scroll is in progress (that caused the jump-back bug).
     LaunchedEffect(state.selectedDate) {
         val target = pageForDate(state.selectedDate)
-        if (dayPagerState.settledPage != target && !dayPagerState.isScrollInProgress) {
-            dayPagerState.animateScrollToPage(target)
+        // Already there, or user gesture is already heading there.
+        if (dayPagerState.settledPage == target && dayPagerState.currentPage == target) {
+            return@LaunchedEffect
+        }
+        if (dayPagerState.isScrollInProgress && dayPagerState.targetPage == target) {
+            return@LaunchedEffect
+        }
+        ignoreDayPagerSync.set(true)
+        try {
+            dayPagerState.scrollToPage(target)
+        } finally {
+            ignoreDayPagerSync.set(false)
         }
     }
 
@@ -134,7 +161,12 @@ fun ScheduleScreen(
         if (scrollToTopToken > 0) {
             val today = LocalDate.now()
             selectDate(today)
-            dayPagerState.animateScrollToPage(pageForDate(today))
+            ignoreDayPagerSync.set(true)
+            try {
+                dayPagerState.scrollToPage(pageForDate(today))
+            } finally {
+                ignoreDayPagerSync.set(false)
+            }
         }
     }
 
@@ -162,6 +194,8 @@ fun ScheduleScreen(
     val dayName = state.selectedDate.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
     val subtitle = stringResource(R.string.schedule_week_subtitle, dayName, state.weekNum)
+    val today = remember { LocalDate.now() }
+    val isAwayFromToday = state.selectedDate != today
 
     Scaffold(
         topBar = {
@@ -174,6 +208,21 @@ fun ScheduleScreen(
                             style = MaterialTheme.typography.labelMedium,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
+                    }
+                },
+                actions = {
+                    // Week is already in the subtitle — keep "today" up here so the strip stays short.
+                    AnimatedVisibility(
+                        visible = isAwayFromToday,
+                        enter = fadeIn(),
+                        exit = fadeOut(),
+                    ) {
+                        TextButton(onClick = { selectDate(today) }) {
+                            Text(
+                                stringResource(R.string.schedule_go_to_today),
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                        }
                     }
                 },
                 colors = TopAppBarDefaults.topAppBarColors(
@@ -207,19 +256,23 @@ fun ScheduleScreen(
                         // Live lesson header (iOS ScheduleHeaderView)
                         LiveLessonHeader(liveHeader)
 
-                        // Week strip — full width, swipe weeks + floating week badge
+                        // Compact day strip — week lives in the app bar subtitle
+                        val weekDays = state.week?.days.orEmpty()
                         Box(
                             Modifier
                                 .fillMaxWidth()
                                 .shadow(
-                                    elevation = 4.dp,
-                                    shape = RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp),
+                                    elevation = 3.dp,
+                                    shape = RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp),
                                     clip = false,
                                 )
-                                .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
-                                .background(MaterialTheme.colorScheme.surface),
+                                .clip(RoundedCornerShape(topStart = 20.dp, topEnd = 20.dp))
+                                .background(MaterialTheme.colorScheme.surface)
+                                .padding(top = 8.dp),
                         ) {
-                            val weekDays = state.week?.days.orEmpty()
+                            // Capture maps from composition so strip tints recompose when week data lands.
+                            val eventsByDate = state.eventsByDate
+                            val knownEmptyDays = state.knownEmptyDays
                             DateStrip(
                                 days = weekDays.map { day ->
                                     DateStripDay(
@@ -230,29 +283,19 @@ fun ScheduleScreen(
                                 selected = state.selectedDate,
                                 onSelect = viewModel::selectDate,
                                 onWeekChanged = viewModel::selectDate,
-                                hasEvents = { date -> viewModel.hasEvents(date) },
-                                modifier = Modifier
-                                    .fillMaxWidth()
-                                    .padding(top = 8.dp, bottom = 4.dp),
+                                hasEvents = { date ->
+                                    when {
+                                        date in knownEmptyDays -> false
+                                        date in eventsByDate ->
+                                            eventsByDate[date].orEmpty().isNotEmpty()
+                                        else ->
+                                            weekDays.find { it.date == date }
+                                                ?.events
+                                                ?.isNotEmpty() == true
+                                    }
+                                },
+                                modifier = Modifier.fillMaxWidth(),
                             )
-                            // iOS floating week capsule over the strip
-                            Surface(
-                                modifier = Modifier
-                                    .align(Alignment.TopCenter)
-                                    .padding(top = 2.dp),
-                                shape = RoundedCornerShape(50),
-                                color = MaterialTheme.colorScheme.surface,
-                                shadowElevation = 4.dp,
-                                tonalElevation = 0.dp,
-                            ) {
-                                Text(
-                                    stringResource(R.string.schedule_week_badge, state.weekNum),
-                                    modifier = Modifier.padding(horizontal = 14.dp, vertical = 6.dp),
-                                    style = MaterialTheme.typography.labelMedium,
-                                    fontWeight = FontWeight.SemiBold,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
                         }
 
                         HorizontalDivider(
@@ -302,7 +345,9 @@ fun ScheduleScreen(
             EventStatus.CANCELLED -> extended.statusCancelled
             EventStatus.NORMAL -> extended.statusNormal
         }
+        val sheetSnackbar = remember { SnackbarHostState() }
         ModalBottomSheet(onDismissRequest = { viewModel.selectEvent(null) }) {
+            Box(Modifier.fillMaxWidth()) {
             Column(
                 Modifier
                     .fillMaxWidth()
@@ -346,23 +391,7 @@ fun ScheduleScreen(
                         }
                         if (detail.contentBlocks.isNotEmpty()) {
                             DetailSection(stringResource(R.string.lesson_content)) {
-                                detail.contentBlocks.forEach { block ->
-                                    when (block.kind) {
-                                        "heading" -> Text(
-                                            block.text,
-                                            style = MaterialTheme.typography.titleSmall,
-                                            fontWeight = FontWeight.SemiBold,
-                                            modifier = Modifier.padding(top = 6.dp),
-                                        )
-                                        "note" -> Text(
-                                            block.text,
-                                            style = MaterialTheme.typography.bodySmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                        else -> Text(block.text, style = MaterialTheme.typography.bodyMedium)
-                                    }
-                                    Spacer(Modifier.height(4.dp))
-                                }
+                                LessonContentBlocks(detail.contentBlocks)
                             }
                         }
                         if (detail.participants.isNotEmpty()) {
@@ -379,21 +408,12 @@ fun ScheduleScreen(
                         if (detail.resources.isNotEmpty()) {
                             DetailSection(stringResource(R.string.lesson_resources)) {
                                 detail.resources.forEach { r ->
-                                    TextButton(
-                                        onClick = {
-                                            val url = if (r.url.startsWith("http")) {
-                                                r.url
-                                            } else {
-                                                "https://www.lectio.dk${r.url}"
-                                            }
-                                            context.startActivity(
-                                                Intent(Intent.ACTION_VIEW, Uri.parse(url)),
-                                            )
-                                        },
-                                        modifier = Modifier.fillMaxWidth(),
-                                    ) {
-                                        Text(r.title + if (r.isFile) "  📎" else "")
-                                    }
+                                    AttachmentRow(
+                                        name = r.title,
+                                        url = r.url,
+                                        isFileHint = r.isFile,
+                                        snackbarHostState = sheetSnackbar,
+                                    )
                                 }
                             }
                         }
@@ -418,6 +438,11 @@ fun ScheduleScreen(
                         }
                     }
                 }
+            }
+            SnackbarHost(
+                hostState = sheetSnackbar,
+                modifier = Modifier.align(Alignment.BottomCenter),
+            )
             }
         }
     }
@@ -523,20 +548,22 @@ private fun computeLiveHeader(
     now: LocalDateTime,
     displayTitle: (ScheduleEvent) -> String,
 ): LiveHeaderUi? {
+    // Full LocalDateTime compare so multi-day / overnight events stay "current"
+    // across midnight (clock-only math would break after day boundaries).
     val timed = events.filter { !it.isAllDay && it.start != null && it.end != null }
-    val nowMin = now.hour * 60 + now.minute
 
     val current = timed.firstOrNull { e ->
-        val s = e.start!!.hour * 60 + e.start.minute
-        val en = e.end!!.hour * 60 + e.end.minute
-        nowMin in s until en
+        val s = e.start!!
+        val en = e.end!!
+        !now.isBefore(s) && now.isBefore(en)
     }
     if (current != null) {
-        val start = current.start!!.hour * 60 + current.start.minute
-        val end = current.end!!.hour * 60 + current.end.minute
-        val remaining = (end - nowMin).coerceAtLeast(0)
-        val duration = (end - start).coerceAtLeast(1)
-        val progress = ((nowMin - start).toFloat() / duration).coerceIn(0f, 1f)
+        val start = current.start!!
+        val end = current.end!!
+        val remaining = ChronoUnit.MINUTES.between(now, end).coerceAtLeast(0).toInt()
+        val duration = ChronoUnit.MINUTES.between(start, end).coerceAtLeast(1).toInt()
+        val elapsed = ChronoUnit.MINUTES.between(start, now).coerceAtLeast(0).toInt()
+        val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
         return LiveHeaderUi(
             subjectName = displayTitle(current),
             room = current.room,
@@ -548,8 +575,9 @@ private fun computeLiveHeader(
 
     val next = timed
         .mapNotNull { e ->
-            val s = e.start!!.hour * 60 + e.start.minute
-            val until = s - nowMin
+            val s = e.start!!
+            if (!s.isAfter(now)) return@mapNotNull null
+            val until = ChronoUnit.MINUTES.between(now, s).toInt()
             if (until in 1..60) e to until else null
         }
         .minByOrNull { it.second }

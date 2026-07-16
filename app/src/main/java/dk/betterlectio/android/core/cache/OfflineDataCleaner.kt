@@ -1,5 +1,6 @@
 package dk.betterlectio.android.core.cache
 
+import dk.betterlectio.android.feature.attachments.AttachmentCache
 import dk.betterlectio.android.feature.offline.OfflineDatabase
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -19,6 +20,7 @@ class OfflineDataCleaner @Inject constructor(
     private val cache: SimpleCache,
     @param:Named("entityOffline") private val entityOffline: EntityOfflineStore,
     private val offlineDb: OfflineDatabase,
+    private val attachmentCache: AttachmentCache,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -32,6 +34,11 @@ class OfflineDataCleaner @Inject constructor(
             entityOffline.clear()
         } catch (e: Exception) {
             Timber.w(e, "EntityOfflineStore clear failed")
+        }
+        try {
+            attachmentCache.clear()
+        } catch (e: Exception) {
+            Timber.w(e, "Attachment cache clear failed")
         }
         scope.launch {
             try {
