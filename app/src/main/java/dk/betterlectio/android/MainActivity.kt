@@ -20,6 +20,7 @@ import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.feature.notifications.NotificationDiffWorker
 import dk.betterlectio.android.feature.settings.AppearanceMode
 import dk.betterlectio.android.feature.settings.SettingsStore
+import dk.betterlectio.android.ui.feedback.FeedbackHost
 import dk.betterlectio.android.ui.navigation.BetterLectioRoot
 import dk.betterlectio.android.ui.theme.BetterLectioTheme
 import javax.inject.Inject
@@ -81,7 +82,9 @@ class MainActivity : AppCompatActivity() {
             SideEffect { keepSplash = false }
             BetterLectioTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
-                    BetterLectioRoot(sessionController = sessionController)
+                    FeedbackHost {
+                        BetterLectioRoot(sessionController = sessionController)
+                    }
                 }
             }
         }

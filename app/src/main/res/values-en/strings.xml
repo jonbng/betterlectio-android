@@ -63,6 +63,27 @@
     <string name="grades_subject_header">Subject</string>
     <string name="absence_regular">Regular</string>
     <string name="absence_written">Written</string>
+    <string name="absence_tab_overview">Overview</string>
+    <string name="absence_tab_registrations">Registrations</string>
+    <string name="absence_total_count">%1$d absence registration%2$s in total</string>
+    <string name="absence_total_count_suffix_plural">s</string>
+    <string name="absence_per_subject">Absence per subject</string>
+    <string name="absence_modules">modules</string>
+    <string name="absence_modules_count">%1$d modules</string>
+    <string name="absence_missing_section">Missing</string>
+    <string name="absence_filled_section">Filled</string>
+    <string name="absence_missing_label">Missing</string>
+    <string name="absence_empty">No absence registrations found</string>
+    <string name="absence_week">Week %1$s</string>
+    <string name="absence_edit_title">Edit absence</string>
+    <string name="absence_edit_cause">Reason</string>
+    <string name="absence_edit_note">Explanation</string>
+    <string name="absence_edit_note_hint">Optional comment…</string>
+    <string name="absence_edit_save">Save</string>
+    <string name="absence_edit_pick_cause">Choose reason</string>
+    <string name="absence_stat_year">For the year</string>
+    <string name="absence_stat_current">To date</string>
+    <string name="absence_chart_modules">Module absence</string>
     <string name="more_catalog">Catalog</string>
     <string name="catalog_teachers">Teachers</string>
     <string name="catalog_classes">Classes</string>
@@ -181,7 +202,7 @@
     <string name="room_in_use">In use</string>
     <string name="room_free">Free</string>
     <string name="rooms_occupancy_header">Current occupancy</string>
-    <string name="absence_overview">Overview</string>
+    <string name="absence_overview">Total absence</string>
     <string name="absence_chart">Absence per class</string>
     <string name="studiekort_birthday">Birthday: %1$s</string>
 
@@ -200,6 +221,37 @@
     <string name="more_module_stats">Module stats</string>
     <string name="more_term">Change year</string>
     <string name="more_settings">Settings</string>
+    <string name="more_referral">Invite friends</string>
+    <string name="more_browser_extension">Browser extension</string>
+
+    <string name="referral_subtitle_progress">%1$d/%2$d · Unlock customization</string>
+    <string name="referral_subtitle_unlocked">Customization unlocked</string>
+    <string name="referral_unlock_title">Unlock customization</string>
+    <string name="referral_unlock_done_title">Customization unlocked</string>
+    <string name="referral_unlock_body">Invite %1$d more to unlock customization.</string>
+    <string name="referral_unlock_done_body">You’ve invited enough classmates — customization is coming soon.</string>
+    <string name="referral_teaser_title">Customization</string>
+    <string name="referral_teaser_body">Invite %1$d classmates to unlock personal customization.</string>
+    <string name="referral_share_cta">Share with your class</string>
+    <string name="referral_share_chooser">Share BetterLectio</string>
+    <string name="referral_share_text">Try BetterLectio — Lectio that actually works on your phone.\n%1$s</string>
+    <string name="referral_copy_link">Copy link</string>
+    <string name="referral_copied">Copied</string>
+    <string name="referral_stat_invited">Invited</string>
+    <string name="referral_stat_clicks">Clicks</string>
+    <string name="referral_recent_title">Recently invited</string>
+    <string name="referral_anonymous">Anonymous</string>
+    <string name="referral_nudge_title">Share with your class</string>
+    <string name="referral_nudge_body">%1$d left to unlock customization. One link — attribution is automatic.</string>
+    <string name="referral_nudge_share">Share now</string>
+    <string name="referral_nudge_dismiss">Not now</string>
+    <string name="referral_celebration">%1$s joined thanks to you</string>
+
+    <string name="extension_invite_title">Also on your computer</string>
+    <string name="extension_invite_body">BetterLectio is also available as an extension for Chrome, Firefox, and Edge. Open the link on your computer to install.</string>
+    <string name="extension_invite_got_it">Got it</string>
+    <string name="extension_invite_copy_link">Copy link</string>
+    <string name="extension_invite_copied">Copied</string>
 
     <string name="settings_appearance">Appearance</string>
     <string name="settings_appearance_system">System</string>
@@ -233,6 +285,7 @@
     <string name="settings_notif_history_empty">No events yet.</string>
     <string name="settings_notif_history_clear">Clear history</string>
     <string name="settings_privacy">Privacy policy</string>
+    <string name="settings_browser_extension">Browser extension</string>
     <string name="settings_clear_cache">Clear cache</string>
 
     <string name="private_event_add">New private event</string>
@@ -271,6 +324,11 @@
     <string name="directory_person_schedule_empty">No lessons this week</string>
     <string name="directory_person_kind_student">Student</string>
     <string name="directory_person_kind_teacher">Teacher</string>
+    <string name="student_profile_no_betterlectio">This student doesn\'t have BetterLectio yet.</string>
+    <string name="student_profile_birthday_cd">Birthday</string>
+    <string name="student_profile_instagram_cd">Instagram</string>
+    <string name="student_profile_week_prev_cd">Previous week</string>
+    <string name="student_profile_week_next_cd">Next week</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Remove flag</string>
@@ -361,4 +419,32 @@
     <string name="update_none_available">No update available (version %1$s).</string>
     <string name="update_play_check_failed">Could not check Play: %1$s (sideload/debug is normal).</string>
     <string name="update_play_core_unavailable">Play Core unavailable: %1$s</string>
+
+    <!-- Shake-to-feedback -->
+    <string name="feedback_title">Feedback</string>
+    <string name="feedback_subtitle">Describe the problem or your idea. We read everything.</string>
+    <string name="feedback_category_label">Category</string>
+    <string name="feedback_category_bug">Bug</string>
+    <string name="feedback_category_idea">Idea</string>
+    <string name="feedback_category_other">Other</string>
+    <string name="feedback_hint_bug">What went wrong, and what were you doing right before?</string>
+    <string name="feedback_hint_idea">What\'s missing or could work better?</string>
+    <string name="feedback_hint_other">Write your message here</string>
+    <string name="feedback_attachments_label">Attachments</string>
+    <string name="feedback_screenshot_title">Screenshot</string>
+    <string name="feedback_screenshot_cd">Screenshot of the app</string>
+    <string name="feedback_screenshot_included">Included</string>
+    <string name="feedback_screenshot_excluded">Not included</string>
+    <string name="feedback_screenshot_unavailable">Unavailable</string>
+    <string name="feedback_logs_title">Logs</string>
+    <string name="feedback_logs_included">Included</string>
+    <string name="feedback_logs_excluded">Not included</string>
+    <string name="feedback_send">Send</string>
+    <string name="feedback_sending">Sending…</string>
+    <string name="feedback_privacy_note">The screenshot may contain personal information. You can remove it above.</string>
+    <string name="feedback_success_title">Sent</string>
+    <string name="feedback_success_body">Thanks for the feedback.</string>
+    <string name="feedback_done">Close</string>
+    <string name="feedback_error_title">Couldn\'t send</string>
+    <string name="feedback_error_body">Check your connection and try again.</string>
 </resources>

@@ -4,11 +4,14 @@ import dk.betterlectio.android.core.lectio.scrape.AspNetForm
 import dk.betterlectio.android.core.util.LectioDateUtils
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
+import java.time.LocalDate
+import java.time.LocalDateTime
 
 /**
  * Absence overview + registrations.
  * Overview: Flutter `absence/scraping` (SFTabStudentAbsenceDataTable).
- * Registrations: Flutter/iOS FatabAbsenceFravaerGV + FatabMissingAarsagerGV.
+ * Registrations: Flutter/iOS FatabAbsenceFravaerGV + FatabMissingAarsagerGV
+ * with activity details from schedule-brick tooltips (iOS StudentParser).
  */
 object AbsenceParser {
     fun parseOverview(html: String): List<AbsenceTeamRow> {
@@ -98,7 +101,6 @@ object AbsenceParser {
             return table.select("tr").drop(1).mapIndexedNotNull { i, row ->
                 val cells = desktopCells(row)
                 if (cells.size < 3) return@mapIndexedNotNull null
-                // Prefer real id if present
                 val id = extractRegistrationId(row) ?: "reg-$i"
                 AbsenceRegistration(
                     id = id,
@@ -110,58 +112,194 @@ object AbsenceParser {
                 )
             }
         }
-        return out
+        return AbsencePresentation.sortNewestFirst(out)
     }
 
     private fun parseCauseTable(table: Element, missingCause: Boolean): List<AbsenceRegistration> {
-        return table.select("tr").drop(1).mapNotNull { row ->
+        return table.select("tr").mapNotNull { row ->
+            // Skip header rows (iOS: has th)
+            if (row.select("th").isNotEmpty()) return@mapNotNull null
             val cells = desktopCells(row)
             if (cells.size < 4) return@mapNotNull null
 
             val week = cells.getOrNull(0)?.text()?.trim().orEmpty()
-            val activity = cells.getOrNull(1)?.selectFirst("a.s2skemabrik, a.s2bgbox")
-            val activityTitle = activity?.text()?.trim()
-                ?: cells.getOrNull(1)?.text()?.trim().orEmpty()
+            val activityCell = cells.getOrNull(1)
+            val activity = activityCell?.selectFirst("a.s2skemabrik, a.s2bgbox")
+            val activityText = activity?.text()?.trim()
+                ?: activityCell?.text()?.trim().orEmpty()
+            val details = parseActivityDetails(activity, activityText)
+
             val percent = cells.getOrNull(2)?.text()
                 ?.replace("%", "")
                 ?.replace(",", ".")
                 ?.trim()
                 ?.toDoubleOrNull()
                 ?.div(100.0)
-            val typeText = cells.getOrNull(3)?.text()?.trim().orEmpty()
-            val status = when {
-                cells.getOrNull(3)?.selectFirst("img[src*=ok.gif]") != null -> "Godskrevet"
-                typeText.contains("Godskrevet", true) -> "Godskrevet"
-                typeText.contains("Fravær", true) -> "Fravær"
-                else -> typeText
-            }
-            val registeredRaw = cells.getOrNull(4)?.text()?.trim().orEmpty()
-            val registeredAt = parseRegisteredAt(registeredRaw)
 
-            // Cause column: registered table col 6; missing-cause table also col 6 (edit lives there)
+            val typeCell = cells.getOrNull(3)
+            val typeText = typeCell?.text()?.trim().orEmpty()
+            val hasOk = typeCell?.selectFirst("img[src*=ok.gif]") != null
+            val isApproved = hasOk || typeText.contains("Godskrevet", ignoreCase = true)
+            val status = when {
+                isApproved -> "Godskrevet"
+                typeText.contains("Fravær", true) -> "Fravær"
+                typeText.isNotBlank() -> typeText
+                else -> "Fravær"
+            }
+
+            val registeredRaw = cells.getOrNull(4)?.text()?.trim().orEmpty()
+            // First line is date/time; second may be teacher initials
+            val registeredFirstLine = registeredRaw.lineSequence().firstOrNull()?.trim().orEmpty()
+            val registeredAt = parseRegisteredAt(registeredFirstLine.ifBlank { registeredRaw })
+
+            val remark = cells.getOrNull(5)?.text()?.trim().orEmpty()
+
+            // Cause column: registered table col 6 (wholeText keeps newlines from <br>)
             val causeCell = cells.getOrNull(6)
-            val causeText = causeCell?.text()?.trim().orEmpty()
-            val cause = AbsenceCauses.all.firstOrNull { c ->
-                causeText.startsWith(c, ignoreCase = true)
-            } ?: causeText.lineSequence().firstOrNull()?.trim().orEmpty()
-            val note = causeText.substringAfter('\n', "").trim()
+            val causeText = causeCell?.wholeText()?.trim().orEmpty()
+                .ifBlank { causeCell?.text()?.trim().orEmpty() }
+            val causeLines = causeText.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
+            val cause = when {
+                missingCause -> ""
+                else -> AbsenceCauses.all.firstOrNull { c ->
+                    causeText.startsWith(c, ignoreCase = true)
+                } ?: causeLines.firstOrNull().orEmpty()
+            }
+            val note = if (missingCause) {
+                ""
+            } else {
+                // Prefer second line; else text after matched cause name
+                when {
+                    causeLines.size > 1 -> causeLines.drop(1).joinToString(" ")
+                    cause.isNotBlank() && causeText.length > cause.length ->
+                        causeText.removePrefix(cause).trim().trimStart(':', '-', '–')
+                    else -> ""
+                }
+            }
 
             val id = extractRegistrationId(row) ?: return@mapNotNull null
 
+            val hold = details.hold.ifBlank {
+                // Fallback: "fr 10/10 1. modul - 1g4 da • Ka • 24"
+                extractHoldFromActivityText(activityText)
+            }
+
+            val date: LocalDate? = details.dateFromTooltip
+                ?: registeredAt?.toLocalDate()
+
             AbsenceRegistration(
                 id = id,
-                date = registeredAt?.toLocalDate(),
-                team = activityTitle,
+                date = date,
+                team = hold.ifBlank { activityText },
                 cause = cause,
                 status = status,
                 week = week,
-                activityTitle = activityTitle,
+                activityTitle = activityText,
                 percent = percent,
                 registeredAt = registeredAt,
                 note = note,
                 missingCause = missingCause,
+                teacher = details.teacher,
+                room = details.room,
+                dateTimeLabel = details.dateTimeLabel.ifBlank {
+                    registeredFirstLine
+                },
+                lessonTitle = details.title,
+                remark = remark,
+                isApproved = isApproved,
             )
         }
+    }
+
+    private data class ActivityDetails(
+        val title: String = "",
+        val hold: String = "",
+        val teacher: String = "",
+        val room: String = "",
+        val dateTimeLabel: String = "",
+        val dateFromTooltip: LocalDate? = null,
+    )
+
+    /**
+     * iOS [StudentParser.parseActivityDetails] — tooltip lines + activity text fallback.
+     */
+    private fun parseActivityDetails(link: Element?, activityText: String): ActivityDetails {
+        if (link == null) {
+            return ActivityDetails(hold = extractHoldFromActivityText(activityText))
+        }
+        val tooltip = link.attr("data-tooltip")
+        val lines = tooltip.lines().map { it.trim() }.filter { it.isNotEmpty() }
+
+        var title = ""
+        var dateTimeLabel = ""
+        var hold = ""
+        var teacher = ""
+        var room = ""
+        var dateFromTooltip: LocalDate? = null
+
+        lines.forEachIndexed { index, line ->
+            when {
+                line.startsWith("Hold:", ignoreCase = true) ->
+                    hold = line.substringAfter(':').trim()
+                line.startsWith("Lærer:", ignoreCase = true) ||
+                    line.startsWith("Lærere:", ignoreCase = true) -> {
+                    val teacherPart = line.substringAfter(':').trim()
+                    // "Name (Abbrev)" → Abbrev
+                    teacher = Regex("""\(([^)]+)\)\s*$""").find(teacherPart)?.groupValues?.get(1)
+                        ?: teacherPart
+                }
+                line.startsWith("Lokale:", ignoreCase = true) ||
+                    line.startsWith("Lokaler:", ignoreCase = true) ->
+                    room = line.substringAfter(':').trim()
+                line.contains("/") && (
+                    line.contains("til", ignoreCase = true) ||
+                        Regex("""\d{1,2}/\d{1,2}""").containsMatchIn(line)
+                    ) -> {
+                    dateTimeLabel = line
+                    dateFromTooltip = parseDateFromDateTimeLabel(line)
+                }
+                // Free title is first non-prefixed, non-date line
+                index == 0 && !line.contains("/") -> title = line
+            }
+        }
+
+        if (hold.isEmpty()) {
+            hold = extractHoldFromActivityText(activityText)
+        }
+        if (teacher.isEmpty() || room.isEmpty()) {
+            val parts = activityText.split("•").map { it.trim() }
+            // "… - hold" then • teacher • room
+            if (parts.size >= 2 && teacher.isEmpty()) teacher = parts.getOrNull(1).orEmpty()
+            if (parts.size >= 3 && room.isEmpty()) room = parts.getOrNull(2).orEmpty()
+        }
+
+        return ActivityDetails(
+            title = title,
+            hold = hold,
+            teacher = teacher,
+            room = room,
+            dateTimeLabel = dateTimeLabel,
+            dateFromTooltip = dateFromTooltip,
+        )
+    }
+
+    private fun extractHoldFromActivityText(activityText: String): String {
+        // "fr 10/10 1. modul - 1g4 da • Ka • 24"
+        val afterDash = activityText.substringAfter(" - ", "").trim()
+        if (afterDash.isNotEmpty()) {
+            return afterDash.substringBefore("•").trim()
+        }
+        return activityText.substringBefore("•").trim()
+    }
+
+    private fun parseDateFromDateTimeLabel(label: String): LocalDate? {
+        // "10/10-2025 08:10 til 09:50" or "10/10-2025 08:12"
+        val cleaned = label.replace(Regex("""\s+til\s+.*"""), "").trim()
+        return LectioDateUtils.parseLectioDate(cleaned)?.toLocalDate()
+            ?: run {
+                val dateToken = cleaned.split(Regex("""\s+""")).firstOrNull().orEmpty()
+                LectioDateUtils.parseLectioDate(dateToken)?.toLocalDate()
+            }
     }
 
     private fun extractRegistrationId(row: Element): String? {
@@ -179,7 +317,7 @@ object AbsenceParser {
         return null
     }
 
-    private fun parseRegisteredAt(raw: String): java.time.LocalDateTime? {
+    private fun parseRegisteredAt(raw: String): LocalDateTime? {
         // "dd/MM-yyyy HH:mm …" — take first two tokens (date + time)
         val parts = raw.trim().split(Regex("""\s+"""))
         if (parts.size >= 2) {
@@ -189,10 +327,11 @@ object AbsenceParser {
     }
 
     private fun desktopCells(row: Element): List<Element> {
-        val desktop = row.select("td.OnlyDesktop")
-        if (desktop.isNotEmpty()) return desktop
+        // iOS: td:not(.OnlyMobile) so activity cell (no class) is included
         val nonMobile = row.select("td:not(.OnlyMobile)")
         if (nonMobile.isNotEmpty()) return nonMobile
+        val desktop = row.select("td.OnlyDesktop")
+        if (desktop.isNotEmpty()) return desktop
         return row.select("td")
     }
 }

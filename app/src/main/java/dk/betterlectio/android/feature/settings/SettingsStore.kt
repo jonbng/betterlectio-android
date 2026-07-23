@@ -70,6 +70,10 @@ class SettingsStore @Inject constructor(
     private val _disableSignature = MutableStateFlow(prefs.getBoolean("disable_signature", false))
     val disableSignature: StateFlow<Boolean> = _disableSignature.asStateFlow()
 
+    private val _extensionInviteDismissed =
+        MutableStateFlow(prefs.getBoolean(KEY_EXTENSION_INVITE_DISMISSED, false))
+    val extensionInviteDismissed: StateFlow<Boolean> = _extensionInviteDismissed.asStateFlow()
+
     private val _lessonMappings = MutableStateFlow<Map<String, ResolvedLessonMapping>>(emptyMap())
     val lessonMappings: StateFlow<Map<String, ResolvedLessonMapping>> = _lessonMappings.asStateFlow()
 
@@ -146,6 +150,29 @@ class SettingsStore @Inject constructor(
     fun setDisableSignature(v: Boolean) {
         prefs.edit { putBoolean("disable_signature", v) }
         _disableSignature.value = v
+    }
+
+    /**
+     * Counts this process as one authenticated launch (at most once per process).
+     * Returns true when the proactive extension invite should be shown.
+     */
+    fun recordAuthenticatedLaunch(): Boolean {
+        if (!launchRecordedThisProcess) {
+            launchRecordedThisProcess = true
+            val next = prefs.getInt(KEY_EXTENSION_INVITE_LAUNCH_COUNT, 0) + 1
+            prefs.edit { putInt(KEY_EXTENSION_INVITE_LAUNCH_COUNT, next) }
+        }
+        return shouldShowProactiveExtensionInvite()
+    }
+
+    fun shouldShowProactiveExtensionInvite(): Boolean {
+        if (_extensionInviteDismissed.value) return false
+        return prefs.getInt(KEY_EXTENSION_INVITE_LAUNCH_COUNT, 0) >= EXTENSION_INVITE_LAUNCH_THRESHOLD
+    }
+
+    fun dismissExtensionInvite() {
+        prefs.edit { putBoolean(KEY_EXTENSION_INVITE_DISMISSED, true) }
+        _extensionInviteDismissed.value = true
     }
 
     // ── Lesson mapping scope ──────────────────────────────────────────
@@ -486,7 +513,17 @@ class SettingsStore @Inject constructor(
 
     companion object {
         const val PRIVACY_POLICY_URL = "https://betterlectio.dk/privatlivspolitik"
+        const val DOWNLOAD_URL = "https://betterlectio.dk/download"
+        /** Host+path shown in UI (no scheme). */
+        const val DOWNLOAD_URL_DISPLAY = "betterlectio.dk/download"
+
         private const val KEY_LESSON_CACHE = "lessonMappingCacheV2"
+        private const val KEY_EXTENSION_INVITE_LAUNCH_COUNT = "extension_invite_launch_count"
+        private const val KEY_EXTENSION_INVITE_DISMISSED = "extension_invite_dismissed"
+        private const val EXTENSION_INVITE_LAUNCH_THRESHOLD = 4
+
+        @Volatile
+        private var launchRecordedThisProcess = false
 
         /** Fallback palette (non-subject UI). Subject colors use hue→ARGB. */
         val DEFAULT_PALETTE = listOf(

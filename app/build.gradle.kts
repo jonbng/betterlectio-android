@@ -45,7 +45,7 @@ android {
         applicationId = "dk.betterlectio.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 7
+        versionCode = 8
         versionName = "1.0.0"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
@@ -186,6 +186,9 @@ dependencies {
     implementation(libs.play.app.update)
     implementation(libs.play.app.update.ktx)
 
+    // Play Install Referrer (classmate referral attribution)
+    implementation(libs.play.install.referrer)
+
     implementation(libs.posthog.android)
 
     // Supabase (iOS parity — optional enhancement layer; core Lectio works without it)
@@ -193,6 +196,7 @@ dependencies {
     implementation(libs.supabase.postgrest)
     implementation(libs.supabase.auth)
     implementation(libs.supabase.functions)
+    implementation(libs.supabase.storage)
     implementation(libs.ktor.client.android)
     implementation(libs.kotlinx.serialization.json)
 

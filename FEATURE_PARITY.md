@@ -74,7 +74,7 @@ Android is a **first-class Lectio client**: MitID + demo, 5-tab iOS IA, full dai
 |------------|---------|
 | Homework groups + detail HTML + local/remote done | ✅ |
 | Assignment filters + detail | ✅ |
-| Absence rings + chart by team + cause edit | ✅ |
+| Absence tabs (overview + registrations) + edit sheet (Flutter UX) | ✅ |
 | Grades + notes | ✅ |
 
 ### Directory / plans / studiekort

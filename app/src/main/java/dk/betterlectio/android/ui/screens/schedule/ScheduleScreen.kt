@@ -196,8 +196,19 @@ fun ScheduleScreen(
     val subtitle = stringResource(R.string.schedule_week_subtitle, dayName, state.weekNum)
     val today = remember { LocalDate.now() }
     val isAwayFromToday = state.selectedDate != today
+    val nudgeVisible by viewModel.referralNudgeVisible.collectAsStateWithLifecycle()
+    val celebrationName by viewModel.referralCelebrationName.collectAsStateWithLifecycle()
+    val snackbarHostState = remember { SnackbarHostState() }
+    val context = androidx.compose.ui.platform.LocalContext.current
+
+    LaunchedEffect(celebrationName) {
+        val name = celebrationName ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(context.getString(R.string.referral_celebration, name))
+        viewModel.consumeReferralCelebration()
+    }
 
     Scaffold(
+        snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
             TopAppBar(
                 title = {
@@ -499,6 +510,60 @@ fun ScheduleScreen(
                     Text(stringResource(R.string.private_event_save))
                 }
                 Spacer(Modifier.height(16.dp))
+            }
+        }
+    }
+
+    if (nudgeVisible) {
+        ModalBottomSheet(onDismissRequest = viewModel::dismissReferralNudge) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(
+                    stringResource(R.string.referral_nudge_title),
+                    style = MaterialTheme.typography.titleLarge,
+                    fontWeight = FontWeight.SemiBold,
+                )
+                Text(
+                    stringResource(
+                        R.string.referral_nudge_body,
+                        viewModel.referralNudgeRemaining().coerceAtLeast(1),
+                    ),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Button(
+                    onClick = {
+                        val url = viewModel.referralShareUrl() ?: return@Button
+                        val send = android.content.Intent(android.content.Intent.ACTION_SEND).apply {
+                            type = "text/plain"
+                            putExtra(
+                                android.content.Intent.EXTRA_TEXT,
+                                context.getString(R.string.referral_share_text, url),
+                            )
+                        }
+                        context.startActivity(
+                            android.content.Intent.createChooser(
+                                send,
+                                context.getString(R.string.referral_share_chooser),
+                            ),
+                        )
+                        viewModel.onReferralNudgeShared()
+                    },
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.referral_nudge_share))
+                }
+                TextButton(
+                    onClick = viewModel::dismissReferralNudge,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Text(stringResource(R.string.referral_nudge_dismiss))
+                }
             }
         }
     }

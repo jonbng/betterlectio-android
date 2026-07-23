@@ -17,11 +17,14 @@ import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.absence.AbsenceCauses
 import dk.betterlectio.android.feature.absence.AbsenceOverview
 import dk.betterlectio.android.feature.absence.AbsenceRepository
+import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.directory.DirectoryParser
 import dk.betterlectio.android.feature.directory.DirectoryPinRepository
 import dk.betterlectio.android.feature.directory.DirectoryRepository
 import dk.betterlectio.android.feature.directory.RoomScheduleRepository
+import dk.betterlectio.android.feature.directory.StudentProfile
 import dk.betterlectio.android.feature.grades.GradeAverage
 import dk.betterlectio.android.feature.grades.GradeRepository
 import dk.betterlectio.android.feature.grades.GradeRow
@@ -31,6 +34,9 @@ import dk.betterlectio.android.feature.messages.MessageRecipient
 import dk.betterlectio.android.feature.messages.PendingComposeRecipient
 import dk.betterlectio.android.feature.plans.PlanRepository
 import dk.betterlectio.android.feature.plans.StudyPlan
+import dk.betterlectio.android.feature.referral.ReferralCoordinator
+import dk.betterlectio.android.feature.referral.ReferralStats
+import dk.betterlectio.android.feature.referral.buildReferralUrl
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
 import dk.betterlectio.android.feature.settings.AppLanguage
 import dk.betterlectio.android.feature.settings.AppearanceMode
@@ -40,11 +46,13 @@ import dk.betterlectio.android.feature.settings.SubjectInfo
 import dk.betterlectio.android.feature.settings.SubjectMapper
 import dk.betterlectio.android.feature.studiekort.StudentCard
 import dk.betterlectio.android.feature.studiekort.StudiekortRepository
+import dk.betterlectio.android.feature.supabase.SupabaseStudentProfileService
 import dk.betterlectio.android.feature.teams.ModuleStat
 import dk.betterlectio.android.feature.teams.ModuleStatRepository
 import dk.betterlectio.android.feature.terms.SchoolTerm
 import dk.betterlectio.android.feature.terms.TermRepository
 import dk.betterlectio.android.feature.updates.AppUpdateProbe
+import kotlinx.coroutines.async
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -55,7 +63,7 @@ import kotlinx.coroutines.launch
 import javax.inject.Inject
 
 enum class MoreDestination {
-    ROOT, GRADES, ABSENCE, DIRECTORY, ROOMS, STUDIEKORT, PLANS, MODULE_STATS, TERM, SETTINGS
+    ROOT, GRADES, ABSENCE, DIRECTORY, ROOMS, STUDIEKORT, PLANS, MODULE_STATS, TERM, SETTINGS, REFERRAL
 }
 
 data class MoreUiState(
@@ -78,6 +86,10 @@ data class MoreUiState(
     /** Other person schedule (student/teacher) under directory. */
     val personEntity: DirectoryEntity? = null,
     val personSchedule: ScheduleWeek? = null,
+    /** Rich Supabase profile when viewing a student (null = Lectio-only / inactive). */
+    val studentProfile: StudentProfile? = null,
+    val personWeekYear: Int = LectioDateUtils.isoWeekYear(),
+    val personWeek: Int = LectioDateUtils.isoWeek(),
     val pinnedIds: Set<String> = emptySet(),
     val roomSchedule: ScheduleWeek? = null,
     val roomEntity: DirectoryEntity? = null,
@@ -92,6 +104,9 @@ data class MoreUiState(
     val editingSubjectCode: String? = null,
     val updateMessage: String? = null,
     val message: UiText? = null,
+    val referralStats: ReferralStats? = null,
+    val referralStatsLoading: Boolean = false,
+    val referralCopied: Boolean = false,
 )
 
 @HiltViewModel
@@ -104,6 +119,7 @@ class MoreViewModel @Inject constructor(
     private val directoryRepo: DirectoryRepository,
     private val pinRepo: DirectoryPinRepository,
     private val roomScheduleRepo: RoomScheduleRepository,
+    private val studentProfileService: SupabaseStudentProfileService,
     private val pendingCompose: PendingComposeRecipient,
     private val studiekortRepo: StudiekortRepository,
     private val plansRepo: PlanRepository,
@@ -112,6 +128,7 @@ class MoreViewModel @Inject constructor(
     private val cache: SimpleCache,
     private val appUpdateProbe: AppUpdateProbe,
     val settings: SettingsStore,
+    private val referralCoordinator: ReferralCoordinator,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -134,6 +151,9 @@ class MoreViewModel @Inject constructor(
                 }
                 is AppResult.Failure -> Unit
             }
+        }
+        viewModelScope.launch {
+            refreshReferralStats()
         }
     }
 
@@ -160,6 +180,7 @@ class MoreViewModel @Inject constructor(
                 selectedPerson = null,
                 personEntity = null,
                 personSchedule = null,
+                studentProfile = null,
                 roomSchedule = null,
                 roomEntity = null,
                 planDetail = null,
@@ -190,6 +211,10 @@ class MoreViewModel @Inject constructor(
                     }
                 }
             }
+            MoreDestination.REFERRAL -> {
+                PostHog.capture(event = "referral_screen_opened", properties = mapOf("platform" to "android"))
+                refreshReferralStats()
+            }
             else -> Unit
         }
     }
@@ -200,7 +225,11 @@ class MoreViewModel @Inject constructor(
             s.gradeDetail != null -> _state.update { it.copy(gradeDetail = null) }
             s.planDetail != null -> _state.update { it.copy(planDetail = null) }
             s.personSchedule != null || s.personEntity != null -> _state.update {
-                it.copy(personSchedule = null, personEntity = null)
+                it.copy(
+                    personSchedule = null,
+                    personEntity = null,
+                    studentProfile = null,
+                )
             }
             s.roomSchedule != null || s.roomEntity != null -> _state.update {
                 it.copy(roomSchedule = null, roomEntity = null)
@@ -224,6 +253,7 @@ class MoreViewModel @Inject constructor(
                 selectedPerson = null,
                 personEntity = null,
                 personSchedule = null,
+                studentProfile = null,
                 roomSchedule = null,
                 roomEntity = null,
                 planDetail = null,
@@ -307,8 +337,8 @@ class MoreViewModel @Inject constructor(
         }
     }
 
-    fun updateAbsenceCause(id: String, cause: String) = viewModelScope.launch {
-        when (val res = absenceRepo.updateCause(id, cause)) {
+    fun updateAbsenceCause(id: String, cause: String, note: String = "") = viewModelScope.launch {
+        when (val res = absenceRepo.updateCause(id, cause, note)) {
             is AppResult.Success -> {
                 PostHog.capture(event = "absence_cause_updated")
                 settings.appendNotificationHistory(
@@ -383,18 +413,92 @@ class MoreViewModel @Inject constructor(
         _state.update { it.copy(selectedPerson = null) }
     }
 
-    fun openPersonSchedule(entity: DirectoryEntity) = viewModelScope.launch {
+    /**
+     * Open the dedicated student profile page (rich hero + week schedule).
+     * Supabase profile failures fall back to Lectio identity without blocking schedule.
+     */
+    fun openStudentProfile(entity: DirectoryEntity) = viewModelScope.launch {
+        if (entity.kind != DirectoryEntityKind.STUDENT) {
+            openPersonSchedule(entity)
+            return@launch
+        }
+        val year = LectioDateUtils.isoWeekYear()
+        val week = LectioDateUtils.isoWeek()
         _state.update {
             it.copy(
                 selectedPerson = null,
                 loading = true,
                 personEntity = entity,
                 personSchedule = null,
+                studentProfile = null,
+                personWeekYear = year,
+                personWeek = week,
             )
         }
-        when (val res = roomScheduleRepo.loadPersonWeek(entity)) {
+        val numericId = DirectoryParser.numericId(entity.id)
+        val profileDeferred = async { studentProfileService.getStudent(numericId) }
+        val scheduleDeferred = async { roomScheduleRepo.loadPersonWeek(entity, year, week) }
+        val profile = profileDeferred.await()
+        when (val res = scheduleDeferred.await()) {
+            is AppResult.Success -> _state.update {
+                it.copy(
+                    loading = false,
+                    studentProfile = profile,
+                    personSchedule = res.data,
+                )
+            }
+            is AppResult.Failure -> _state.update {
+                it.copy(
+                    loading = false,
+                    studentProfile = profile,
+                    message = res.error.toUiText(),
+                )
+            }
+        }
+    }
+
+    fun openPersonSchedule(entity: DirectoryEntity) = viewModelScope.launch {
+        val year = LectioDateUtils.isoWeekYear()
+        val week = LectioDateUtils.isoWeek()
+        _state.update {
+            it.copy(
+                selectedPerson = null,
+                loading = true,
+                personEntity = entity,
+                personSchedule = null,
+                studentProfile = null,
+                personWeekYear = year,
+                personWeek = week,
+            )
+        }
+        when (val res = roomScheduleRepo.loadPersonWeek(entity, year, week)) {
             is AppResult.Success -> _state.update {
                 it.copy(loading = false, personSchedule = res.data)
+            }
+            is AppResult.Failure -> _state.update {
+                it.copy(loading = false, message = res.error.toUiText())
+            }
+        }
+    }
+
+    fun shiftPersonWeek(delta: Int) = viewModelScope.launch {
+        val entity = _state.value.personEntity ?: return@launch
+        val currentStart = LectioDateUtils.weekStart(
+            _state.value.personWeekYear,
+            _state.value.personWeek,
+        )
+        val next = currentStart.plusWeeks(delta.toLong())
+        val year = LectioDateUtils.isoWeekYear(next)
+        val week = LectioDateUtils.isoWeek(next)
+        _state.update { it.copy(loading = true) }
+        when (val res = roomScheduleRepo.loadPersonWeek(entity, year, week)) {
+            is AppResult.Success -> _state.update {
+                it.copy(
+                    loading = false,
+                    personWeekYear = year,
+                    personWeek = week,
+                    personSchedule = res.data,
+                )
             }
             is AppResult.Failure -> _state.update {
                 it.copy(loading = false, message = res.error.toUiText())
@@ -471,6 +575,7 @@ class MoreViewModel @Inject constructor(
                 selectedPerson = null,
                 personEntity = null,
                 personSchedule = null,
+                studentProfile = null,
             )
         }
         when (val res = directoryRepo.loadMembers(entity)) {
@@ -581,6 +686,8 @@ class MoreViewModel @Inject constructor(
     fun setNotifAssignments(v: Boolean) = settings.setNotifAssignments(v)
     fun setDisableSignature(v: Boolean) = settings.setDisableSignature(v)
 
+    fun dismissExtensionInvite() = settings.dismissExtensionInvite()
+
     fun curatedHues(): List<Int> = SubjectMapper.CURATED_HUES
 
     fun availableSubjects(): List<SubjectInfo> = settings.availableSubjects()
@@ -675,4 +782,45 @@ class MoreViewModel @Inject constructor(
     val privacyPolicyUrl: String get() = SettingsStore.PRIVACY_POLICY_URL
 
     val absenceCauses get() = AbsenceCauses.all
+
+    fun referralShareUrl(): String? {
+        val id = session.currentStudent?.studentId ?: return null
+        if (session.currentStudent?.isDemo == true) return null
+        return buildReferralUrl(id)
+    }
+
+    fun refreshReferralStats() {
+        val student = session.currentStudent ?: return
+        if (student.isDemo) return
+        viewModelScope.launch {
+            _state.update { it.copy(referralStatsLoading = true) }
+            val stats = referralCoordinator.refreshStats(student.studentId)
+            _state.update {
+                it.copy(
+                    referralStats = stats,
+                    referralStatsLoading = false,
+                )
+            }
+        }
+    }
+
+    fun onReferralShared(method: String) {
+        PostHog.capture(
+            event = "referral share",
+            properties = mapOf(
+                "method" to method,
+                "platform" to "android",
+            ),
+        )
+        session.currentStudent?.let { referralCoordinator.dismissNudge(it.studentId) }
+    }
+
+    fun markReferralCopied() {
+        _state.update { it.copy(referralCopied = true) }
+        onReferralShared("copy")
+        viewModelScope.launch {
+            kotlinx.coroutines.delay(2000)
+            _state.update { it.copy(referralCopied = false) }
+        }
+    }
 }

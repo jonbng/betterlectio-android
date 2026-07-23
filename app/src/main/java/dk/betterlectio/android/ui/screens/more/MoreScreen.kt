@@ -41,20 +41,27 @@ import androidx.compose.material.icons.filled.Badge
 import androidx.compose.material.icons.filled.BarChart
 import androidx.compose.material.icons.filled.CalendarMonth
 import androidx.compose.material.icons.filled.Check
+import androidx.compose.material.icons.filled.ContentCopy
 import androidx.compose.material.icons.filled.Delete
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.Extension
 import androidx.compose.material.icons.filled.Grade
 import androidx.compose.material.icons.filled.Groups
 import androidx.compose.material.icons.filled.MeetingRoom
 import androidx.compose.material.icons.filled.People
 import androidx.compose.material.icons.filled.Person
+import androidx.compose.material.icons.filled.PersonAdd
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.QrCode2
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.filled.Settings
+import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PushPin
+import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -65,18 +72,25 @@ import androidx.compose.material3.ListItemDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
+import androidx.compose.material3.PrimaryTabRow
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Switch
+import androidx.compose.material3.Tab
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TopAppBar
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import kotlinx.coroutines.launch
+import kotlin.math.roundToInt
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -100,12 +114,18 @@ import coil3.compose.AsyncImage
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.asString
 import dk.betterlectio.android.feature.absence.AbsenceChartSeries
+import dk.betterlectio.android.feature.absence.AbsenceOverview
+import dk.betterlectio.android.feature.absence.AbsencePresentation
+import dk.betterlectio.android.feature.absence.AbsenceRegistration
 import dk.betterlectio.android.feature.absence.AbsenceSummary
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.grades.GradeAverage
 import dk.betterlectio.android.feature.grades.GradeColumn
 import dk.betterlectio.android.feature.grades.GradeNoteEntry
+import dk.betterlectio.android.feature.referral.REFERRAL_UNLOCK_THRESHOLD
+import dk.betterlectio.android.feature.referral.ReferralStats
+import dk.betterlectio.android.feature.referral.referralUnlockProgress
 import dk.betterlectio.android.feature.grades.GradeRow
 import dk.betterlectio.android.feature.grades.GradeSubjectDetail
 import dk.betterlectio.android.feature.messages.MessageRecipient
@@ -113,6 +133,7 @@ import dk.betterlectio.android.feature.schedule.timeLabelText
 import dk.betterlectio.android.feature.settings.AppLanguage
 import dk.betterlectio.android.feature.settings.AppearanceMode
 import dk.betterlectio.android.feature.settings.CalendarStyle
+import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.feature.studiekort.StudentCard
 import dk.betterlectio.android.ui.components.AbsenceBarChart
 import dk.betterlectio.android.ui.components.AbsenceRing
@@ -130,10 +151,10 @@ import dk.betterlectio.android.ui.components.LectioImagePreviewDialog
 import dk.betterlectio.android.ui.components.PersonAvatar
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.components.SectionHeader
+import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
 import dagger.hilt.android.EntryPointAccessors
 import java.time.format.TextStyle
 import java.util.Locale
-
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -155,6 +176,7 @@ fun MoreScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val listState = rememberLazyListState()
+    var showExtensionInvite by remember { mutableStateOf(false) }
     val showBack = state.destination != MoreDestination.ROOT ||
         state.gradeDetail != null ||
         state.directoryParent != null ||
@@ -184,7 +206,12 @@ fun MoreScreen(
                         when {
                             state.gradeDetail != null -> state.gradeDetail!!.row.subject
                             state.planDetail != null -> state.planDetail!!.title
-                            state.personEntity != null -> state.personEntity!!.name
+                            state.personEntity != null -> {
+                                val displayName = state.studentProfile
+                                    ?.displayName(state.personEntity!!.name)
+                                    ?: state.personEntity!!.name
+                                displayName
+                            }
                             state.roomEntity != null -> state.roomEntity!!.name
                             state.directoryParent != null -> state.directoryParent!!.name
                             state.destination == MoreDestination.ROOT -> stringResource(R.string.tab_more)
@@ -197,6 +224,7 @@ fun MoreScreen(
                             state.destination == MoreDestination.MODULE_STATS -> stringResource(R.string.more_module_stats)
                             state.destination == MoreDestination.TERM -> stringResource(R.string.more_term)
                             state.destination == MoreDestination.SETTINGS -> stringResource(R.string.more_settings)
+                            state.destination == MoreDestination.REFERRAL -> stringResource(R.string.more_referral)
                             else -> stringResource(R.string.tab_more)
                         },
                     )
@@ -221,8 +249,10 @@ fun MoreScreen(
                 studentName = state.student?.name ?: state.student?.studentId.orEmpty(),
                 classLabel = state.student?.classLabel,
                 photoUrl = state.profilePhotoUrl,
+                referralConversions = state.referralStats?.conversions,
                 onNavigate = viewModel::navigate,
                 onOpenCatalogKind = viewModel::openDirectoryKind,
+                onOpenExtensionInvite = { showExtensionInvite = true },
                 onLogout = viewModel::logout,
             )
             MoreDestination.GRADES -> {
@@ -245,116 +275,62 @@ fun MoreScreen(
                 }
             }
             MoreDestination.ABSENCE -> {
-                if (state.loading) LoadingBox(Modifier.padding(padding))
-                else LazyColumn(
-                    state = listState,
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .padding(padding),
-                ) {
-                    item {
-                        SectionHeader(stringResource(R.string.absence_overview))
-                        val dual = state.absence?.let { AbsenceSummary.dual(it) }
-                        Row(
-                            Modifier
-                                .fillMaxWidth()
-                                .padding(horizontal = 24.dp, vertical = 12.dp),
-                            horizontalArrangement = Arrangement.SpaceEvenly,
-                        ) {
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                AbsenceRing(
-                                    fraction = dual?.regularFraction ?: 0.0,
-                                    size = 88.dp,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    stringResource(R.string.absence_regular),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                            Column(horizontalAlignment = Alignment.CenterHorizontally) {
-                                AbsenceRing(
-                                    fraction = dual?.writtenFraction ?: 0.0,
-                                    size = 88.dp,
-                                )
-                                Spacer(Modifier.height(8.dp))
-                                Text(
-                                    stringResource(R.string.absence_written),
-                                    style = MaterialTheme.typography.labelLarge,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                )
-                            }
-                        }
-                        HorizontalDivider(
-                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                            thickness = 0.5.dp,
-                        )
-                    }
-                    item {
-                        val bars = AbsenceChartSeries.fromTeams(state.absence?.teams.orEmpty())
-                        if (bars.isNotEmpty()) {
-                            SectionHeader(stringResource(R.string.absence_chart))
-                            AbsenceBarChart(bars = bars)
-                            HorizontalDivider(
-                                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.5f),
-                                thickness = 0.5.dp,
-                            )
-                        }
-                    }
-                    items(state.absence?.teams.orEmpty(), key = { "team-${it.team}" }) { row ->
-                        AppListRow(
-                            leading = {
-                                AbsenceRing(fraction = row.regularCurrentPercent, size = 44.dp)
-                            },
-                        ) {
-                            AppListPrimary(row.team, emphasized = true)
-                            AppListSecondary(
-                                stringResource(
-                                    R.string.absence_current_final,
-                                    "%.1f".format(row.regularCurrentPercent * 100),
-                                    "%.1f".format(row.regularFinalPercent * 100),
-                                ),
-                            )
-                            if (row.assignmentCurrentPercent > 0) {
-                                AppListMeta(stringResource(R.string.absence_assignments_pct, "%.1f".format(row.assignmentCurrentPercent * 100)))
-                            }
-                        }
-                        AppListDivider()
-                    }
-                    item { SectionHeader(stringResource(R.string.more_absence_regs)) }
-                    items(state.absence?.registrations.orEmpty(), key = { it.id }) { reg ->
-                        Column(Modifier.fillMaxWidth()) {
-                            AppListRow {
-                                AppListPrimary("${reg.date} · ${reg.team}", emphasized = true)
-                                AppListSecondary("${reg.cause} · ${reg.status}")
-                            }
-                            FlowRow(
-                                modifier = Modifier.padding(start = 16.dp, end = 16.dp, bottom = 8.dp),
-                                horizontalArrangement = Arrangement.spacedBy(4.dp),
-                            ) {
-                                viewModel.absenceCauses.forEach { cause ->
-                                    FilterChip(
-                                        selected = reg.cause.equals(cause, ignoreCase = true),
-                                        onClick = { viewModel.updateAbsenceCause(reg.id, cause) },
-                                        label = { Text(cause) },
-                                    )
-                                }
-                            }
-                            AppListDivider()
-                        }
-                    }
-                }
+                AbsenceScreenContent(
+                    loading = state.loading,
+                    overview = state.absence,
+                    causes = viewModel.absenceCauses,
+                    onSaveCause = viewModel::updateAbsenceCause,
+                    modifier = Modifier.padding(padding),
+                )
             }
             MoreDestination.DIRECTORY -> Column(Modifier.padding(padding).fillMaxSize()) {
                 when {
                     state.personEntity != null -> {
-                        PersonScheduleList(
-                            loading = state.loading,
-                            entity = state.personEntity!!,
-                            week = state.personSchedule,
-                            listState = listState,
-                        )
+                        val person = state.personEntity!!
+                        if (person.kind == DirectoryEntityKind.STUDENT) {
+                            StudentProfileScreen(
+                                loading = state.loading,
+                                entity = person,
+                                profile = state.studentProfile,
+                                week = state.personSchedule,
+                                weekNumber = state.personWeek,
+                                pinned = state.pinnedIds.contains(person.id),
+                                listState = listState,
+                                onWriteMessage = {
+                                    viewModel.composeToPerson(person)
+                                    onComposeToPerson?.invoke(
+                                        MessageRecipient(
+                                            id = person.id,
+                                            name = state.studentProfile
+                                                ?.displayName(person.name)
+                                                ?: person.name,
+                                            kind = person.kind.name,
+                                        ),
+                                    )
+                                },
+                                onTogglePin = { viewModel.togglePin(person) },
+                                onViewClass = {
+                                    val classEntity = person.copy(
+                                        subtitle = state.studentProfile?.className
+                                            ?.takeIf { it.isNotBlank() }
+                                            ?: person.subtitle,
+                                    )
+                                    viewModel.openPersonClass(classEntity)
+                                },
+                                onPrevWeek = { viewModel.shiftPersonWeek(-1) },
+                                onNextWeek = { viewModel.shiftPersonWeek(1) },
+                            )
+                        } else {
+                            PersonScheduleList(
+                                loading = state.loading,
+                                entity = person,
+                                week = state.personSchedule,
+                                weekNumber = state.personWeek,
+                                listState = listState,
+                                onPrevWeek = { viewModel.shiftPersonWeek(-1) },
+                                onNextWeek = { viewModel.shiftPersonWeek(1) },
+                            )
+                        }
                     }
                     state.roomEntity != null -> {
                         if (state.loading) LoadingBox()
@@ -433,11 +409,15 @@ fun MoreScreen(
                                 }
                             } else {
                                 items(state.directoryMembers, key = { it.id }) { e ->
-                                    val openPerson = {
-                                        if (e.kind == DirectoryEntityKind.STUDENT ||
-                                            e.kind == DirectoryEntityKind.TEACHER
-                                        ) {
-                                            viewModel.openPersonSheet(e)
+                                    val openPerson: () -> Unit = {
+                                        when (e.kind) {
+                                            DirectoryEntityKind.STUDENT -> {
+                                                viewModel.openStudentProfile(e)
+                                            }
+                                            DirectoryEntityKind.TEACHER -> {
+                                                viewModel.openPersonSheet(e)
+                                            }
+                                            else -> Unit
                                         }
                                     }
                                     AppListRow(
@@ -526,17 +506,24 @@ fun MoreScreen(
                                             viewModel.openDirectoryMembers(e)
                                         DirectoryEntityKind.ROOM ->
                                             viewModel.openRoomSchedule(e)
-                                        DirectoryEntityKind.STUDENT, DirectoryEntityKind.TEACHER ->
+                                        DirectoryEntityKind.STUDENT ->
+                                            viewModel.openStudentProfile(e)
+                                        DirectoryEntityKind.TEACHER ->
                                             viewModel.openPersonSheet(e)
                                         else -> Unit
                                     }
                                 }
                                 fun onEntityLongClick(e: DirectoryEntity) {
-                                    if (e.kind == DirectoryEntityKind.STUDENT ||
-                                        e.kind == DirectoryEntityKind.TEACHER
-                                    ) {
-                                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                        viewModel.openPersonSheet(e)
+                                    when (e.kind) {
+                                        DirectoryEntityKind.STUDENT -> {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.openStudentProfile(e)
+                                        }
+                                        DirectoryEntityKind.TEACHER -> {
+                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                                            viewModel.openPersonSheet(e)
+                                        }
+                                        else -> Unit
                                     }
                                 }
                                 if (pinned.isNotEmpty()) {
@@ -1019,6 +1006,13 @@ fun MoreScreen(
                 item { SectionHeader(stringResource(R.string.settings_section_data)) }
                 item {
                     AppListRow(
+                        onClick = { showExtensionInvite = true },
+                    ) {
+                        AppListPrimary(stringResource(R.string.settings_browser_extension), emphasized = true)
+                        AppListSecondary(SettingsStore.DOWNLOAD_URL_DISPLAY, maxLines = 1)
+                    }
+                    AppListDivider()
+                    AppListRow(
                         onClick = {
                             context.startActivity(
                                 Intent(Intent.ACTION_VIEW, Uri.parse(viewModel.privacyPolicyUrl)),
@@ -1074,7 +1068,45 @@ fun MoreScreen(
                     Spacer(Modifier.height(24.dp))
                 }
             }
+            MoreDestination.REFERRAL -> ReferralScreenContent(
+                padding = padding,
+                listState = listState,
+                stats = state.referralStats,
+                loading = state.referralStatsLoading,
+                copied = state.referralCopied,
+                shareUrl = viewModel.referralShareUrl(),
+                onShare = { url ->
+                    val send = Intent(Intent.ACTION_SEND).apply {
+                        type = "text/plain"
+                        putExtra(
+                            Intent.EXTRA_TEXT,
+                            context.getString(R.string.referral_share_text, url),
+                        )
+                    }
+                    context.startActivity(
+                        Intent.createChooser(send, context.getString(R.string.referral_share_chooser)),
+                    )
+                    viewModel.onReferralShared("share_sheet")
+                },
+                onCopy = { url ->
+                    val clipboard = context.getSystemService(android.content.Context.CLIPBOARD_SERVICE)
+                        as android.content.ClipboardManager
+                    clipboard.setPrimaryClip(
+                        android.content.ClipData.newPlainText("BetterLectio", url),
+                    )
+                    viewModel.markReferralCopied()
+                },
+            )
         }
+    }
+
+    if (showExtensionInvite) {
+        ExtensionInviteSheet(
+            onDismiss = {
+                showExtensionInvite = false
+                viewModel.dismissExtensionInvite()
+            },
+        )
     }
 
     state.editingSubjectCode?.let { code ->
@@ -1096,7 +1128,13 @@ fun MoreScreen(
             entity = person,
             pinned = state.pinnedIds.contains(person.id),
             onDismiss = viewModel::dismissPersonSheet,
-            onOpenSchedule = { viewModel.openPersonSchedule(person) },
+            onOpenSchedule = {
+                if (person.kind == DirectoryEntityKind.STUDENT) {
+                    viewModel.openStudentProfile(person)
+                } else {
+                    viewModel.openPersonSchedule(person)
+                }
+            },
             onWriteMessage = {
                 viewModel.composeToPerson(person)
                 onComposeToPerson?.invoke(
@@ -1118,9 +1156,12 @@ private fun PersonScheduleList(
     loading: Boolean,
     entity: DirectoryEntity,
     week: dk.betterlectio.android.feature.schedule.ScheduleWeek?,
+    weekNumber: Int,
     listState: androidx.compose.foundation.lazy.LazyListState,
+    onPrevWeek: () -> Unit,
+    onNextWeek: () -> Unit,
 ) {
-    if (loading) {
+    if (loading && week == null) {
         LoadingBox()
         return
     }
@@ -1130,11 +1171,11 @@ private fun PersonScheduleList(
         verticalArrangement = Arrangement.spacedBy(8.dp),
     ) {
         item {
-            Text(
-                stringResource(R.string.directory_person_schedule) +
-                    if (week != null) " · uge ${week.week}" else "",
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
+            PersonWeekHeader(
+                weekNumber = week?.week ?: weekNumber,
+                loading = loading,
+                onPrevWeek = onPrevWeek,
+                onNextWeek = onNextWeek,
             )
             entity.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
                 Text(
@@ -2178,10 +2219,22 @@ private fun MoreRoot(
     studentName: String,
     classLabel: String?,
     photoUrl: String?,
+    referralConversions: Int?,
     onNavigate: (MoreDestination) -> Unit,
     onOpenCatalogKind: (DirectoryEntityKind) -> Unit,
+    onOpenExtensionInvite: () -> Unit,
     onLogout: () -> Unit,
 ) {
+    val unlock = referralUnlockProgress(referralConversions ?: 0)
+    val referralSubtitle = when {
+        referralConversions == null -> null
+        unlock.unlocked -> stringResource(R.string.referral_subtitle_unlocked)
+        else -> stringResource(
+            R.string.referral_subtitle_progress,
+            unlock.current,
+            unlock.target,
+        )
+    }
     LazyColumn(
         state = listState,
         modifier = Modifier
@@ -2237,24 +2290,647 @@ private fun MoreRoot(
             }
         }
         item { SectionHeader(stringResource(R.string.more_section_school)) }
-        item { MoreLink(Icons.Default.Grade, stringResource(R.string.more_grades)) { onNavigate(MoreDestination.GRADES) } }
-        item { MoreLink(Icons.Default.Warning, stringResource(R.string.more_absence)) { onNavigate(MoreDestination.ABSENCE) } }
+        item {
+            MoreLink(
+                icon = Icons.Default.Grade,
+                title = stringResource(R.string.more_grades),
+                onClick = { onNavigate(MoreDestination.GRADES) },
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Default.Warning,
+                title = stringResource(R.string.more_absence),
+                onClick = { onNavigate(MoreDestination.ABSENCE) },
+            )
+        }
         // Study plan is temporarily hidden from the menu; implementation kept under MoreDestination.PLANS.
-        item { MoreLink(Icons.Default.BarChart, stringResource(R.string.more_module_stats)) { onNavigate(MoreDestination.MODULE_STATS) } }
-        item { MoreLink(Icons.Default.CalendarMonth, stringResource(R.string.more_term)) { onNavigate(MoreDestination.TERM) } }
+        item {
+            MoreLink(
+                icon = Icons.Default.BarChart,
+                title = stringResource(R.string.more_module_stats),
+                onClick = { onNavigate(MoreDestination.MODULE_STATS) },
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Default.CalendarMonth,
+                title = stringResource(R.string.more_term),
+                onClick = { onNavigate(MoreDestination.TERM) },
+            )
+        }
         item { SectionHeader(stringResource(R.string.more_catalog)) }
         item {
             CatalogGrid(onOpenCatalogKind = onOpenCatalogKind)
         }
         item { SectionHeader(stringResource(R.string.more_section_find)) }
-        item { MoreLink(Icons.Default.People, stringResource(R.string.more_directory)) { onNavigate(MoreDestination.DIRECTORY) } }
-        item { MoreLink(Icons.Default.CalendarMonth, stringResource(R.string.more_rooms)) { onNavigate(MoreDestination.ROOMS) } }
+        item {
+            MoreLink(
+                icon = Icons.Default.People,
+                title = stringResource(R.string.more_directory),
+                onClick = { onNavigate(MoreDestination.DIRECTORY) },
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Default.CalendarMonth,
+                title = stringResource(R.string.more_rooms),
+                onClick = { onNavigate(MoreDestination.ROOMS) },
+            )
+        }
         item { SectionHeader(stringResource(R.string.more_section_app)) }
-        item { MoreLink(Icons.Default.Settings, stringResource(R.string.more_settings)) { onNavigate(MoreDestination.SETTINGS) } }
-        item { MoreLink(Icons.AutoMirrored.Filled.ExitToApp, stringResource(R.string.action_logout), onLogout) }
+        item {
+            MoreLink(
+                icon = Icons.Default.PersonAdd,
+                title = stringResource(R.string.more_referral),
+                subtitle = referralSubtitle,
+                onClick = { onNavigate(MoreDestination.REFERRAL) },
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Default.Extension,
+                title = stringResource(R.string.more_browser_extension),
+                onClick = onOpenExtensionInvite,
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Default.Settings,
+                title = stringResource(R.string.more_settings),
+                onClick = { onNavigate(MoreDestination.SETTINGS) },
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.AutoMirrored.Filled.ExitToApp,
+                title = stringResource(R.string.action_logout),
+                onClick = onLogout,
+            )
+        }
         item { Spacer(Modifier.height(24.dp)) }
     }
 }
+
+// region Absence (Flutter-style: Oversigt | Registreringer + edit sheet)
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun AbsenceScreenContent(
+    loading: Boolean,
+    overview: AbsenceOverview?,
+    causes: List<String>,
+    onSaveCause: (id: String, cause: String, note: String) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    if (loading && overview == null) {
+        LoadingBox(modifier)
+        return
+    }
+
+    var tab by remember { mutableIntStateOf(0) }
+    var editing by remember { mutableStateOf<AbsenceRegistration?>(null) }
+
+    Column(modifier.fillMaxSize()) {
+        PrimaryTabRow(selectedTabIndex = tab) {
+            Tab(
+                selected = tab == 0,
+                onClick = { tab = 0 },
+                text = { Text(stringResource(R.string.absence_tab_overview)) },
+            )
+            Tab(
+                selected = tab == 1,
+                onClick = { tab = 1 },
+                text = {
+                    val missingCount = overview?.missingReasons?.size ?: 0
+                    if (missingCount > 0) {
+                        Text(
+                            "${stringResource(R.string.absence_tab_registrations)} ($missingCount)",
+                        )
+                    } else {
+                        Text(stringResource(R.string.absence_tab_registrations))
+                    }
+                },
+            )
+        }
+        when (tab) {
+            0 -> AbsenceOverviewTab(overview = overview, modifier = Modifier.fillMaxSize())
+            else -> AbsenceRegistrationsTab(
+                overview = overview,
+                onEdit = { editing = it },
+                modifier = Modifier.fillMaxSize(),
+            )
+        }
+    }
+
+    val sheetReg = editing
+    if (sheetReg != null) {
+        EditAbsenceSheet(
+            reg = sheetReg,
+            causes = causes,
+            onDismiss = { editing = null },
+            onSave = { cause, note ->
+                onSaveCause(sheetReg.id, cause, note)
+                editing = null
+            },
+        )
+    }
+}
+
+@Composable
+private fun AbsenceOverviewTab(
+    overview: AbsenceOverview?,
+    modifier: Modifier = Modifier,
+) {
+    val dual = overview?.let { AbsenceSummary.dual(it) }
+    val warning = overview?.let { AbsencePresentation.warningFromOverview(it) }
+    val bars = AbsenceChartSeries.fromTeams(overview?.teams.orEmpty())
+    val teams = overview?.teams.orEmpty()
+    val regs = overview?.registrations.orEmpty()
+
+    // Flutter-style module totals from team rows
+    val opgjortModules = teams.sumOf { it.regularCurrentModules.current }
+    val yearModules = teams.sumOf { it.regularFinalModules.current }
+    val yearTotal = teams.sumOf { it.regularFinalModules.total }.coerceAtLeast(0.0001)
+    val opgjortTotal = teams.sumOf { it.regularCurrentModules.total }.coerceAtLeast(0.0001)
+    val yearPct = if (teams.any { it.regularFinalModules.total > 0 }) {
+        yearModules / yearTotal
+    } else {
+        dual?.regularFraction ?: 0.0
+    }
+    val opgjortPct = if (teams.any { it.regularCurrentModules.total > 0 }) {
+        opgjortModules / opgjortTotal
+    } else {
+        dual?.regularFraction ?: 0.0
+    }
+    val writtenYearTotal = teams.sumOf { it.assignmentFinalTime.total }.coerceAtLeast(0.0001)
+    val writtenOpgjortTotal = teams.sumOf { it.assignmentCurrentTime.total }.coerceAtLeast(0.0001)
+    val writtenYearAbs = teams.sumOf { it.assignmentFinalTime.current }
+    val writtenOpgjortAbs = teams.sumOf { it.assignmentCurrentTime.current }
+    val writtenYearPct = if (teams.any { it.assignmentFinalTime.total > 0 }) {
+        writtenYearAbs / writtenYearTotal
+    } else {
+        dual?.writtenFraction ?: 0.0
+    }
+    val writtenOpgjortPct = if (teams.any { it.assignmentCurrentTime.total > 0 }) {
+        writtenOpgjortAbs / writtenOpgjortTotal
+    } else {
+        dual?.writtenFraction ?: 0.0
+    }
+
+    LazyColumn(modifier = modifier) {
+        item {
+            SectionHeader(stringResource(R.string.absence_overview))
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 24.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.SpaceEvenly,
+            ) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    AbsenceRing(
+                        fraction = dual?.regularFraction ?: opgjortPct,
+                        size = 80.dp,
+                        useSummaryBands = true,
+                        oneDecimal = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.absence_regular),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                    AbsenceRing(
+                        fraction = dual?.writtenFraction ?: writtenOpgjortPct,
+                        size = 80.dp,
+                        useSummaryBands = true,
+                        oneDecimal = true,
+                    )
+                    Spacer(Modifier.height(8.dp))
+                    Text(
+                        stringResource(R.string.absence_written),
+                        style = MaterialTheme.typography.labelLarge,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        if (warning != null) {
+            item {
+                Row(
+                    Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 8.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                ) {
+                    Icon(
+                        Icons.Default.Warning,
+                        contentDescription = null,
+                        tint = Color(0xFFEF6C00),
+                    )
+                    Text(
+                        warning,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        if (bars.isNotEmpty()) {
+            item {
+                SectionHeader(stringResource(R.string.absence_chart_modules))
+                AbsenceBarChart(bars = bars)
+            }
+        }
+
+        // Flutter Statistic cards: Normalt / Skriftligt
+        item {
+            Row(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 16.dp, vertical = 8.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                AbsenceStatCard(
+                    header = stringResource(R.string.absence_regular),
+                    rows = listOf(
+                        stringResource(R.string.absence_stat_year) to
+                            "%.1f%%".format(yearPct * 100),
+                        stringResource(R.string.absence_stat_current) to
+                            "%.1f%%".format(opgjortPct * 100),
+                        stringResource(R.string.absence_modules) to
+                            stringResource(R.string.absence_modules_count, opgjortModules.roundToInt()),
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+                AbsenceStatCard(
+                    header = stringResource(R.string.absence_written),
+                    rows = listOf(
+                        stringResource(R.string.absence_stat_year) to
+                            "%.1f%%".format(writtenYearPct * 100),
+                        stringResource(R.string.absence_stat_current) to
+                            "%.1f%%".format(writtenOpgjortPct * 100),
+                        stringResource(R.string.absence_modules) to
+                            "${writtenOpgjortAbs.roundToInt()} t",
+                    ),
+                    modifier = Modifier.weight(1f),
+                )
+            }
+        }
+
+        if (teams.isNotEmpty()) {
+            item { SectionHeader(stringResource(R.string.absence_per_subject)) }
+            items(teams, key = { "team-${it.team}" }) { row ->
+                AppListRow(
+                    leading = {
+                        AbsenceRing(
+                            fraction = row.regularCurrentPercent,
+                            size = 44.dp,
+                            useSummaryBands = true,
+                            oneDecimal = false,
+                        )
+                    },
+                ) {
+                    AppListPrimary(row.team, emphasized = true)
+                    AppListSecondary(
+                        stringResource(
+                            R.string.absence_current_final,
+                            "%.1f".format(row.regularCurrentPercent * 100),
+                            "%.1f".format(row.regularFinalPercent * 100),
+                        ),
+                    )
+                    if (row.assignmentCurrentPercent > 0) {
+                        AppListMeta(
+                            stringResource(
+                                R.string.absence_assignments_pct,
+                                "%.1f".format(row.assignmentCurrentPercent * 100),
+                            ),
+                        )
+                    }
+                }
+                AppListDivider()
+            }
+        }
+
+        if (regs.isNotEmpty()) {
+            item {
+                val suffix = if (regs.size == 1) {
+                    ""
+                } else {
+                    stringResource(R.string.absence_total_count_suffix_plural)
+                }
+                Text(
+                    stringResource(R.string.absence_total_count, regs.size, suffix),
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(16.dp),
+                )
+            }
+        }
+
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun AbsenceStatCard(
+    header: String,
+    rows: List<Pair<String, String>>,
+    modifier: Modifier = Modifier,
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(12.dp),
+        color = MaterialTheme.colorScheme.primaryContainer,
+    ) {
+        Column(Modifier.padding(horizontal = 14.dp, vertical = 10.dp)) {
+            Text(
+                header,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.onPrimaryContainer,
+            )
+            rows.forEach { (title, value) ->
+                HorizontalDivider(
+                    Modifier.padding(vertical = 6.dp),
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.2f),
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.8f),
+                )
+                Text(
+                    value,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onPrimaryContainer,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun AbsenceRegistrationsTab(
+    overview: AbsenceOverview?,
+    onEdit: (AbsenceRegistration) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val missing = overview?.missingReasons.orEmpty()
+        .let { AbsencePresentation.sortNewestFirst(it) }
+    val filled = overview?.withCause.orEmpty()
+        .let { AbsencePresentation.sortNewestFirst(it) }
+
+    if (missing.isEmpty() && filled.isEmpty()) {
+        Box(modifier, contentAlignment = Alignment.Center) {
+            Text(
+                stringResource(R.string.absence_empty),
+                style = MaterialTheme.typography.bodyMedium,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+                modifier = Modifier.padding(24.dp),
+            )
+        }
+        return
+    }
+
+    LazyColumn(modifier = modifier) {
+        if (missing.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    "${stringResource(R.string.absence_missing_section)} (${missing.size})",
+                )
+            }
+            items(missing, key = { "miss-${it.id}" }) { reg ->
+                AbsenceRegistrationRow(reg = reg, onClick = { onEdit(reg) })
+                AppListDivider()
+            }
+        }
+        if (filled.isNotEmpty()) {
+            item {
+                SectionHeader(
+                    "${stringResource(R.string.absence_filled_section)} (${filled.size})",
+                )
+            }
+            items(filled, key = { "reg-${it.id}" }) { reg ->
+                AbsenceRegistrationRow(reg = reg, onClick = { onEdit(reg) })
+                AppListDivider()
+            }
+        }
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
+private fun AbsenceRegistrationRow(
+    reg: AbsenceRegistration,
+    onClick: () -> Unit,
+) {
+    val hold = reg.team.ifBlank { reg.activityTitle }
+    val fraction = reg.percent ?: 0.0
+    val missingLabel = stringResource(R.string.absence_missing_label)
+    val causeLine = buildString {
+        if (reg.missingCause || reg.cause.isBlank()) {
+            append(missingLabel)
+        } else {
+            append(reg.cause)
+        }
+        if (reg.note.isNotBlank()) {
+            append(" — ")
+            append(reg.note)
+        }
+    }
+    val dateLabel = reg.dateTimeLabel.ifBlank {
+        reg.date?.toString().orEmpty()
+    }
+
+    AppListRow(
+        onClick = onClick,
+        leading = {
+            AbsenceRing(
+                fraction = fraction,
+                size = 48.dp,
+                useSummaryBands = false,
+                approved = reg.isApproved,
+                oneDecimal = false,
+            )
+        },
+        trailing = {
+            Icon(
+                Icons.Default.Edit,
+                contentDescription = stringResource(R.string.absence_edit_title),
+                tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.size(20.dp),
+            )
+        },
+    ) {
+        AppListPrimary(hold.ifBlank { "—" }, emphasized = true)
+        if (dateLabel.isNotBlank() || reg.week.isNotBlank()) {
+            val meta = listOfNotNull(
+                dateLabel.takeIf { it.isNotBlank() },
+                reg.week.takeIf { it.isNotBlank() }?.let {
+                    stringResource(R.string.absence_week, it)
+                },
+            ).joinToString(" · ")
+            AppListMeta(meta)
+        }
+        AppListSecondary(
+            causeLine,
+            maxLines = 2,
+        )
+        if (reg.lessonTitle.isNotBlank() && reg.lessonTitle != hold) {
+            AppListMeta(reg.lessonTitle)
+        }
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun EditAbsenceSheet(
+    reg: AbsenceRegistration,
+    causes: List<String>,
+    onDismiss: () -> Unit,
+    onSave: (cause: String, note: String) -> Unit,
+) {
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
+    var selectedCause by remember(reg.id) {
+        mutableStateOf(
+            causes.firstOrNull { it.equals(reg.cause, ignoreCase = true) }
+                ?: reg.cause.takeIf { it.isNotBlank() },
+        )
+    }
+    var note by remember(reg.id) { mutableStateOf(reg.note) }
+    val scope = rememberCoroutineScope()
+    val canSave = !selectedCause.isNullOrBlank() &&
+        (
+            !selectedCause.equals(reg.cause, ignoreCase = true) ||
+                note != reg.note ||
+                reg.missingCause
+            )
+
+    ModalBottomSheet(
+        onDismissRequest = onDismiss,
+        sheetState = sheetState,
+    ) {
+        Column(
+            Modifier
+                .fillMaxWidth()
+                .padding(horizontal = 20.dp)
+                .padding(bottom = 32.dp),
+            verticalArrangement = Arrangement.spacedBy(12.dp),
+        ) {
+            Text(
+                stringResource(R.string.absence_edit_title),
+                style = MaterialTheme.typography.titleLarge,
+                fontWeight = FontWeight.SemiBold,
+            )
+
+            val hold = reg.team.ifBlank { reg.activityTitle }
+            Text(
+                hold,
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.Medium,
+            )
+            val detail = listOfNotNull(
+                reg.lessonTitle.takeIf { it.isNotBlank() },
+                reg.dateTimeLabel.takeIf { it.isNotBlank() },
+                reg.teacher.takeIf { it.isNotBlank() },
+                reg.room.takeIf { it.isNotBlank() },
+            ).joinToString(" · ")
+            if (detail.isNotBlank()) {
+                Text(
+                    detail,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+
+            Text(
+                stringResource(R.string.absence_edit_cause),
+                style = MaterialTheme.typography.labelLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                causes.forEach { cause ->
+                    val selected = cause.equals(selectedCause, ignoreCase = true)
+                    Surface(
+                        onClick = { selectedCause = cause },
+                        shape = RoundedCornerShape(12.dp),
+                        color = if (selected) {
+                            causeColor(cause).copy(alpha = 0.18f)
+                        } else {
+                            MaterialTheme.colorScheme.surfaceContainerHigh
+                        },
+                        border = if (selected) {
+                            BorderStroke(1.5.dp, causeColor(cause))
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.fillMaxWidth(),
+                    ) {
+                        Text(
+                            cause,
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = if (selected) FontWeight.SemiBold else FontWeight.Normal,
+                            color = if (selected) {
+                                causeColor(cause)
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 14.dp),
+                        )
+                    }
+                }
+            }
+
+            OutlinedTextField(
+                value = note,
+                onValueChange = { note = it },
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text(stringResource(R.string.absence_edit_note)) },
+                placeholder = { Text(stringResource(R.string.absence_edit_note_hint)) },
+                minLines = 2,
+                maxLines = 4,
+            )
+
+            Button(
+                onClick = {
+                    val c = selectedCause ?: return@Button
+                    scope.launch { sheetState.hide() }.invokeOnCompletion {
+                        onSave(c, note.trim())
+                    }
+                },
+                enabled = canSave,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 4.dp),
+            ) {
+                Text(stringResource(R.string.absence_edit_save))
+            }
+        }
+    }
+}
+
+/** Flutter colorFromCause-ish mapping for selected cause accents. */
+private fun causeColor(cause: String): Color = when {
+    cause.contains("Syg", ignoreCase = true) -> Color(0xFFB71C1C)
+    cause.contains("Privat", ignoreCase = true) -> Color(0xFF0D47A1)
+    cause.contains("Skole", ignoreCase = true) -> Color(0xFF1B5E20)
+    cause.contains("sent", ignoreCase = true) -> Color(0xFFF9A825)
+    else -> Color(0xFF455A64)
+}
+
+// endregion
 
 @Composable
 private fun CatalogGrid(onOpenCatalogKind: (DirectoryEntityKind) -> Unit) {
@@ -2319,13 +2995,232 @@ private fun CatalogTile(
 }
 
 @Composable
+private fun ReferralScreenContent(
+    padding: PaddingValues,
+    listState: androidx.compose.foundation.lazy.LazyListState,
+    stats: ReferralStats?,
+    loading: Boolean,
+    copied: Boolean,
+    shareUrl: String?,
+    onShare: (String) -> Unit,
+    onCopy: (String) -> Unit,
+) {
+    val conversions = stats?.conversions ?: 0
+    val clicks = stats?.totalClicks ?: 0
+    val unlock = referralUnlockProgress(conversions)
+    val progress = if (loading) 0f else unlock.current.toFloat() / unlock.target.toFloat()
+
+    LazyColumn(
+        state = listState,
+        modifier = Modifier
+            .fillMaxSize()
+            .padding(padding),
+        contentPadding = PaddingValues(horizontal = 16.dp, vertical = 12.dp),
+        verticalArrangement = Arrangement.spacedBy(16.dp),
+    ) {
+        item {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.Bottom,
+                    ) {
+                        Text(
+                            if (unlock.unlocked) {
+                                stringResource(R.string.referral_unlock_done_title)
+                            } else {
+                                stringResource(R.string.referral_unlock_title)
+                            },
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            if (loading) "…" else "${unlock.current}/${unlock.target}",
+                            style = MaterialTheme.typography.titleLarge,
+                            fontWeight = FontWeight.Bold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                    }
+                    Spacer(Modifier.height(10.dp))
+                    androidx.compose.material3.LinearProgressIndicator(
+                        progress = { progress },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(8.dp)
+                            .clip(RoundedCornerShape(999.dp)),
+                    )
+                    Spacer(Modifier.height(10.dp))
+                    Text(
+                        if (unlock.unlocked) {
+                            stringResource(R.string.referral_unlock_done_body)
+                        } else {
+                            stringResource(R.string.referral_unlock_body, unlock.remaining)
+                        },
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        item {
+            Surface(
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.55f),
+            ) {
+                Row(
+                    Modifier.padding(16.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Icon(
+                        Icons.Outlined.Lock,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                    Spacer(Modifier.size(12.dp))
+                    Column(Modifier.weight(1f)) {
+                        Text(
+                            stringResource(R.string.referral_teaser_title),
+                            style = MaterialTheme.typography.titleSmall,
+                            fontWeight = FontWeight.SemiBold,
+                        )
+                        Text(
+                            stringResource(
+                                R.string.referral_teaser_body,
+                                REFERRAL_UNLOCK_THRESHOLD,
+                            ),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                }
+            }
+        }
+
+        item {
+            Column(verticalArrangement = Arrangement.spacedBy(10.dp)) {
+                Button(
+                    onClick = { shareUrl?.let(onShare) },
+                    enabled = shareUrl != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.Share, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.referral_share_cta))
+                }
+                androidx.compose.material3.OutlinedButton(
+                    onClick = { shareUrl?.let(onCopy) },
+                    enabled = shareUrl != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(
+                        if (copied) Icons.Default.Check else Icons.Default.ContentCopy,
+                        contentDescription = null,
+                    )
+                    Spacer(Modifier.size(8.dp))
+                    Text(
+                        if (copied) {
+                            stringResource(R.string.referral_copied)
+                        } else {
+                            stringResource(R.string.referral_copy_link)
+                        },
+                    )
+                }
+                if (shareUrl != null) {
+                    Text(
+                        shareUrl.removePrefix("https://"),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        item {
+            Row(horizontalArrangement = Arrangement.spacedBy(24.dp)) {
+                Column {
+                    Text(
+                        if (loading) "…" else conversions.toString(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.primary,
+                    )
+                    Text(
+                        stringResource(R.string.referral_stat_invited),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+                Column {
+                    Text(
+                        if (loading) "…" else clicks.toString(),
+                        style = MaterialTheme.typography.headlineSmall,
+                        fontWeight = FontWeight.SemiBold,
+                    )
+                    Text(
+                        stringResource(R.string.referral_stat_clicks),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
+            }
+        }
+
+        val recents = stats?.recentReferrals.orEmpty()
+        if (recents.isNotEmpty()) {
+            item {
+                Text(
+                    stringResource(R.string.referral_recent_title),
+                    style = MaterialTheme.typography.labelLarge,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            items(recents, key = { it.studentId }) { r ->
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    PersonAvatar(name = r.name ?: r.studentId, size = 32.dp)
+                    Spacer(Modifier.size(10.dp))
+                    Text(
+                        r.name ?: stringResource(R.string.referral_anonymous),
+                        style = MaterialTheme.typography.bodyLarge,
+                        modifier = Modifier.weight(1f),
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                }
+            }
+        }
+
+        item { Spacer(Modifier.height(24.dp)) }
+    }
+}
+
+@Composable
 private fun MoreLink(
     icon: androidx.compose.ui.graphics.vector.ImageVector,
     title: String,
+    subtitle: String? = null,
     onClick: () -> Unit,
 ) {
     ListItem(
         headlineContent = { Text(title, style = MaterialTheme.typography.bodyLarge) },
+        supportingContent = subtitle?.let {
+            {
+                Text(
+                    it,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+        },
         leadingContent = {
             Icon(
                 icon,

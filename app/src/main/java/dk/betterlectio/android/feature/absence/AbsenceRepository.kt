@@ -87,7 +87,7 @@ class AbsenceRepository @Inject constructor(
      */
     suspend fun updateCause(registrationId: String, cause: String, note: String = ""): AppResult<Unit> {
         if (session.currentStudent?.isDemo == true) {
-            val ok = demoAbsenceState.updateCause(registrationId, cause)
+            val ok = demoAbsenceState.updateCause(registrationId, cause, note)
             return if (ok) AppResult.Success(Unit)
             else AppResult.Failure(AppError.Unknown("Ukendt registrering: $registrationId"))
         }

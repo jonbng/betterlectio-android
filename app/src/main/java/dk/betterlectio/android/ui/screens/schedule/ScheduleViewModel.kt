@@ -8,11 +8,15 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.UiText
+import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.live.LiveLessonNotifier
 import dk.betterlectio.android.feature.live.LiveLessonScheduler
+import dk.betterlectio.android.feature.referral.ReferralCoordinator
+import dk.betterlectio.android.feature.referral.buildReferralUrl
+import dk.betterlectio.android.feature.referral.referralUnlockProgress
 import dk.betterlectio.android.feature.schedule.LessonDetail
 import dk.betterlectio.android.feature.schedule.PrivateEventDraft
 import dk.betterlectio.android.feature.schedule.PrivateEventIds
@@ -70,11 +74,17 @@ class ScheduleViewModel @Inject constructor(
     private val liveLessonNotifier: LiveLessonNotifier,
     private val liveLessonScheduler: LiveLessonScheduler,
     private val settings: SettingsStore,
+    private val session: SessionController,
+    private val referralCoordinator: ReferralCoordinator,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(ScheduleUiState())
     val state: StateFlow<ScheduleUiState> = _state.asStateFlow()
+
+    val referralNudgeVisible = referralCoordinator.nudgeVisible
+    val referralCelebrationName = referralCoordinator.celebrationName
+    private var referralNudgeScheduled = false
 
     val calendarStyle: StateFlow<CalendarStyle> = settings.calendarStyle
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.calendarStyle.value)
@@ -205,6 +215,7 @@ class ScheduleViewModel @Inject constructor(
                     mergeWeekIntoState(res.data, setAsPrimary = setAsPrimary)
                     if (setAsPrimary) {
                         publishLiveAndWidget(res.data)
+                        maybePromptReferral()
                     }
                 }
                 is AppResult.Failure -> {
@@ -435,4 +446,38 @@ class ScheduleViewModel @Inject constructor(
             refresh(force = true)
         }
     }
+
+    private fun maybePromptReferral() {
+        if (referralNudgeScheduled) return
+        referralNudgeScheduled = true
+        val student = session.currentStudent ?: return
+        viewModelScope.launch {
+            referralCoordinator.maybeShowNudge(student)
+        }
+    }
+
+    fun dismissReferralNudge() {
+        session.currentStudent?.let { referralCoordinator.dismissNudge(it.studentId) }
+    }
+
+    fun referralShareUrl(): String? {
+        val student = session.currentStudent ?: return null
+        if (student.isDemo) return null
+        return buildReferralUrl(student.studentId)
+    }
+
+    fun onReferralNudgeShared() {
+        PostHog.capture(
+            event = "referral share",
+            properties = mapOf("method" to "nudge_sheet", "platform" to "android"),
+        )
+        dismissReferralNudge()
+    }
+
+    fun referralNudgeRemaining(): Int {
+        val conversions = referralCoordinator.cachedStats.value?.conversions ?: 0
+        return referralUnlockProgress(conversions).remaining
+    }
+
+    fun consumeReferralCelebration() = referralCoordinator.consumeCelebration()
 }

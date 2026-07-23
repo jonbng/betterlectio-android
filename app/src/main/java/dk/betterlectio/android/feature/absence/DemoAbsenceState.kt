@@ -21,7 +21,9 @@ class DemoAbsenceState @Inject constructor() {
 
     fun overview(): AbsenceOverview = AbsenceOverview(
         teams = DemoData.absence.teams,
-        registrations = registrations.toList(),
+        registrations = AbsencePresentation.sortNewestFirst(registrations.toList()),
+        attendanceAbsencePercent = DemoData.absence.attendanceAbsencePercent,
+        writtenAbsencePercent = DemoData.absence.writtenAbsencePercent,
     )
 
     fun registrations(): List<AbsenceRegistration> = registrations.toList()
@@ -29,10 +31,16 @@ class DemoAbsenceState @Inject constructor() {
     /**
      * @return true if a registration was updated
      */
-    fun updateCause(registrationId: String, cause: String): Boolean {
+    fun updateCause(registrationId: String, cause: String, note: String = ""): Boolean {
         val idx = registrations.indexOfFirst { it.id == registrationId }
         if (idx < 0) return false
-        registrations[idx] = registrations[idx].copy(cause = cause)
+        val prev = registrations[idx]
+        registrations[idx] = prev.copy(
+            cause = cause,
+            note = note,
+            missingCause = false,
+            status = if (prev.isApproved) prev.status else "Fravær",
+        )
         return true
     }
 }

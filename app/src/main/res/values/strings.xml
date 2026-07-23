@@ -62,6 +62,27 @@
     <string name="grades_subject_header">Fag</string>
     <string name="absence_regular">Almindeligt</string>
     <string name="absence_written">Skriftligt</string>
+    <string name="absence_tab_overview">Oversigt</string>
+    <string name="absence_tab_registrations">Registreringer</string>
+    <string name="absence_total_count">%1$d fraværsregistrering%2$s i alt</string>
+    <string name="absence_total_count_suffix_plural">er</string>
+    <string name="absence_per_subject">Fravær pr. fag</string>
+    <string name="absence_modules">moduler</string>
+    <string name="absence_modules_count">%1$d moduler</string>
+    <string name="absence_missing_section">Mangler</string>
+    <string name="absence_filled_section">Udfyldte</string>
+    <string name="absence_missing_label">Mangler</string>
+    <string name="absence_empty">Ingen fraværsregistreringer fundet</string>
+    <string name="absence_week">Uge %1$s</string>
+    <string name="absence_edit_title">Rediger fravær</string>
+    <string name="absence_edit_cause">Årsag</string>
+    <string name="absence_edit_note">Forklaring</string>
+    <string name="absence_edit_note_hint">Valgfri kommentar…</string>
+    <string name="absence_edit_save">Gem</string>
+    <string name="absence_edit_pick_cause">Vælg årsag</string>
+    <string name="absence_stat_year">For året</string>
+    <string name="absence_stat_current">Opgjort</string>
+    <string name="absence_chart_modules">Modulers fravær</string>
     <string name="more_catalog">Katalog</string>
     <string name="catalog_teachers">Lærere</string>
     <string name="catalog_classes">Klasser</string>
@@ -180,7 +201,7 @@
     <string name="room_in_use">I brug</string>
     <string name="room_free">Ledig</string>
     <string name="rooms_occupancy_header">Aktuel belægning</string>
-    <string name="absence_overview">Oversigt</string>
+    <string name="absence_overview">Samlet fravær</string>
     <string name="absence_chart">Fravær pr. hold</string>
     <string name="studiekort_birthday">Fødselsdag: %1$s</string>
 
@@ -199,6 +220,37 @@
     <string name="more_module_stats">Modulregnskab</string>
     <string name="more_term">Skift årgang</string>
     <string name="more_settings">Indstillinger</string>
+    <string name="more_referral">Inviter venner</string>
+    <string name="more_browser_extension">Browser-udvidelse</string>
+
+    <string name="referral_subtitle_progress">%1$d/%2$d · Lås tilpasning op</string>
+    <string name="referral_subtitle_unlocked">Tilpasning låst op</string>
+    <string name="referral_unlock_title">Lås tilpasning op</string>
+    <string name="referral_unlock_done_title">Tilpasning låst op</string>
+    <string name="referral_unlock_body">Inviter %1$d mere for at låse tilpasning op.</string>
+    <string name="referral_unlock_done_body">Du har inviteret nok klassekammerater — tilpasning kommer snart.</string>
+    <string name="referral_teaser_title">Tilpasning</string>
+    <string name="referral_teaser_body">Inviter %1$d klassekammerater for at låse op for personlig tilpasning.</string>
+    <string name="referral_share_cta">Del med din klasse</string>
+    <string name="referral_share_chooser">Del BetterLectio</string>
+    <string name="referral_share_text">Prøv BetterLectio — Lectio der faktisk virker på mobilen.\n%1$s</string>
+    <string name="referral_copy_link">Kopiér link</string>
+    <string name="referral_copied">Kopieret</string>
+    <string name="referral_stat_invited">Inviterede</string>
+    <string name="referral_stat_clicks">Klik</string>
+    <string name="referral_recent_title">Senest inviterede</string>
+    <string name="referral_anonymous">Anonym</string>
+    <string name="referral_nudge_title">Del med din klasse</string>
+    <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link — invitationen knyttes automatisk.</string>
+    <string name="referral_nudge_share">Del nu</string>
+    <string name="referral_nudge_dismiss">Ikke nu</string>
+    <string name="referral_celebration">%1$s er med takket være dig</string>
+
+    <string name="extension_invite_title">Også på computeren</string>
+    <string name="extension_invite_body">BetterLectio findes også som udvidelse til Chrome, Firefox og Edge. Åbn linket på din computer for at installere.</string>
+    <string name="extension_invite_got_it">Forstået</string>
+    <string name="extension_invite_copy_link">Kopiér link</string>
+    <string name="extension_invite_copied">Kopieret</string>
 
     <string name="settings_appearance">Udseende</string>
     <string name="settings_appearance_system">System</string>
@@ -232,6 +284,7 @@
     <string name="settings_notif_history_empty">Ingen hændelser endnu.</string>
     <string name="settings_notif_history_clear">Ryd historik</string>
     <string name="settings_privacy">Privatlivspolitik</string>
+    <string name="settings_browser_extension">Browser-udvidelse</string>
     <string name="settings_clear_cache">Ryd cache</string>
 
     <string name="private_event_add">Ny privat aftale</string>
@@ -270,6 +323,11 @@
     <string name="directory_person_schedule_empty">Ingen lektioner denne uge</string>
     <string name="directory_person_kind_student">Elev</string>
     <string name="directory_person_kind_teacher">Lærer</string>
+    <string name="student_profile_no_betterlectio">Denne elev har ikke BetterLectio endnu.</string>
+    <string name="student_profile_birthday_cd">Fødselsdag</string>
+    <string name="student_profile_instagram_cd">Instagram</string>
+    <string name="student_profile_week_prev_cd">Forrige uge</string>
+    <string name="student_profile_week_next_cd">Næste uge</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Fjern flag</string>
@@ -360,4 +418,32 @@
     <string name="update_none_available">Ingen opdatering tilgængelig (version %1$s).</string>
     <string name="update_play_check_failed">Kunne ikke tjekke Play: %1$s (sideload/debug er normalt).</string>
     <string name="update_play_core_unavailable">Play Core utilgængelig: %1$s</string>
+
+    <!-- Shake-to-feedback -->
+    <string name="feedback_title">Feedback</string>
+    <string name="feedback_subtitle">Beskriv problemet eller din idé. Vi læser det.</string>
+    <string name="feedback_category_label">Kategori</string>
+    <string name="feedback_category_bug">Fejl</string>
+    <string name="feedback_category_idea">Idé</string>
+    <string name="feedback_category_other">Andet</string>
+    <string name="feedback_hint_bug">Hvad gik galt, og hvad lavede du lige før?</string>
+    <string name="feedback_hint_idea">Hvad mangler eller kunne fungere bedre?</string>
+    <string name="feedback_hint_other">Skriv din besked her</string>
+    <string name="feedback_attachments_label">Vedhæftninger</string>
+    <string name="feedback_screenshot_title">Skærmbillede</string>
+    <string name="feedback_screenshot_cd">Skærmbillede af appen</string>
+    <string name="feedback_screenshot_included">Inkluderet</string>
+    <string name="feedback_screenshot_excluded">Ikke inkluderet</string>
+    <string name="feedback_screenshot_unavailable">Ikke tilgængeligt</string>
+    <string name="feedback_logs_title">Logs</string>
+    <string name="feedback_logs_included">Inkluderet</string>
+    <string name="feedback_logs_excluded">Ikke inkluderet</string>
+    <string name="feedback_send">Send</string>
+    <string name="feedback_sending">Sender…</string>
+    <string name="feedback_privacy_note">Skærmbilledet kan indeholde personlige oplysninger. Du kan fjerne det ovenfor.</string>
+    <string name="feedback_success_title">Sendt</string>
+    <string name="feedback_success_body">Tak for din feedback.</string>
+    <string name="feedback_done">Luk</string>
+    <string name="feedback_error_title">Kunne ikke sende</string>
+    <string name="feedback_error_body">Tjek din forbindelse og prøv igen.</string>
 </resources>

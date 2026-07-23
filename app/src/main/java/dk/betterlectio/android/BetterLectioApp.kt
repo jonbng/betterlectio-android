@@ -7,6 +7,7 @@ import com.posthog.android.PostHogAndroid
 import com.posthog.android.PostHogAndroidConfig
 import dagger.hilt.android.HiltAndroidApp
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.feature.feedback.FeedbackLogBuffer
 import timber.log.Timber
 import javax.inject.Inject
 
@@ -19,12 +20,13 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
     @Inject
     lateinit var imageLoader: ImageLoader
 
+    @Inject
+    lateinit var feedbackLogBuffer: FeedbackLogBuffer
+
     override fun onCreate() {
         super.onCreate()
-        if (BuildConfig.DEBUG) {
-            Timber.plant(Timber.DebugTree())
-        }
-        // Hilt injection for Application happens after super.onCreate in @HiltAndroidApp.
+        // Hilt fields are injected after super.onCreate() returns for @HiltAndroidApp.
+        // Plant trees on the first opportunity after injection — see plantLogging().
         // restore() is called from MainActivity to ensure injection is ready.
 
         if (BuildConfig.POSTHOG_API_KEY.isNotBlank()) {
@@ -43,6 +45,21 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
                 "PostHog disabled: POSTHOG_API_KEY empty. " +
                     "Set posthog.apiKey in local.properties or POSTHOG_API_KEY env.",
             )
+        }
+
+        plantLogging()
+    }
+
+    /**
+     * Debug console + always-on ring buffer so shake-to-feedback can attach recent logs
+     * in release builds as well.
+     */
+    private fun plantLogging() {
+        if (BuildConfig.DEBUG) {
+            Timber.plant(Timber.DebugTree())
+        }
+        if (this::feedbackLogBuffer.isInitialized) {
+            Timber.plant(feedbackLogBuffer)
         }
     }
 

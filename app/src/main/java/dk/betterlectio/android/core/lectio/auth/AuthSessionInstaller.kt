@@ -18,6 +18,7 @@ import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.directory.AvatarRepository
 import dk.betterlectio.android.feature.directory.DirectorySyncService
 import dk.betterlectio.android.feature.messages.MessageListPrefetcher
+import dk.betterlectio.android.feature.referral.ReferralCoordinator
 import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.feature.supabase.SupabaseAuthService
 import kotlinx.coroutines.CoroutineScope
@@ -48,6 +49,7 @@ class AuthSessionInstaller @Inject constructor(
     private val directorySync: DirectorySyncService,
     private val messagePrefetcher: MessageListPrefetcher,
     private val avatarRepository: AvatarRepository,
+    private val referralCoordinator: ReferralCoordinator,
 ) {
     private val bgScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
 
@@ -276,6 +278,7 @@ class AuthSessionInstaller @Inject constructor(
             supabaseAuth.authenticateAndMarkReady(finalCreds, school.id)
             settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
+            referralCoordinator.tryFinalizeAfterAuth(student)
             schedulePostLoginSync()
         }
 
@@ -400,6 +403,7 @@ class AuthSessionInstaller @Inject constructor(
             supabaseAuth.ensureSessionIfNeeded(student)
             settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
+            referralCoordinator.tryFinalizeAfterAuth(student)
             schedulePostLoginSync()
         }
     }

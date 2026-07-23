@@ -5,6 +5,7 @@ import io.github.jan.supabase.auth.Auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
+import io.github.jan.supabase.storage.Storage
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.withTimeoutOrNull
 import timber.log.Timber
@@ -30,6 +31,7 @@ class SupabaseManager @Inject constructor(
             install(Auth)
             install(Postgrest)
             install(Functions)
+            install(Storage)
         }
     } else {
         Timber.w("Supabase not configured (SUPABASE_URL / SUPABASE_ANON_KEY); remote sync disabled")

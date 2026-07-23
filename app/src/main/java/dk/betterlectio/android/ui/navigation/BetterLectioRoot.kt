@@ -17,9 +17,11 @@ import androidx.compose.material3.NavigationBarItem
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateMapOf
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
@@ -43,14 +45,16 @@ import dagger.hilt.components.SingletonComponent
 import dk.betterlectio.android.core.lectio.session.AuthState
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.feature.messages.MessageRepository
+import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.ui.auth.LoginScreen
 import dk.betterlectio.android.ui.components.LoadingBox
+import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
 import dk.betterlectio.android.ui.screens.assignments.AssignmentsScreen
 import dk.betterlectio.android.ui.screens.homework.HomeworkScreen
 import dk.betterlectio.android.ui.screens.messages.MessagesScreen
 import dk.betterlectio.android.ui.screens.more.MoreScreen
 import dk.betterlectio.android.ui.screens.schedule.ScheduleScreen
-
+import kotlinx.coroutines.delay
 @Composable
 fun BetterLectioRoot(
     sessionController: SessionController,
@@ -85,13 +89,26 @@ private fun AuthenticatedShell() {
     val currentDestination = navBackStackEntry?.destination
 
     val context = LocalContext.current
-    val messageRepository = remember {
+    val entryPoint = remember {
         EntryPointAccessors.fromApplication(
             context.applicationContext,
-            UnreadEntryPoint::class.java,
-        ).messageRepository()
+            AuthenticatedShellEntryPoint::class.java,
+        )
     }
+    val messageRepository = remember { entryPoint.messageRepository() }
+    val settingsStore = remember { entryPoint.settingsStore() }
     val unreadCount by messageRepository.unreadCount.collectAsStateWithLifecycle()
+
+    var showExtensionInvite by remember { mutableStateOf(false) }
+    LaunchedEffect(Unit) {
+        if (settingsStore.recordAuthenticatedLaunch()) {
+            delay(2_000)
+            // Re-check: user may have dismissed via Mere/Settings during the delay.
+            if (settingsStore.shouldShowProactiveExtensionInvite()) {
+                showExtensionInvite = true
+            }
+        }
+    }
 
     // Same-tab reselect → bump scroll token for active route
     val scrollTokens = remember { mutableStateMapOf<String, Int>() }
@@ -224,10 +241,20 @@ private fun AuthenticatedShell() {
             }
         }
     }
+
+    if (showExtensionInvite) {
+        ExtensionInviteSheet(
+            onDismiss = {
+                showExtensionInvite = false
+                settingsStore.dismissExtensionInvite()
+            },
+        )
+    }
 }
 
 @EntryPoint
 @InstallIn(SingletonComponent::class)
-interface UnreadEntryPoint {
+interface AuthenticatedShellEntryPoint {
     fun messageRepository(): MessageRepository
+    fun settingsStore(): SettingsStore
 }
