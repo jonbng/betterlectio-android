@@ -228,12 +228,12 @@
     <string name="referral_unlock_title">Lås tilpasning op</string>
     <string name="referral_unlock_done_title">Tilpasning låst op</string>
     <string name="referral_unlock_body">Inviter %1$d mere for at låse tilpasning op.</string>
-    <string name="referral_unlock_done_body">Du har inviteret nok klassekammerater — tilpasning kommer snart.</string>
+    <string name="referral_unlock_done_body">Du har inviteret nok klassekammerater. Tilpasning kommer snart.</string>
     <string name="referral_teaser_title">Tilpasning</string>
     <string name="referral_teaser_body">Inviter %1$d klassekammerater for at låse op for personlig tilpasning.</string>
     <string name="referral_share_cta">Del med din klasse</string>
     <string name="referral_share_chooser">Del BetterLectio</string>
-    <string name="referral_share_text">Prøv BetterLectio — Lectio der faktisk virker på mobilen.\n%1$s</string>
+    <string name="referral_share_text">Prøv BetterLectio. Lectio der faktisk virker på mobilen.\n%1$s</string>
     <string name="referral_copy_link">Kopiér link</string>
     <string name="referral_copied">Kopieret</string>
     <string name="referral_stat_invited">Inviterede</string>
@@ -241,7 +241,7 @@
     <string name="referral_recent_title">Senest inviterede</string>
     <string name="referral_anonymous">Anonym</string>
     <string name="referral_nudge_title">Del med din klasse</string>
-    <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link — invitationen knyttes automatisk.</string>
+    <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link, og invitationen knyttes automatisk.</string>
     <string name="referral_nudge_share">Del nu</string>
     <string name="referral_nudge_dismiss">Ikke nu</string>
     <string name="referral_celebration">%1$s er med takket være dig</string>
