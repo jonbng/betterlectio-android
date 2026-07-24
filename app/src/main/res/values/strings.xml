@@ -328,6 +328,9 @@
     <string name="student_profile_instagram_cd">Instagram</string>
     <string name="student_profile_week_prev_cd">Forrige uge</string>
     <string name="student_profile_week_next_cd">Næste uge</string>
+    <string name="student_profile_bl_badge">BL</string>
+    <string name="student_profile_photo_cd">Foto af %1$s</string>
+    <string name="student_profile_photo_preview_cd">Forhåndsvisning af foto</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Fjern flag</string>
@@ -398,8 +401,12 @@
 
     <string name="live_channel_name">Igangværende lektion</string>
     <string name="live_lesson_in_progress">Lektion i gang</string>
+    <string name="live_lesson_upcoming">Næste lektion</string>
+    <string name="live_metric_starts_in">Starter om</string>
+    <string name="live_metric_ends_in">Slutter om</string>
     <string name="live_minutes_left">%1$d min tilbage</string>
     <string name="live_teacher_line">Lærer: %1$s</string>
+    <string name="live_starts_at">Starter %1$s</string>
     <string name="live_ends_at">Slutter %1$s</string>
     <string name="live_next_line">Næste: %1$s %2$s</string>
     <string name="live_open_schedule">Åbn skema</string>

@@ -5,6 +5,7 @@
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <uses-permission android:name="android.permission.POST_PROMOTED_NOTIFICATIONS" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
     <uses-permission android:name="android.permission.SCHEDULE_EXACT_ALARM" />
     <uses-permission android:name="android.permission.USE_EXACT_ALARM" tools:ignore="ExactAlarm" />
@@ -58,6 +59,18 @@
         <receiver
             android:name=".feature.live.LiveLessonAlarmReceiver"
             android:exported="false" />
+
+        <service
+            android:name=".feature.wear.PhoneWearScheduleListenerService"
+            android:exported="true">
+            <intent-filter>
+                <action android:name="com.google.android.gms.wearable.MESSAGE_RECEIVED" />
+                <data
+                    android:host="*"
+                    android:pathPrefix="/betterlectio/schedule/refresh"
+                    android:scheme="wear" />
+            </intent-filter>
+        </service>
 
         <receiver
             android:name=".feature.widget.ScheduleWidgetReceiver"

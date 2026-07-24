@@ -36,7 +36,7 @@ val hasReleaseKeystore =
 android {
     namespace = "dk.betterlectio.android"
     compileSdk {
-        version = release(36) {
+        version = release(37) {
             minorApiLevel = 1
         }
     }
@@ -133,6 +133,8 @@ android {
 }
 
 dependencies {
+    implementation(project(":core:wear-model"))
+
     val composeBom = platform(libs.androidx.compose.bom)
     implementation(composeBom)
     androidTestImplementation(composeBom)
@@ -190,6 +192,7 @@ dependencies {
     implementation(libs.play.install.referrer)
 
     implementation(libs.posthog.android)
+    implementation(libs.play.services.wearable)
 
     // Supabase (iOS parity — optional enhancement layer; core Lectio works without it)
     implementation(platform(libs.supabase.bom))

@@ -56,6 +56,7 @@ import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.asString
+import dk.betterlectio.android.feature.live.LiveLessonBoundary
 import dk.betterlectio.android.feature.schedule.EventStatus
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.statusLabelText
@@ -613,47 +614,13 @@ private fun computeLiveHeader(
     now: LocalDateTime,
     displayTitle: (ScheduleEvent) -> String,
 ): LiveHeaderUi? {
-    // Full LocalDateTime compare so multi-day / overnight events stay "current"
-    // across midnight (clock-only math would break after day boundaries).
-    val timed = events.filter { !it.isAllDay && it.start != null && it.end != null }
-
-    val current = timed.firstOrNull { e ->
-        val s = e.start!!
-        val en = e.end!!
-        !now.isBefore(s) && now.isBefore(en)
-    }
-    if (current != null) {
-        val start = current.start!!
-        val end = current.end!!
-        val remaining = ChronoUnit.MINUTES.between(now, end).coerceAtLeast(0).toInt()
-        val duration = ChronoUnit.MINUTES.between(start, end).coerceAtLeast(1).toInt()
-        val elapsed = ChronoUnit.MINUTES.between(start, now).coerceAtLeast(0).toInt()
-        val progress = (elapsed.toFloat() / duration).coerceIn(0f, 1f)
-        return LiveHeaderUi(
-            subjectName = displayTitle(current),
-            room = current.room,
-            minutes = remaining,
-            progress = progress,
-            isUpcoming = false,
-        )
-    }
-
-    val next = timed
-        .mapNotNull { e ->
-            val s = e.start!!
-            if (!s.isAfter(now)) return@mapNotNull null
-            val until = ChronoUnit.MINUTES.between(now, s).toInt()
-            if (until in 1..60) e to until else null
-        }
-        .minByOrNull { it.second }
-        ?: return null
-
+    val projection = LiveLessonBoundary.project(events, now) ?: return null
     return LiveHeaderUi(
-        subjectName = displayTitle(next.first),
-        room = next.first.room,
-        minutes = next.second,
-        progress = null,
-        isUpcoming = true,
+        subjectName = displayTitle(projection.event),
+        room = projection.event.room,
+        minutes = projection.minutesRemaining,
+        progress = projection.progress,
+        isUpcoming = projection.phase == LiveLessonBoundary.Phase.UPCOMING,
     )
 }
 

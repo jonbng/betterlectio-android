@@ -24,4 +24,6 @@ dependencyResolutionManagement {
 
 rootProject.name = "BetterLectio"
 include(":app")
+include(":core:wear-model")
+include(":wear")
  

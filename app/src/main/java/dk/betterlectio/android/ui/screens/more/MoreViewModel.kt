@@ -37,6 +37,7 @@ import dk.betterlectio.android.feature.plans.StudyPlan
 import dk.betterlectio.android.feature.referral.ReferralCoordinator
 import dk.betterlectio.android.feature.referral.ReferralStats
 import dk.betterlectio.android.feature.referral.buildReferralUrl
+import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
 import dk.betterlectio.android.feature.settings.AppLanguage
 import dk.betterlectio.android.feature.settings.AppearanceMode
@@ -481,15 +482,38 @@ class MoreViewModel @Inject constructor(
         }
     }
 
-    fun shiftPersonWeek(delta: Int) = viewModelScope.launch {
-        val entity = _state.value.personEntity ?: return@launch
+    fun shiftPersonWeek(delta: Int) {
         val currentStart = LectioDateUtils.weekStart(
             _state.value.personWeekYear,
             _state.value.personWeek,
         )
-        val next = currentStart.plusWeeks(delta.toLong())
-        val year = LectioDateUtils.isoWeekYear(next)
-        val week = LectioDateUtils.isoWeek(next)
+        loadPersonWeekForDate(currentStart.plusWeeks(delta.toLong()))
+    }
+
+    fun goToPersonToday() {
+        val today = java.time.LocalDate.now()
+        val year = LectioDateUtils.isoWeekYear(today)
+        val week = LectioDateUtils.isoWeek(today)
+        if (year == _state.value.personWeekYear &&
+            week == _state.value.personWeek &&
+            _state.value.personSchedule != null
+        ) {
+            // Already on the right week; UI selects today locally.
+            return
+        }
+        loadPersonWeekForDate(today)
+    }
+
+    fun loadPersonWeekForDate(date: java.time.LocalDate) = viewModelScope.launch {
+        val entity = _state.value.personEntity ?: return@launch
+        val year = LectioDateUtils.isoWeekYear(date)
+        val week = LectioDateUtils.isoWeek(date)
+        if (year == _state.value.personWeekYear &&
+            week == _state.value.personWeek &&
+            _state.value.personSchedule != null
+        ) {
+            return@launch
+        }
         _state.update { it.copy(loading = true) }
         when (val res = roomScheduleRepo.loadPersonWeek(entity, year, week)) {
             is AppResult.Success -> _state.update {
@@ -504,6 +528,16 @@ class MoreViewModel @Inject constructor(
                 it.copy(loading = false, message = res.error.toUiText())
             }
         }
+    }
+
+    fun displayTitleForEvent(event: ScheduleEvent): String {
+        val key = event.team.ifBlank { event.title }
+        return settings.displayNameForSubject(key, fallback = event.title.ifBlank { key })
+    }
+
+    fun accentArgbForEvent(event: ScheduleEvent): Long {
+        val key = event.team.ifBlank { event.title }
+        return settings.colorForSubject(key)
     }
 
     /**

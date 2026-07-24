@@ -176,7 +176,41 @@ fun MoreScreen(
     val context = LocalContext.current
     val haptics = LocalHapticFeedback.current
     val listState = rememberLazyListState()
+    val scope = rememberCoroutineScope()
     var showExtensionInvite by remember { mutableStateOf(false) }
+    var directoryPhotoPreviewUrl by remember { mutableStateOf<String?>(null) }
+    var directoryPhotoPreviewName by remember { mutableStateOf<String?>(null) }
+    val avatarRepo = remember {
+        EntryPointAccessors.fromApplication(
+            context.applicationContext,
+            AvatarRepositoryEntryPoint::class.java,
+        ).avatarRepository()
+    }
+    fun previewDirectoryPersonPhoto(entity: DirectoryEntity) {
+        if (entity.kind != DirectoryEntityKind.STUDENT &&
+            entity.kind != DirectoryEntityKind.TEACHER
+        ) {
+            return
+        }
+        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        scope.launch {
+            val peeked = avatarRepo.peekUrl(
+                entityId = entity.id,
+                name = entity.name,
+                knownUrl = entity.avatarUrl,
+            ) ?: entity.avatarUrl
+            val resolved = avatarRepo.resolveUrl(
+                entityId = entity.id,
+                name = entity.name,
+                kind = entity.kind,
+                knownUrl = peeked,
+            ) ?: peeked
+            if (!resolved.isNullOrBlank()) {
+                directoryPhotoPreviewUrl = resolved
+                directoryPhotoPreviewName = entity.name
+            }
+        }
+    }
     val showBack = state.destination != MoreDestination.ROOT ||
         state.gradeDetail != null ||
         state.directoryParent != null ||
@@ -294,8 +328,11 @@ fun MoreScreen(
                                 profile = state.studentProfile,
                                 week = state.personSchedule,
                                 weekNumber = state.personWeek,
+                                weekYear = state.personWeekYear,
                                 pinned = state.pinnedIds.contains(person.id),
-                                listState = listState,
+                                defaultCalendarStyle = calendarStyle,
+                                displayTitle = viewModel::displayTitleForEvent,
+                                accentFor = { Color(viewModel.accentArgbForEvent(it)) },
                                 onWriteMessage = {
                                     viewModel.composeToPerson(person)
                                     onComposeToPerson?.invoke(
@@ -319,16 +356,24 @@ fun MoreScreen(
                                 },
                                 onPrevWeek = { viewModel.shiftPersonWeek(-1) },
                                 onNextWeek = { viewModel.shiftPersonWeek(1) },
+                                onGoToToday = viewModel::goToPersonToday,
+                                onLoadWeekForDate = viewModel::loadPersonWeekForDate,
                             )
                         } else {
-                            PersonScheduleList(
+                            PersonSchedulePane(
                                 loading = state.loading,
-                                entity = person,
                                 week = state.personSchedule,
                                 weekNumber = state.personWeek,
-                                listState = listState,
+                                weekYear = state.personWeekYear,
+                                defaultCalendarStyle = calendarStyle,
+                                displayTitle = viewModel::displayTitleForEvent,
+                                accentFor = { Color(viewModel.accentArgbForEvent(it)) },
                                 onPrevWeek = { viewModel.shiftPersonWeek(-1) },
                                 onNextWeek = { viewModel.shiftPersonWeek(1) },
+                                onGoToToday = viewModel::goToPersonToday,
+                                onLoadWeekForDate = viewModel::loadPersonWeekForDate,
+                                subtitle = person.subtitle,
+                                modifier = Modifier.fillMaxSize(),
                             )
                         }
                     }
@@ -422,10 +467,7 @@ fun MoreScreen(
                                     }
                                     AppListRow(
                                         onClick = openPerson,
-                                        onLongClick = {
-                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            openPerson()
-                                        },
+                                        onLongClick = { previewDirectoryPersonPhoto(e) },
                                         leading = {
                                             PersonAvatar(entity = e)
                                         },
@@ -515,14 +557,9 @@ fun MoreScreen(
                                 }
                                 fun onEntityLongClick(e: DirectoryEntity) {
                                     when (e.kind) {
-                                        DirectoryEntityKind.STUDENT -> {
-                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.openStudentProfile(e)
-                                        }
-                                        DirectoryEntityKind.TEACHER -> {
-                                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                                            viewModel.openPersonSheet(e)
-                                        }
+                                        DirectoryEntityKind.STUDENT,
+                                        DirectoryEntityKind.TEACHER,
+                                        -> previewDirectoryPersonPhoto(e)
                                         else -> Unit
                                     }
                                 }
@@ -1149,73 +1186,17 @@ fun MoreScreen(
             onTogglePin = { viewModel.togglePin(person) },
         )
     }
-}
 
-@Composable
-private fun PersonScheduleList(
-    loading: Boolean,
-    entity: DirectoryEntity,
-    week: dk.betterlectio.android.feature.schedule.ScheduleWeek?,
-    weekNumber: Int,
-    listState: androidx.compose.foundation.lazy.LazyListState,
-    onPrevWeek: () -> Unit,
-    onNextWeek: () -> Unit,
-) {
-    if (loading && week == null) {
-        LoadingBox()
-        return
-    }
-    LazyColumn(
-        state = listState,
-        contentPadding = PaddingValues(16.dp),
-        verticalArrangement = Arrangement.spacedBy(8.dp),
-    ) {
-        item {
-            PersonWeekHeader(
-                weekNumber = week?.week ?: weekNumber,
-                loading = loading,
-                onPrevWeek = onPrevWeek,
-                onNextWeek = onNextWeek,
-            )
-            entity.subtitle?.takeIf { it.isNotBlank() }?.let { sub ->
-                Text(
-                    sub,
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        }
-        if (week == null || week.days.all { it.events.isEmpty() }) {
-            item {
-                Text(
-                    stringResource(R.string.directory_person_schedule_empty),
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-        } else {
-            week.days.forEach { day ->
-                if (day.events.isEmpty()) return@forEach
-                item(key = "pday-${day.date}") {
-                    Text(
-                        day.date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
-                            " ${day.date.dayOfMonth}/${day.date.monthValue}",
-                        style = MaterialTheme.typography.titleSmall,
-                        fontWeight = FontWeight.SemiBold,
-                        color = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.padding(top = 8.dp),
-                    )
-                }
-                items(day.events, key = { "pe-${it.id}" }) { ev ->
-                    AppListRow {
-                        AppListPrimary(ev.title, emphasized = true)
-                        AppListSecondary(ev.timeLabelText())
-                        ev.teacher?.let { AppListMeta(it) }
-                        ev.room?.let { AppListMeta(it) }
-                    }
-                    AppListDivider()
-                }
-            }
-        }
+    directoryPhotoPreviewUrl?.let { url ->
+        LectioImagePreviewDialog(
+            url = url,
+            contentDescription = directoryPhotoPreviewName
+                ?: stringResource(R.string.student_profile_photo_preview_cd),
+            onDismiss = {
+                directoryPhotoPreviewUrl = null
+                directoryPhotoPreviewName = null
+            },
+        )
     }
 }
 

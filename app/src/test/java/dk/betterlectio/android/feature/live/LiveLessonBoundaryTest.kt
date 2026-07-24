@@ -1,9 +1,11 @@
 package dk.betterlectio.android.feature.live
 
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
+import dk.betterlectio.android.feature.schedule.EventStatus
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
+import org.junit.Assert.assertTrue
 import org.junit.Test
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -12,12 +14,22 @@ import java.time.LocalTime
 class LiveLessonBoundaryTest {
     private val day = LocalDate.of(2026, 3, 10)
 
-    private fun event(id: String, startH: Int, startM: Int, endH: Int, endM: Int) = ScheduleEvent(
+    private fun event(
+        id: String,
+        startH: Int,
+        startM: Int,
+        endH: Int,
+        endM: Int,
+        status: EventStatus = EventStatus.NORMAL,
+        isAllDay: Boolean = false,
+    ) = ScheduleEvent(
         id = id,
         title = id,
         start = LocalDateTime.of(day, LocalTime.of(startH, startM)),
         end = LocalDateTime.of(day, LocalTime.of(endH, endM)),
         date = day,
+        status = status,
+        isAllDay = isAllDay,
     )
 
     @Test
@@ -59,7 +71,91 @@ class LiveLessonBoundaryTest {
         assertTrue(list.zipWithNext().all { (a, b) -> !a.at.isAfter(b.at) })
     }
 
-    private fun assertTrue(condition: Boolean) {
-        org.junit.Assert.assertTrue(condition)
+    @Test
+    fun project_includes_upcoming_at_60_minute_threshold_only() {
+        val lesson = event("a", 9, 0, 10, 0)
+
+        val atThreshold = LiveLessonBoundary.project(
+            listOf(lesson),
+            LocalDateTime.of(day, LocalTime.of(8, 0)),
+        )
+        assertNotNull(atThreshold)
+        assertEquals(LiveLessonBoundary.Phase.UPCOMING, atThreshold!!.phase)
+        assertEquals(60, atThreshold.minutesRemaining)
+
+        assertNull(
+            LiveLessonBoundary.project(
+                listOf(lesson),
+                LocalDateTime.of(day, LocalTime.of(7, 59)),
+            ),
+        )
+    }
+
+    @Test
+    fun project_current_contains_progress_and_next_lesson() {
+        val events = listOf(
+            event("a", 8, 0, 9, 0),
+            event("b", 9, 15, 10, 0),
+        )
+        val projection = LiveLessonBoundary.project(
+            events,
+            LocalDateTime.of(day, LocalTime.of(8, 30)),
+        )
+
+        assertNotNull(projection)
+        assertEquals(LiveLessonBoundary.Phase.CURRENT, projection!!.phase)
+        assertEquals("a", projection.event.id)
+        assertEquals("b", projection.nextLesson?.id)
+        assertEquals(30, projection.minutesRemaining)
+        assertEquals(0.5f, projection.progress ?: 0f, 0.001f)
+    }
+
+    @Test
+    fun project_excludes_cancelled_all_day_and_invalid_events() {
+        val cancelled = event("cancelled", 8, 0, 9, 0, status = EventStatus.CANCELLED)
+        val allDay = event("all-day", 8, 0, 9, 0, isAllDay = true)
+        val invalid = event("invalid", 10, 0, 9, 0)
+
+        assertNull(
+            LiveLessonBoundary.project(
+                listOf(cancelled, allDay, invalid),
+                LocalDateTime.of(day, LocalTime.of(8, 30)),
+            ),
+        )
+    }
+
+    @Test
+    fun project_overlapping_events_uses_earliest_start() {
+        val events = listOf(
+            event("later", 8, 15, 9, 15),
+            event("earlier", 8, 0, 9, 0),
+        )
+        val projection = LiveLessonBoundary.project(
+            events,
+            LocalDateTime.of(day, LocalTime.of(8, 30)),
+        )
+
+        assertEquals("earlier", projection?.event?.id)
+    }
+
+    @Test
+    fun nextRefreshBoundary_starts_tracking_one_hour_before_lesson() {
+        val next = LiveLessonBoundary.nextRefreshBoundary(
+            listOf(event("a", 9, 0, 10, 0)),
+            LocalDateTime.of(day, LocalTime.of(7, 30)),
+        )
+
+        assertNotNull(next)
+        assertEquals(LocalDateTime.of(day, LocalTime.of(8, 0)), next!!.at)
+    }
+
+    @Test
+    fun projection_clears_after_final_lesson() {
+        assertNull(
+            LiveLessonBoundary.project(
+                listOf(event("a", 8, 0, 9, 0)),
+                LocalDateTime.of(day, LocalTime.of(9, 0)),
+            ),
+        )
     }
 }

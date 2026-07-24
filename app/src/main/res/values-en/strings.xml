@@ -330,6 +330,9 @@
     <string name="student_profile_instagram_cd">Instagram</string>
     <string name="student_profile_week_prev_cd">Previous week</string>
     <string name="student_profile_week_next_cd">Next week</string>
+    <string name="student_profile_bl_badge">BL</string>
+    <string name="student_profile_photo_cd">Photo of %1$s</string>
+    <string name="student_profile_photo_preview_cd">Photo preview</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Remove flag</string>
@@ -400,8 +403,12 @@
 
     <string name="live_channel_name">Ongoing lesson</string>
     <string name="live_lesson_in_progress">Lesson in progress</string>
+    <string name="live_lesson_upcoming">Next lesson</string>
+    <string name="live_metric_starts_in">Starts in</string>
+    <string name="live_metric_ends_in">Ends in</string>
     <string name="live_minutes_left">%1$d min left</string>
     <string name="live_teacher_line">Teacher: %1$s</string>
+    <string name="live_starts_at">Starts %1$s</string>
     <string name="live_ends_at">Ends %1$s</string>
     <string name="live_next_line">Next: %1$s %2$s</string>
     <string name="live_open_schedule">Open schedule</string>

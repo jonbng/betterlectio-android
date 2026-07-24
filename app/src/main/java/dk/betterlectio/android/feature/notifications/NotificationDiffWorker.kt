@@ -20,6 +20,8 @@ import dk.betterlectio.android.R
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.assignments.AssignmentRepository
+import dk.betterlectio.android.feature.live.LiveLessonNotifier
+import dk.betterlectio.android.feature.live.LiveLessonScheduler
 import dk.betterlectio.android.feature.messages.MessageFolder
 import dk.betterlectio.android.feature.messages.MessageRepository
 import dk.betterlectio.android.feature.schedule.EventStatus
@@ -27,6 +29,8 @@ import dk.betterlectio.android.feature.schedule.ScheduleRepository
 import dk.betterlectio.android.feature.schedule.statusLabel
 import dk.betterlectio.android.feature.schedule.timeLabel
 import dk.betterlectio.android.feature.settings.SettingsStore
+import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.concurrent.TimeUnit
 import java.util.Locale
 
@@ -43,6 +47,8 @@ class NotificationDiffWorker(
         fun assignmentRepository(): AssignmentRepository
         fun settingsStore(): SettingsStore
         fun sessionController(): SessionController
+        fun liveLessonNotifier(): LiveLessonNotifier
+        fun liveLessonScheduler(): LiveLessonScheduler
     }
 
     override suspend fun doWork(): Result {
@@ -63,9 +69,19 @@ class NotificationDiffWorker(
         val next = previous.toMutableSet()
         var notifId = 1000
         val ctx = applicationContext
+        val scheduleResult = deps.scheduleRepository().loadWeek(forceRefresh = true)
+        if (scheduleResult is AppResult.Success) {
+            val todayEvents = scheduleResult.data.days
+                .find { it.date == LocalDate.now() }
+                ?.events
+                .orEmpty()
+            val now = LocalDateTime.now()
+            deps.liveLessonNotifier().update(todayEvents, now)
+            deps.liveLessonScheduler().scheduleBoundaries(todayEvents, now)
+        }
 
         if (settings.notifEvents.value) {
-            when (val week = deps.scheduleRepository().loadWeek(forceRefresh = true)) {
+            when (val week = scheduleResult) {
                 is AppResult.Success -> {
                     val changed = week.data.days.flatMap { it.events }
                         .filter { it.status != EventStatus.NORMAL }

@@ -24,14 +24,15 @@ import javax.inject.Singleton
 @Singleton
 class LiveLessonScheduler @Inject constructor(
     @ApplicationContext private val context: Context,
-    private val notifier: LiveLessonNotifier,
 ) {
     fun scheduleBoundaries(
         events: List<ScheduleEvent>,
         now: LocalDateTime = LocalDateTime.now(),
     ) {
-        notifier.update(events, now)
-        val next = LiveLessonBoundary.nextBoundary(events, now) ?: return
+        val next = LiveLessonBoundary.nextRefreshBoundary(events, now) ?: run {
+            cancel()
+            return
+        }
         val delayMs = java.time.Duration.between(now, next.at).toMillis().coerceAtLeast(1_000L)
         // Cap to 12h so we recompute often enough
         val workDelay = delayMs.coerceAtMost(TimeUnit.HOURS.toMillis(12))
@@ -55,17 +56,7 @@ class LiveLessonScheduler @Inject constructor(
         // Exact-ish alarm for faster wake when permitted
         try {
             val am = context.getSystemService(AlarmManager::class.java) ?: return
-            val intent = Intent(context, LiveLessonAlarmReceiver::class.java).apply {
-                putExtra(LiveLessonRefreshWorker.KEY_EVENT_ID, next.eventId)
-                putExtra(LiveLessonRefreshWorker.KEY_KIND, next.kind.name)
-                putExtra(LiveLessonRefreshWorker.KEY_TITLE, next.title)
-            }
-            val pi = PendingIntent.getBroadcast(
-                context,
-                4401,
-                intent,
-                PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-            )
+            val pi = alarmIntent()
             val triggerAt = next.at.atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && !am.canScheduleExactAlarms()) {
                 am.setAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerAt, pi)
@@ -77,8 +68,22 @@ class LiveLessonScheduler @Inject constructor(
         }
     }
 
+    fun cancel() {
+        WorkManager.getInstance(context).cancelUniqueWork(WORK_NAME)
+        val am = context.getSystemService(AlarmManager::class.java) ?: return
+        am.cancel(alarmIntent())
+    }
+
+    private fun alarmIntent(): PendingIntent = PendingIntent.getBroadcast(
+        context,
+        ALARM_REQUEST_CODE,
+        Intent(context, LiveLessonAlarmReceiver::class.java),
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
     companion object {
         const val WORK_NAME = "live_lesson_boundary"
         const val WORK_TAG = "live_lesson"
+        private const val ALARM_REQUEST_CODE = 4401
     }
 }

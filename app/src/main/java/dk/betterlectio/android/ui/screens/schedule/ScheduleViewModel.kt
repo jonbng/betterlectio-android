@@ -27,7 +27,9 @@ import dk.betterlectio.android.feature.schedule.ScheduleWeek
 import dk.betterlectio.android.feature.schedule.timeLabel
 import dk.betterlectio.android.feature.settings.CalendarStyle
 import dk.betterlectio.android.feature.settings.SettingsStore
+import dk.betterlectio.android.feature.wear.PhoneWearSchedulePublisher
 import dk.betterlectio.android.feature.widget.ScheduleWidgetSnapshot
+import dk.betterlectio.android.wear.model.WearSyncStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -76,6 +78,7 @@ class ScheduleViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val session: SessionController,
     private val referralCoordinator: ReferralCoordinator,
+    private val wearPublisher: PhoneWearSchedulePublisher,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
 
@@ -213,12 +216,16 @@ class ScheduleViewModel @Inject constructor(
                 is AppResult.Success -> {
                     weekCache[key] = res.data
                     mergeWeekIntoState(res.data, setAsPrimary = setAsPrimary)
+                    wearPublisher.publishWeeks(weekCache.values)
                     if (setAsPrimary) {
                         publishLiveAndWidget(res.data)
                         maybePromptReferral()
                     }
                 }
                 is AppResult.Failure -> {
+                    if (res.error is AppError.Unauthorized || res.error is AppError.SessionExpired) {
+                        wearPublisher.publishStatus(WearSyncStatus.AUTH_REQUIRED)
+                    }
                     if (setAsPrimary && _state.value.week == null) {
                         _state.update { it.copy(loading = false, error = res.error) }
                     } else if (setAsPrimary) {

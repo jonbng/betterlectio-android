@@ -1,15 +1,21 @@
 package dk.betterlectio.android
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
 import android.os.Bundle
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.material3.Surface
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.SideEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Modifier
+import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import com.posthog.PostHog
@@ -17,6 +23,8 @@ import dagger.hilt.android.AndroidEntryPoint
 import dk.betterlectio.android.core.lectio.auth.AuthSessionInstaller
 import dk.betterlectio.android.core.lectio.session.AuthState
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.feature.live.LiveLessonNotifier
+import dk.betterlectio.android.feature.live.LiveLessonScheduler
 import dk.betterlectio.android.feature.notifications.NotificationDiffWorker
 import dk.betterlectio.android.feature.settings.AppearanceMode
 import dk.betterlectio.android.feature.settings.SettingsStore
@@ -32,6 +40,9 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+    private val notificationPermissionLauncher = registerForActivityResult(
+        ActivityResultContracts.RequestPermission(),
+    ) { /* A denied permission leaves notifications disabled; the app continues normally. */ }
 
     @Inject
     lateinit var sessionController: SessionController
@@ -41,6 +52,12 @@ class MainActivity : AppCompatActivity() {
 
     @Inject
     lateinit var authSessionInstaller: AuthSessionInstaller
+
+    @Inject
+    lateinit var liveLessonNotifier: LiveLessonNotifier
+
+    @Inject
+    lateinit var liveLessonScheduler: LiveLessonScheduler
 
     override fun onCreate(savedInstanceState: Bundle?) {
         // Must run before super.onCreate — keeps system splash until first Compose frame.
@@ -73,6 +90,23 @@ class MainActivity : AppCompatActivity() {
         enableEdgeToEdge()
         setContent {
             val appearance by settingsStore.appearance.collectAsStateWithLifecycle()
+            val authState by sessionController.authState.collectAsStateWithLifecycle()
+            LaunchedEffect(authState) {
+                when {
+                    authState is AuthState.Authenticated &&
+                        Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
+                        ContextCompat.checkSelfPermission(
+                            this@MainActivity,
+                            Manifest.permission.POST_NOTIFICATIONS,
+                        ) != PackageManager.PERMISSION_GRANTED -> {
+                        notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    }
+                    authState is AuthState.Unauthenticated -> {
+                        liveLessonNotifier.clear()
+                        liveLessonScheduler.cancel()
+                    }
+                }
+            }
             val dark = when (appearance) {
                 AppearanceMode.SYSTEM -> isSystemInDarkTheme()
                 AppearanceMode.LIGHT -> false

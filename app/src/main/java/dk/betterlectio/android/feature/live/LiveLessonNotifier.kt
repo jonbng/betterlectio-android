@@ -1,27 +1,27 @@
 package dk.betterlectio.android.feature.live
 
+import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
-import androidx.core.content.ContextCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.MainActivity
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
-import dk.betterlectio.android.feature.schedule.timeLabel
 import dk.betterlectio.android.feature.settings.SettingsStore
+import java.time.Duration
 import java.time.LocalDateTime
-import java.time.temporal.ChronoUnit
+import java.time.ZoneId
 import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Android stand-in for iOS Live Activity: ongoing notification during the current lesson,
- * with next-boundary big text and open-app action.
+ * Native Android Live Update for the current or imminently upcoming lesson.
  */
 @Singleton
 class LiveLessonNotifier @Inject constructor(
@@ -44,101 +44,185 @@ class LiveLessonNotifier @Inject constructor(
     }
 
     fun update(events: List<ScheduleEvent>, now: LocalDateTime = LocalDateTime.now()) {
-        val current = LiveLessonBoundary.currentLesson(events, now)
-        val next = LiveLessonBoundary.nextBoundary(events, now)
-
-        if (current == null && next == null) {
+        val projection = LiveLessonBoundary.project(events, now)
+        if (projection == null || !nm.areNotificationsEnabled()) {
             nm.cancel(notifId)
             return
         }
 
-        val open = PendingIntent.getActivity(
-            context,
-            0,
-            Intent(context, MainActivity::class.java).apply {
-                flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
-            },
-            PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
-        )
-
-        val builder = NotificationCompat.Builder(context, CHANNEL)
-            .setSmallIcon(R.drawable.ic_notification)
-            .setColor(ContextCompat.getColor(context, R.color.brand_blue))
-            .setOngoing(current != null)
-            .setOnlyAlertOnce(true)
-            .setSilent(true)
-            .setContentIntent(open)
-            .setAutoCancel(current == null)
-
-        if (current != null) {
-            val remaining = ChronoUnit.MINUTES.between(now, current.end).coerceAtLeast(0)
-            val minsLeft = context.getString(R.string.live_minutes_left, remaining.toInt())
-            val subject = friendlyTitle(current)
-            val text = if (current.room.isNullOrBlank()) {
-                "$subject · $minsLeft"
-            } else {
-                "$subject · ${current.room} · $minsLeft"
-            }
-            val big = buildString {
-                appendLine(text)
-                current.teacher?.let {
-                    appendLine(context.getString(R.string.live_teacher_line, it))
-                }
-                next?.let {
-                    if (it.kind == LiveLessonBoundary.Boundary.Kind.END) {
-                        val clock = "%02d:%02d".format(it.at.hour, it.at.minute)
-                        appendLine(context.getString(R.string.live_ends_at, clock))
-                    }
-                }
-                val after = events
-                    .filter { e -> e.start != null && e.start!!.isAfter(now) }
-                    .minByOrNull { it.start!! }
-                after?.let {
-                    append(
-                        context.getString(
-                            R.string.live_next_line,
-                            friendlyTitle(it),
-                            it.timeLabel(context),
-                        ),
-                    )
-                }
-            }
-            builder
-                .setContentTitle(context.getString(R.string.live_lesson_in_progress))
-                .setContentText(text)
-                .setStyle(NotificationCompat.BigTextStyle().bigText(big))
-                .addAction(0, context.getString(R.string.live_open_schedule), open)
-        } else if (next != null) {
-            val mins = ChronoUnit.MINUTES.between(now, next.at).coerceAtLeast(0).toInt()
-            val title = if (next.kind == LiveLessonBoundary.Boundary.Kind.START) {
-                context.getString(R.string.live_next_in_minutes, mins)
-            } else {
-                context.getString(R.string.live_schedule_update_in, mins)
-            }
-            val clock = "%02d:%02d".format(next.at.hour, next.at.minute)
-            val nextName = next.title.let { raw ->
-                // Boundary titles are usually subject strings.
-                settings.displayNameForSubject(raw, fallback = raw)
-            }
-            builder
-                .setContentTitle(title)
-                .setContentText(nextName)
-                .setStyle(
-                    NotificationCompat.BigTextStyle().bigText(
-                        context.getString(
-                            R.string.live_boundary_big,
-                            nextName,
-                            next.kind.name,
-                            clock,
-                        ),
-                    ),
-                )
+        val notification = when {
+            Build.VERSION.SDK_INT >= 37 -> buildMetricLiveUpdate(projection)
+            Build.VERSION.SDK_INT >= 36 -> buildProgressLiveUpdate(projection, now)
+            else -> buildCompatNotification(projection)
         }
-
-        nm.notify(notifId, builder.build())
+        try {
+            nm.notify(notifId, notification)
+        } catch (_: SecurityException) {
+            // POST_NOTIFICATIONS can be revoked between the permission check and notify().
+        }
     }
 
     fun clear() = nm.cancel(notifId)
+
+    @RequiresApi(37)
+    private fun buildMetricLiveUpdate(projection: LiveLessonBoundary.Projection): Notification {
+        val timer = Notification.Metric.TimeDifference.forTimer(
+            projection.target.atZone(ZoneId.systemDefault()).toInstant(),
+            Notification.Metric.TimeDifference.FORMAT_ADAPTIVE,
+        )
+        val metricLabel = context.getString(
+            if (projection.phase == LiveLessonBoundary.Phase.CURRENT) {
+                R.string.live_metric_ends_in
+            } else {
+                R.string.live_metric_starts_in
+            },
+        )
+        val style = Notification.MetricStyle()
+            .addMetric(Notification.Metric(timer, metricLabel))
+            .setCriticalMetric(0)
+
+        return basePlatformBuilder(projection)
+            .setStyle(style)
+            .build()
+    }
+
+    @RequiresApi(36)
+    private fun buildProgressLiveUpdate(
+        projection: LiveLessonBoundary.Projection,
+        now: LocalDateTime,
+    ): Notification {
+        val style = Notification.ProgressStyle()
+        if (projection.phase == LiveLessonBoundary.Phase.CURRENT) {
+            val start = projection.event.start!!
+            val end = projection.event.end!!
+            val max = Duration.between(start, end).seconds.coerceIn(1L, Int.MAX_VALUE.toLong()).toInt()
+            val elapsed = Duration.between(start, now).seconds.coerceIn(0L, max.toLong()).toInt()
+            style
+                .setProgressSegments(
+                    listOf(
+                        Notification.ProgressStyle.Segment(max)
+                            .setColor(settings.colorForSubject(projection.event.team.ifBlank { projection.event.title }).toInt()),
+                    ),
+                )
+                .setProgress(elapsed)
+                .setStyledByProgress(true)
+        } else {
+            style.setProgressIndeterminate(true)
+        }
+
+        return basePlatformBuilder(projection)
+            .setStyle(style)
+            .build()
+    }
+
+    @RequiresApi(36)
+    private fun basePlatformBuilder(projection: LiveLessonBoundary.Projection): Notification.Builder {
+        val targetMillis = projection.target
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        return Notification.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(subjectColor(projection.event))
+            .setContentTitle(friendlyTitle(projection.event))
+            .setContentText(detailText(projection))
+            .setSubText(stateLabel(projection))
+            .setContentIntent(openScheduleIntent())
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setCategory(Notification.CATEGORY_PROGRESS)
+            .setRequestPromotedOngoing(true)
+            .setWhen(targetMillis)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .addAction(0, context.getString(R.string.live_open_schedule), openScheduleIntent())
+    }
+
+    private fun buildCompatNotification(projection: LiveLessonBoundary.Projection): Notification {
+        val targetMillis = projection.target
+            .atZone(ZoneId.systemDefault())
+            .toInstant()
+            .toEpochMilli()
+        val bigText = buildString {
+            append(detailText(projection))
+            projection.event.teacher?.takeIf { it.isNotBlank() }?.let {
+                appendLine()
+                append(context.getString(R.string.live_teacher_line, it))
+            }
+            projection.nextLesson?.let {
+                appendLine()
+                append(
+                    context.getString(
+                        R.string.live_next_line,
+                        friendlyTitle(it),
+                        clockLabel(it.start),
+                    ),
+                )
+            }
+        }
+        return NotificationCompat.Builder(context, CHANNEL)
+            .setSmallIcon(R.drawable.ic_notification)
+            .setColor(subjectColor(projection.event))
+            .setContentTitle(friendlyTitle(projection.event))
+            .setContentText(detailText(projection))
+            .setSubText(stateLabel(projection))
+            .setStyle(NotificationCompat.BigTextStyle().bigText(bigText))
+            .setContentIntent(openScheduleIntent())
+            .setOngoing(true)
+            .setOnlyAlertOnce(true)
+            .setSilent(true)
+            .setCategory(NotificationCompat.CATEGORY_PROGRESS)
+            .setWhen(targetMillis)
+            .setShowWhen(true)
+            .setUsesChronometer(true)
+            .setChronometerCountDown(true)
+            .addAction(0, context.getString(R.string.live_open_schedule), openScheduleIntent())
+            .build()
+    }
+
+    private fun stateLabel(projection: LiveLessonBoundary.Projection): String =
+        context.getString(
+            if (projection.phase == LiveLessonBoundary.Phase.CURRENT) {
+                R.string.live_lesson_in_progress
+            } else {
+                R.string.live_lesson_upcoming
+            },
+        )
+
+    private fun detailText(projection: LiveLessonBoundary.Projection): String {
+        val details = listOfNotNull(
+            projection.event.room?.takeIf { it.isNotBlank() },
+            projection.event.teacher?.takeIf { it.isNotBlank() },
+        ).joinToString(" · ")
+        return details.ifBlank {
+            context.getString(
+                if (projection.phase == LiveLessonBoundary.Phase.CURRENT) {
+                    R.string.live_ends_at
+                } else {
+                    R.string.live_starts_at
+                },
+                clockLabel(projection.target),
+            )
+        }
+    }
+
+    private fun subjectColor(event: ScheduleEvent): Int {
+        val key = event.team.ifBlank { event.title }
+        return settings.colorForSubject(key).toInt()
+    }
+
+    private fun openScheduleIntent(): PendingIntent = PendingIntent.getActivity(
+        context,
+        0,
+        Intent(context, MainActivity::class.java).apply {
+            flags = Intent.FLAG_ACTIVITY_SINGLE_TOP or Intent.FLAG_ACTIVITY_CLEAR_TOP
+        },
+        PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE,
+    )
+
+    private fun clockLabel(at: LocalDateTime?): String =
+        at?.let { "%02d:%02d".format(it.hour, it.minute) }.orEmpty()
 
     private fun friendlyTitle(event: ScheduleEvent): String {
         val key = event.team.ifBlank { event.title }
