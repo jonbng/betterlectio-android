@@ -114,6 +114,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // Backport java.time (and other Java 8+ APIs) to minSdk 29. Without this,
+        // API-34-only factories like LocalDate.ofInstant / LocalDateTime.ofInstant
+        // throw NoSuchMethodError on Android 13 and below.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     buildFeatures {
@@ -133,6 +137,8 @@ android {
 }
 
 dependencies {
+    coreLibraryDesugaring(libs.desugar.jdk.libs)
+
     implementation(project(":core:wear-model"))
 
     val composeBom = platform(libs.androidx.compose.bom)
