@@ -1,8 +1,8 @@
 package dk.betterlectio.android.feature.supabase
 
 import dk.betterlectio.android.feature.directory.StudentProfile
-import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import timber.log.Timber
@@ -10,8 +10,8 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Read rich student profile fields from Supabase `students`.
- * RLS school-scopes reads; missing rows / failures return null.
+ * Read rich student profile fields through the privacy-masked RPC.
+ * Missing rows / failures return null.
  */
 @Singleton
 class SupabaseStudentProfileService @Inject constructor(
@@ -22,13 +22,11 @@ class SupabaseStudentProfileService @Inject constructor(
         if (id.isEmpty()) return null
         val client = manager.client ?: return null
         return try {
-            manager.awaitSessionReady()
-            client.from("students")
-                .select(Columns.list(*PROFILE_COLUMNS)) {
-                    filter {
-                        eq("id", id)
-                    }
-                }
+            if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return null
+            client.postgrest.rpc(
+                function = "get_student_profile",
+                parameters = GetStudentProfileParams(id),
+            )
                 .decodeList<StudentProfileRow>()
                 .firstOrNull()
                 ?.toProfile()
@@ -37,25 +35,12 @@ class SupabaseStudentProfileService @Inject constructor(
             null
         }
     }
-
-    private companion object {
-        val PROFILE_COLUMNS = arrayOf(
-            "id",
-            "name",
-            "description",
-            "instagram",
-            "birthdate",
-            "show_birthday",
-            "custom_pfp_url",
-            "lectio_pfp_url",
-            "class_name",
-            "last_seen_at",
-            "extension_installed_at",
-            "extension_uninstalled_at",
-            "app_installed_at",
-        )
-    }
 }
+
+@Serializable
+private data class GetStudentProfileParams(
+    @SerialName("p_student_id") val studentId: String,
+)
 
 @Serializable
 private data class StudentProfileRow(

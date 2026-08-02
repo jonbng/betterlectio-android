@@ -178,6 +178,7 @@ fun MoreScreen(
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
     var showExtensionInvite by remember { mutableStateOf(false) }
+    var showProfilePictureEditor by remember { mutableStateOf(false) }
     var directoryPhotoPreviewUrl by remember { mutableStateOf<String?>(null) }
     var directoryPhotoPreviewName by remember { mutableStateOf<String?>(null) }
     val avatarRepo = remember {
@@ -287,6 +288,7 @@ fun MoreScreen(
                 onNavigate = viewModel::navigate,
                 onOpenCatalogKind = viewModel::openDirectoryKind,
                 onOpenExtensionInvite = { showExtensionInvite = true },
+                onEditProfilePicture = { showProfilePictureEditor = true },
                 onLogout = viewModel::logout,
             )
             MoreDestination.GRADES -> {
@@ -687,6 +689,13 @@ fun MoreScreen(
                             verticalArrangement = Arrangement.spacedBy(16.dp),
                         ) {
                             FlipStudiekortCard(card = card)
+                            androidx.compose.material3.OutlinedButton(
+                                onClick = { showProfilePictureEditor = true },
+                            ) {
+                                Icon(Icons.Default.Edit, contentDescription = null)
+                                Spacer(Modifier.size(8.dp))
+                                Text(stringResource(R.string.profile_picture_edit))
+                            }
                             state.message?.let {
                                 Text(
                                     it.asString(),
@@ -1133,6 +1142,7 @@ fun MoreScreen(
                     )
                     viewModel.markReferralCopied()
                 },
+                onOpenProfilePicture = { showProfilePictureEditor = true },
             )
         }
     }
@@ -1143,6 +1153,18 @@ fun MoreScreen(
                 showExtensionInvite = false
                 viewModel.dismissExtensionInvite()
             },
+        )
+    }
+
+    if (showProfilePictureEditor) {
+        ProfilePictureEditorSheet(
+            state = state.profilePictureState,
+            loading = state.profilePictureLoading,
+            uploading = state.profilePictureUploading,
+            errorText = state.profilePictureError?.asString(),
+            onDismiss = { showProfilePictureEditor = false },
+            onRefresh = viewModel::refreshProfilePictureState,
+            onSubmit = viewModel::submitProfilePicture,
         )
     }
 
@@ -2204,6 +2226,7 @@ private fun MoreRoot(
     onNavigate: (MoreDestination) -> Unit,
     onOpenCatalogKind: (DirectoryEntityKind) -> Unit,
     onOpenExtensionInvite: () -> Unit,
+    onEditProfilePicture: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val unlock = referralUnlockProgress(referralConversions ?: 0)
@@ -2262,11 +2285,13 @@ private fun MoreRoot(
                             modifier = Modifier.padding(top = 4.dp),
                         )
                     }
-                    Icon(
-                        Icons.Default.Badge,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
+                    IconButton(onClick = onEditProfilePicture) {
+                        Icon(
+                            Icons.Default.Edit,
+                            contentDescription = stringResource(R.string.profile_picture_edit),
+                            tint = MaterialTheme.colorScheme.primary,
+                        )
+                    }
                 }
             }
         }
@@ -2985,6 +3010,7 @@ private fun ReferralScreenContent(
     shareUrl: String?,
     onShare: (String) -> Unit,
     onCopy: (String) -> Unit,
+    onOpenProfilePicture: () -> Unit,
 ) {
     val conversions = stats?.conversions ?: 0
     val clicks = stats?.totalClicks ?: 0
@@ -3001,6 +3027,7 @@ private fun ReferralScreenContent(
     ) {
         item {
             Surface(
+                modifier = Modifier.clickable(enabled = unlock.unlocked, onClick = onOpenProfilePicture),
                 shape = RoundedCornerShape(16.dp),
                 color = MaterialTheme.colorScheme.surfaceContainerLow,
             ) {
@@ -3058,7 +3085,7 @@ private fun ReferralScreenContent(
                     verticalAlignment = Alignment.CenterVertically,
                 ) {
                     Icon(
-                        Icons.Outlined.Lock,
+                        if (unlock.unlocked) Icons.Default.Edit else Icons.Outlined.Lock,
                         contentDescription = null,
                         tint = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
@@ -3076,6 +3103,13 @@ private fun ReferralScreenContent(
                             ),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                    if (unlock.unlocked) {
+                        Text(
+                            stringResource(R.string.profile_picture_edit),
+                            style = MaterialTheme.typography.labelLarge,
+                            color = MaterialTheme.colorScheme.primary,
                         )
                     }
                 }

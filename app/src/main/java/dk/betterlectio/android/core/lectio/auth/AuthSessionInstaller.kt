@@ -275,7 +275,7 @@ class AuthSessionInstaller @Inject constructor(
         )
 
         bgScope.launch {
-            supabaseAuth.authenticateAndMarkReady(finalCreds, school.id)
+            supabaseAuth.authenticateAndMarkReady(finalCreds, personId, school.id)
             settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
             referralCoordinator.tryFinalizeAfterAuth(student)

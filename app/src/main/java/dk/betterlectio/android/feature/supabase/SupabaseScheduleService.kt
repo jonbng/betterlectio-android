@@ -1,10 +1,9 @@
 package dk.betterlectio.android.feature.supabase
 
-import dk.betterlectio.android.feature.schedule.EventStatus
 import dk.betterlectio.android.feature.schedule.LessonDetail
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
-import io.github.jan.supabase.postgrest.from
-import io.github.jan.supabase.postgrest.query.Columns
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import kotlinx.serialization.SerialName
 import kotlinx.serialization.Serializable
 import timber.log.Timber
@@ -16,7 +15,7 @@ import javax.inject.Singleton
 
 /**
  * Schedule week sync to Supabase (iOS: `SupabaseScheduleService`).
- * Tables: `lessons`, `student_lessons`, `week_sync`.
+ * Writes through ownership-validating RPCs so schedule replacement is atomic.
  */
 @Singleton
 class SupabaseScheduleService @Inject constructor(
@@ -27,14 +26,13 @@ class SupabaseScheduleService @Inject constructor(
             Timber.i("Supabase not configured, skipping schedule sync")
             return
         }
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return
 
         try {
             val now = TIMESTAMP_FORMAT.format(Instant.now())
             val payload = events.map { event ->
                 SupabaseLessonRecord(
                     lessonKey = ScheduleIdentity.lessonKey(event, studentId),
-                    weekKey = weekKey,
                     lessonDate = event.date.format(DAY_FORMAT),
                     startTime = event.start?.let { "%02d:%02d".format(it.hour, it.minute) }.orEmpty(),
                     endTime = event.end?.let { "%02d:%02d".format(it.hour, it.minute) }.orEmpty(),
@@ -45,106 +43,27 @@ class SupabaseScheduleService @Inject constructor(
                     notes = event.notes,
                     homework = event.homework,
                     sourceUpdatedAt = now,
-                    updatedAt = now,
                 )
             }
 
-            if (payload.isNotEmpty()) {
-                client.from("lessons").upsert(payload) {
-                    onConflict = "lesson_key"
-                }
-            }
+            val result = client.postgrest.rpc(
+                function = "sync_student_week",
+                parameters = SyncWeekParams(
+                    studentId = studentId,
+                    weekKey = weekKey,
+                    lessons = payload,
+                ),
+            ).decodeAs<SyncWeekResult>()
 
-            linkStudentToLessons(studentId, payload.map { it.lessonKey })
-            markMissingLessonsAsCancelled(studentId, weekKey, payload.map { it.lessonKey }.toSet())
-            upsertWeekSync(studentId, weekKey)
-
-            Timber.i("Synced week %s to Supabase (%d events)", weekKey, events.size)
-        } catch (e: Exception) {
-            // Common failure: RLS on audit table `updates` when a lessons trigger logs changes.
-            // Local Lectio schedule still works; cloud sync is best-effort.
-            Timber.w(
-                e,
-                "Supabase schedule sync failed for week %s (often RLS on updates audit trigger)",
+            Timber.i(
+                "Synced week %s to Supabase upserted=%d linked=%d removed=%d",
                 weekKey,
+                result.upserted,
+                result.linked,
+                result.removed,
             )
-        }
-    }
-
-    private suspend fun linkStudentToLessons(studentId: String, lessonKeys: List<String>) {
-        val client = manager.client ?: return
-        if (lessonKeys.isEmpty()) return
-
-        val fetched = client.from("lessons")
-            .select(Columns.list("id", "lesson_key")) {
-                filter {
-                    isIn("lesson_key", lessonKeys)
-                }
-            }
-            .decodeList<SupabaseLessonIdRow>()
-
-        if (fetched.isEmpty()) return
-
-        val junction = fetched.map {
-            StudentLessonRecord(studentId = studentId, lessonId = it.id)
-        }
-        client.from("student_lessons").upsert(junction)
-    }
-
-    private suspend fun markMissingLessonsAsCancelled(
-        studentId: String,
-        weekKey: String,
-        fetchedLessonKeys: Set<String>,
-    ) {
-        val client = manager.client ?: return
-        val remoteKeys = fetchRemoteLessonKeys(studentId, weekKey).toSet()
-        val missing = remoteKeys - fetchedLessonKeys
-        if (missing.isEmpty()) return
-
-        val now = TIMESTAMP_FORMAT.format(Instant.now())
-        for (key in missing) {
-            client.from("lessons").update(
-                {
-                    set("status", EventStatus.CANCELLED.name.lowercase())
-                    set("updated_at", now)
-                },
-            ) {
-                filter {
-                    eq("lesson_key", key)
-                    // week_key filter when column exists on lessons
-                    eq("week_key", weekKey)
-                }
-            }
-        }
-    }
-
-    private suspend fun fetchRemoteLessonKeys(studentId: String, weekKey: String): List<String> {
-        val client = manager.client ?: return emptyList()
-        return try {
-            val nested = client.from("student_lessons")
-                .select(Columns.raw("lessons(lesson_key)")) {
-                    filter {
-                        eq("student_id", studentId)
-                        eq("lessons.week_key", weekKey)
-                    }
-                }
-                .decodeList<SupabaseNestedLessonKeyRow>()
-            nested.mapNotNull { it.lessons?.lessonKey }
         } catch (e: Exception) {
-            Timber.w(e, "fetchRemoteLessonKeys failed")
-            emptyList()
-        }
-    }
-
-    private suspend fun upsertWeekSync(studentId: String, weekKey: String) {
-        val client = manager.client ?: return
-        val record = SupabaseWeekSyncRecord(
-            studentId = studentId,
-            weekKey = weekKey,
-            lastSyncedAt = TIMESTAMP_FORMAT.format(Instant.now()),
-        )
-        client.from("week_sync").upsert(record) {
-            onConflict = "student_id,week_key"
+            Timber.w(e, "Supabase schedule sync failed for week %s", weekKey)
         }
     }
 
@@ -154,18 +73,17 @@ class SupabaseScheduleService @Inject constructor(
      */
     suspend fun syncLessonContent(studentId: String, lessonKey: String, detail: LessonDetail) {
         val client = manager.client ?: return
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return
         try {
-            val content = LessonContentPayload.fromDetail(detail)
-            val payload = LessonContentPatch(
-                content = content,
-                updatedAt = TIMESTAMP_FORMAT.format(Instant.now()),
+            client.postgrest.rpc(
+                function = "update_student_lesson_content",
+                parameters = UpdateLessonContentParams(
+                    studentId = studentId,
+                    lessonKey = lessonKey,
+                    content = LessonContentPayload.fromDetail(detail),
+                    clientUpdatedAt = TIMESTAMP_FORMAT.format(Instant.now()),
+                ),
             )
-            client.from("lessons").update(payload) {
-                filter {
-                    eq("lesson_key", lessonKey)
-                }
-            }
             Timber.d("Synced lesson content for key=%s student=%s", lessonKey, studentId)
         } catch (e: Exception) {
             Timber.w(e, "Failed to sync lesson content for %s", lessonKey)
@@ -173,9 +91,25 @@ class SupabaseScheduleService @Inject constructor(
     }
 
     @Serializable
-    private data class LessonContentPatch(
-        val content: LessonContentPayload,
-        @SerialName("updated_at") val updatedAt: String,
+    internal data class SyncWeekParams(
+        @SerialName("p_student_id") val studentId: String,
+        @SerialName("p_week_key") val weekKey: String,
+        @SerialName("p_lessons") val lessons: List<SupabaseLessonRecord>,
+    )
+
+    @Serializable
+    internal data class SyncWeekResult(
+        val upserted: Int,
+        val linked: Int,
+        val removed: Int,
+    )
+
+    @Serializable
+    internal data class UpdateLessonContentParams(
+        @SerialName("p_student_id") val studentId: String,
+        @SerialName("p_lesson_key") val lessonKey: String,
+        @SerialName("p_content") val content: LessonContentPayload,
+        @SerialName("p_client_updated_at") val clientUpdatedAt: String,
     )
 
     /**
@@ -269,9 +203,8 @@ class SupabaseScheduleService @Inject constructor(
     )
 
     @Serializable
-    private data class SupabaseLessonRecord(
+    internal data class SupabaseLessonRecord(
         @SerialName("lesson_key") val lessonKey: String,
-        @SerialName("week_key") val weekKey: String,
         @SerialName("lesson_date") val lessonDate: String,
         @SerialName("start_time") val startTime: String,
         @SerialName("end_time") val endTime: String,
@@ -282,36 +215,6 @@ class SupabaseScheduleService @Inject constructor(
         val notes: String? = null,
         val homework: String? = null,
         @SerialName("source_updated_at") val sourceUpdatedAt: String,
-        @SerialName("updated_at") val updatedAt: String,
-    )
-
-    @Serializable
-    private data class StudentLessonRecord(
-        @SerialName("student_id") val studentId: String,
-        @SerialName("lesson_id") val lessonId: String,
-    )
-
-    @Serializable
-    private data class SupabaseLessonIdRow(
-        val id: String,
-        @SerialName("lesson_key") val lessonKey: String,
-    )
-
-    @Serializable
-    private data class SupabaseLessonKeyRow(
-        @SerialName("lesson_key") val lessonKey: String,
-    )
-
-    @Serializable
-    private data class SupabaseNestedLessonKeyRow(
-        val lessons: SupabaseLessonKeyRow? = null,
-    )
-
-    @Serializable
-    private data class SupabaseWeekSyncRecord(
-        @SerialName("student_id") val studentId: String,
-        @SerialName("week_key") val weekKey: String,
-        @SerialName("last_synced_at") val lastSyncedAt: String,
     )
 
     companion object {

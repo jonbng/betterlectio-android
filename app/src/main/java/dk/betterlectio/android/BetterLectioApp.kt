@@ -3,6 +3,8 @@ package dk.betterlectio.android
 import android.app.Application
 import coil3.ImageLoader
 import coil3.SingletonImageLoader
+import com.posthog.PersonProfiles
+import com.posthog.PostHogEvent
 import com.posthog.android.PostHogAndroid
 import com.posthog.android.PostHogAndroidConfig
 import dagger.hilt.android.HiltAndroidApp
@@ -34,10 +36,29 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
                 apiKey = BuildConfig.POSTHOG_API_KEY,
                 host = BuildConfig.POSTHOG_HOST,
             ).apply {
-                captureApplicationLifecycleEvents = true
-                captureScreenViews = true
+                // Explicit-only analytics: retain login and feedback outcomes
+                // while dropping every automatic/routine event. Referral
+                // attribution is emitted once by the server-side finalizer.
+                captureApplicationLifecycleEvents = false
+                captureDeepLinks = false
+                captureScreenViews = false
+                sessionReplay = false
+                surveys = false
+                preloadFeatureFlags = false
+                sendFeatureFlagEvent = false
+                setDefaultPersonProperties = false
+                personProfiles = PersonProfiles.NEVER
                 debug = BuildConfig.DEBUG
                 errorTrackingConfig.autoCapture = true
+                addBeforeSend { event ->
+                    when {
+                        event.event in ALLOWED_POSTHOG_EVENTS -> event
+                        event.event in DEDUPED_POSTHOG_EVENTS && shouldSendOperational(event.event) -> event
+                        event.event in SAMPLED_POSTHOG_EVENTS && isInProductSample(event) -> event
+                        event.event == "\$exception" && shouldSendError(event) -> event
+                        else -> null
+                    }
+                }
             }
             PostHogAndroid.setup(this, posthogConfig)
         } else if (BuildConfig.DEBUG) {
@@ -68,5 +89,51 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
         return if (this::imageLoader.isInitialized) imageLoader
         else ImageLoader.Builder(context).build()
     }
-}
 
+    private companion object {
+        const val MAX_ERRORS_PER_PROCESS = 5
+        val ALLOWED_POSTHOG_EVENTS = setOf(
+            "login_completed",
+            "login_with_password_completed",
+            "demo_entered",
+            "logged_out",
+            "feedback_submitted",
+            "message_reply_sent",
+            "message_composed_sent",
+            "private_event_created",
+            "private_event_updated",
+            "private_event_deleted",
+            "absence_cause_updated",
+            "referral share",
+        )
+        val DEDUPED_POSTHOG_EVENTS = setOf("login_failed", "session_expired")
+        val SAMPLED_POSTHOG_EVENTS = setOf(
+            "lesson_detail_viewed",
+            "assignment_detail_viewed",
+            "grades_viewed",
+            "absence_viewed",
+            "message_thread_opened",
+            "referral_screen_opened",
+        )
+        val seenOperationalEvents = mutableSetOf<String>()
+        val errorSignatures = mutableSetOf<String>()
+        var errorCount = 0
+
+        @Synchronized
+        fun shouldSendError(event: PostHogEvent): Boolean {
+            if (errorCount >= MAX_ERRORS_PER_PROCESS) return false
+            val signature = event.properties?.get("\$exception_list")?.toString()
+                ?: event.properties?.toString()
+                ?: "unknown"
+            if (!errorSignatures.add(signature.take(1_000))) return false
+            errorCount += 1
+            return true
+        }
+
+        @Synchronized
+        fun shouldSendOperational(event: String): Boolean = seenOperationalEvents.add(event)
+
+        fun isInProductSample(event: PostHogEvent): Boolean =
+            Math.floorMod(event.distinctId.hashCode(), 10) == 0
+    }
+}

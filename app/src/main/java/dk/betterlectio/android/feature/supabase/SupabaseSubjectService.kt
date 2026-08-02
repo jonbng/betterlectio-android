@@ -34,7 +34,7 @@ class SupabaseSubjectService @Inject constructor(
 ) {
     suspend fun fetchMappings(studentId: String, schoolId: String): List<SupabaseSubjectMapping> {
         val client = manager.client ?: return emptyList()
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return emptyList()
         return try {
             client.postgrest.rpc(
                 function = "get_student_lesson_mappings_v2",
@@ -58,7 +58,7 @@ class SupabaseSubjectService @Inject constructor(
         icon: String?,
     ) {
         val client = manager.client ?: return
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return
         try {
             client.postgrest.rpc(
                 function = "upsert_user_lesson_override_v2",
@@ -84,7 +84,7 @@ class SupabaseSubjectService @Inject constructor(
         mappingId: String,
     ) {
         val client = manager.client ?: return
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return
         try {
             client.postgrest.rpc(
                 function = "reset_user_lesson_override_v2",

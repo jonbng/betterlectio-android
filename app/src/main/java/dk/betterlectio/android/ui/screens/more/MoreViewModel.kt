@@ -37,6 +37,7 @@ import dk.betterlectio.android.feature.plans.StudyPlan
 import dk.betterlectio.android.feature.referral.ReferralCoordinator
 import dk.betterlectio.android.feature.referral.ReferralStats
 import dk.betterlectio.android.feature.referral.buildReferralUrl
+import dk.betterlectio.android.feature.profilepicture.ProfilePictureState
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.ScheduleWeek
 import dk.betterlectio.android.feature.settings.AppLanguage
@@ -48,6 +49,7 @@ import dk.betterlectio.android.feature.settings.SubjectMapper
 import dk.betterlectio.android.feature.studiekort.StudentCard
 import dk.betterlectio.android.feature.studiekort.StudiekortRepository
 import dk.betterlectio.android.feature.supabase.SupabaseStudentProfileService
+import dk.betterlectio.android.feature.supabase.SupabaseProfilePictureService
 import dk.betterlectio.android.feature.teams.ModuleStat
 import dk.betterlectio.android.feature.teams.ModuleStatRepository
 import dk.betterlectio.android.feature.terms.SchoolTerm
@@ -108,6 +110,10 @@ data class MoreUiState(
     val referralStats: ReferralStats? = null,
     val referralStatsLoading: Boolean = false,
     val referralCopied: Boolean = false,
+    val profilePictureState: ProfilePictureState? = null,
+    val profilePictureLoading: Boolean = false,
+    val profilePictureUploading: Boolean = false,
+    val profilePictureError: UiText? = null,
 )
 
 @HiltViewModel
@@ -130,6 +136,7 @@ class MoreViewModel @Inject constructor(
     private val appUpdateProbe: AppUpdateProbe,
     val settings: SettingsStore,
     private val referralCoordinator: ReferralCoordinator,
+    private val profilePictureService: SupabaseProfilePictureService,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -156,6 +163,7 @@ class MoreViewModel @Inject constructor(
         viewModelScope.launch {
             refreshReferralStats()
         }
+        refreshProfilePictureState()
     }
 
     val appearance = settings.appearance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.appearance.value)
@@ -198,7 +206,10 @@ class MoreViewModel @Inject constructor(
             }
             MoreDestination.DIRECTORY -> searchDirectory()
             MoreDestination.ROOMS -> loadRoomsOccupancy()
-            MoreDestination.STUDIEKORT -> loadCard()
+            MoreDestination.STUDIEKORT -> {
+                loadCard()
+                refreshProfilePictureState()
+            }
             MoreDestination.PLANS -> loadPlans()
             MoreDestination.MODULE_STATS -> loadModuleStats()
             MoreDestination.TERM -> loadTerms()
@@ -663,10 +674,11 @@ class MoreViewModel @Inject constructor(
         _state.update { it.copy(loading = true) }
         when (val res = studiekortRepo.loadCardScraped()) {
             is AppResult.Success -> _state.update {
+                val preferredPhoto = it.profilePictureState?.currentUrl ?: res.data.photoUrl
                 it.copy(
                     loading = false,
-                    card = res.data,
-                    profilePhotoUrl = res.data.photoUrl,
+                    card = res.data.copy(photoUrl = preferredPhoto),
+                    profilePhotoUrl = preferredPhoto,
                     student = res.data.student,
                 )
             }
@@ -834,6 +846,65 @@ class MoreViewModel @Inject constructor(
                     referralStats = stats,
                     referralStatsLoading = false,
                 )
+            }
+        }
+    }
+
+    fun refreshProfilePictureState() {
+        val student = session.currentStudent ?: return
+        if (student.isDemo) return
+        viewModelScope.launch {
+            _state.update { it.copy(profilePictureLoading = true, profilePictureError = null) }
+            val pictureState = profilePictureService.getState(student.studentId)
+            _state.update { current ->
+                val preferred = pictureState?.currentUrl
+                current.copy(
+                    profilePictureState = pictureState ?: current.profilePictureState,
+                    profilePictureLoading = false,
+                    profilePhotoUrl = preferred ?: current.profilePhotoUrl,
+                    card = if (preferred != null) current.card?.copy(photoUrl = preferred) else current.card,
+                    profilePictureError = if (pictureState == null) {
+                        UiText.Res(R.string.profile_picture_load_failed)
+                    } else null,
+                )
+            }
+        }
+    }
+
+    fun submitProfilePicture(bytes: ByteArray, mimeType: String) {
+        val student = session.currentStudent ?: return
+        val schoolId = student.gymId
+        if (bytes.isEmpty() || bytes.size > 5 * 1024 * 1024 ||
+            mimeType !in setOf("image/jpeg", "image/png", "image/webp")
+        ) {
+            _state.update { it.copy(profilePictureError = UiText.Res(R.string.profile_picture_invalid_file)) }
+            return
+        }
+        viewModelScope.launch {
+            _state.update { it.copy(profilePictureUploading = true, profilePictureError = null) }
+            val result = profilePictureService.submit(
+                studentId = student.studentId,
+                schoolId = schoolId,
+                bytes = bytes,
+                mimeType = mimeType,
+            )
+            if (result.ok) {
+                _state.update { it.copy(profilePictureUploading = false) }
+                refreshProfilePictureState()
+            } else {
+                val message = when (result.code) {
+                    "not_unlocked" -> R.string.profile_picture_not_unlocked
+                    "pending_exists" -> R.string.profile_picture_pending_exists
+                    "cooldown" -> R.string.profile_picture_cooldown_active
+                    "invalid_file" -> R.string.profile_picture_invalid_file
+                    else -> R.string.profile_picture_upload_failed
+                }
+                _state.update {
+                    it.copy(
+                        profilePictureUploading = false,
+                        profilePictureError = UiText.Res(message),
+                    )
+                }
             }
         }
     }

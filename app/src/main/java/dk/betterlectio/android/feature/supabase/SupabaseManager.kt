@@ -44,42 +44,70 @@ class SupabaseManager @Inject constructor(
      * Completes when Supabase auth bootstrap is done (or immediately if unconfigured).
      * Reset on logout so the next login re-gates.
      */
-    @Volatile
-    private var sessionReady: CompletableDeferred<Unit> =
-        if (isConfigured) CompletableDeferred() else CompletableDeferred<Unit>().also { it.complete(Unit) }
+    private val sessionGate = SupabaseSessionGate(isConfigured)
 
-    fun markSessionReady() {
-        val current = sessionReady
-        if (!current.isCompleted) {
-            current.complete(Unit)
-            Timber.d("Supabase session gate: ready")
-        }
+    fun completeSessionBootstrap(result: SupabaseSessionState) {
+        sessionGate.complete(result)
+        Timber.d("Supabase session gate completed: %s", result)
     }
 
     /** After logout — next login must re-mint before remote work. */
     fun resetSessionReady() {
-        if (!isConfigured) {
-            sessionReady = CompletableDeferred<Unit>().also { it.complete(Unit) }
-            return
-        }
-        sessionReady = CompletableDeferred()
+        sessionGate.reset()
         Timber.d("Supabase session gate: reset")
     }
 
     /**
-     * Wait until [markSessionReady] (timeout → continue best-effort so offline UX never hangs).
+     * Wait until auth bootstrap completes. A timeout is an unavailable state; callers must
+     * skip their remote operation so an anonymous request cannot race authentication.
      */
-    suspend fun awaitSessionReady(timeoutMs: Long = SESSION_READY_TIMEOUT_MS) {
-        if (!isConfigured) return
-        val deferred = sessionReady
-        if (deferred.isCompleted) return
-        val completed = withTimeoutOrNull(timeoutMs) { deferred.await() }
-        if (completed == null) {
-            Timber.w("Supabase session gate: timed out after %dms — continuing best-effort", timeoutMs)
+    suspend fun awaitSessionReady(timeoutMs: Long = SESSION_READY_TIMEOUT_MS): SupabaseSessionState {
+        val result = sessionGate.await(timeoutMs)
+        if (result == SupabaseSessionState.Unavailable(SupabaseUnavailableReason.TIMEOUT)) {
+            Timber.w("Supabase session gate: timed out after %dms", timeoutMs)
         }
+        return result
     }
 
     companion object {
         const val SESSION_READY_TIMEOUT_MS = 15_000L
     }
+}
+
+internal class SupabaseSessionGate(
+    private val enabled: Boolean,
+) {
+    @Volatile
+    private var state = initialState()
+
+    @Synchronized
+    fun complete(result: SupabaseSessionState) {
+        val current = state
+        if (!current.isCompleted) {
+            current.complete(result)
+        } else {
+            state = CompletableDeferred<SupabaseSessionState>().also { it.complete(result) }
+        }
+    }
+
+    @Synchronized
+    fun reset() {
+        state = initialState()
+    }
+
+    suspend fun await(timeoutMs: Long): SupabaseSessionState {
+        val result = withTimeoutOrNull(timeoutMs) { state.await() }
+        return result ?: SupabaseSessionState.Unavailable(SupabaseUnavailableReason.TIMEOUT)
+    }
+
+    private fun initialState(): CompletableDeferred<SupabaseSessionState> =
+        if (enabled) {
+            CompletableDeferred()
+        } else {
+            CompletableDeferred<SupabaseSessionState>().also {
+                it.complete(
+                    SupabaseSessionState.Unavailable(SupabaseUnavailableReason.NOT_CONFIGURED),
+                )
+            }
+        }
 }

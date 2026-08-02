@@ -1,8 +1,8 @@
-# PostHog post-wizard report
+# PostHog setup report (superseded by minimal mode)
 
-The wizard has completed a full integration of PostHog analytics into the BetterLectio Android app. PostHog is initialised in `BetterLectioApp.onCreate()` so tracking starts as early as possible. The SDK is configured with autocapture for lifecycle events, screen views, and automatic error tracking. Users are identified on login and on cold start (session restore). All 15 planned events are captured across the five most user-facing ViewModels and the authentication layer.
+PostHog is initialized in `BetterLectioApp.onCreate()`, with product analytics limited to authentication outcomes, feedback, message/private-event creation, absence-cause updates, and referral shares. Feature-view events use a stable 10% user cohort; login failures and expired sessions emit at most once per app process. Lifecycle, deep-link, screen, replay, survey, feature-flag, and person-profile capture remain disabled. Automatic exceptions are retained, deduplicated, and capped at five per app process; every other event is dropped before it reaches the queue.
 
-## Events instrumented
+## Historical event callsites (dropped unless allowlisted above)
 
 | Event name | Description | File |
 |---|---|---|
@@ -27,7 +27,7 @@ The wizard has completed a full integration of PostHog analytics into the Better
 - `gradle/libs.versions.toml` — added `posthog = "3.31.0"` version and `posthog-android` library entry
 - `app/build.gradle.kts` — added `libs.posthog.android` dependency, `POSTHOG_API_KEY` and `POSTHOG_HOST` BuildConfig fields read from `local.properties`
 - `local.properties` — added `posthog.apiKey` and `posthog.host` (gitignored)
-- `app/.../BetterLectioApp.kt` — initialises `PostHogAndroid` with lifecycle events, screen views, and error tracking autocapture
+- `app/.../BetterLectioApp.kt` — initializes PostHog in explicit-only mode and enforces the two-event egress allowlist
 - `app/.../MainActivity.kt` — calls `PostHog.identify()` on cold start for already-authenticated users
 - `app/.../AuthSessionInstaller.kt` — calls `PostHog.identify()` + `login_completed` on MitID login; `demo_entered` on demo entry; `logged_out` + `PostHog.reset()` on logout
 - `app/.../LoginViewModel.kt` — captures `login_with_password_completed` and `login_failed` with login method property

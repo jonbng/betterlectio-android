@@ -40,7 +40,10 @@ class SupabaseFeedbackService @Inject constructor(
     suspend fun submit(request: SubmitRequest): SubmitResult {
         val client = manager.client
             ?: error("Supabase not configured")
-        manager.awaitSessionReady()
+        val session = manager.awaitSessionReady()
+        if (session is SupabaseSessionState.Unavailable) {
+            throw SupabaseUnavailableException(session.reason)
+        }
 
         val contextJson = buildJsonObject {
             for ((key, value) in request.context) {

@@ -38,7 +38,7 @@ class SupabaseHomeworkService @Inject constructor(
 ) {
     suspend fun fetchStatuses(schoolId: Int, studentId: String): Map<String, HomeworkSyncStatus> {
         val client = manager.client ?: return emptyMap()
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return emptyMap()
         return try {
             val rows = client.postgrest.rpc(
                 function = "get_student_homework_statuses",
@@ -70,7 +70,7 @@ class SupabaseHomeworkService @Inject constructor(
             Timber.d("homework upsertStatus skipped: non-syncable entry=%s", entry.id)
             return false
         }
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return false
         return try {
             val items = buildList {
                 if (entry.note.isNotBlank()) {

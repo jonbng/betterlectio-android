@@ -38,13 +38,17 @@ class SupabaseAuthService @Inject constructor(
      * Best-effort: invoke edge function, verify magic-link OTP, sync rotated cookies.
      * Never throws into Lectio auth paths.
      */
-    suspend fun authenticateWithLectio(credentials: LectioCredentials, gymId: Int) {
+    suspend fun authenticateWithLectio(
+        credentials: LectioCredentials,
+        expectedStudentId: String,
+        gymId: Int,
+    ): SupabaseSessionState {
         val client = manager.client ?: run {
             Timber.w("SupabaseAuth: client not configured — skipping")
-            return
+            return SupabaseSessionState.Unavailable(SupabaseUnavailableReason.NOT_CONFIGURED)
         }
 
-        mutex.withLock {
+        return mutex.withLock {
             Timber.i("SupabaseAuth: starting authentication via Edge Function")
             try {
                 val response = client.functions.invoke("token-for-auth") {
@@ -63,59 +67,105 @@ class SupabaseAuthService @Inject constructor(
                 val body = response.bodyAsText()
                 val decoded = json.decodeFromString(EdgeFunctionResponse.serializer(), body)
 
-                Timber.i("SupabaseAuth: received magic link token for %s", decoded.email)
+                if (decoded.studentId != expectedStudentId) {
+                    Timber.e(
+                        "SupabaseAuth: identity mismatch expected=%s actual=%s requestId=%s",
+                        expectedStudentId,
+                        decoded.studentId,
+                        decoded.requestId,
+                    )
+                    return@withLock SupabaseSessionState.Unavailable(
+                        SupabaseUnavailableReason.IDENTITY_MISMATCH,
+                    )
+                }
+
+                // The Edge Function may rotate the same Lectio cookies used by the app.
+                // Persist those rotations before any later Supabase step can fail.
+                if (!syncRotatedCookies(decoded, credentials, expectedStudentId)) {
+                    return@withLock SupabaseSessionState.Unavailable(
+                        SupabaseUnavailableReason.COOKIE_PERSISTENCE_FAILED,
+                    )
+                }
+
+                Timber.i(
+                    "SupabaseAuth: received magic link token requestId=%s",
+                    decoded.requestId,
+                )
 
                 client.auth.verifyEmailOtp(
                     type = OtpType.Email.MAGIC_LINK,
                     tokenHash = decoded.tokenHash,
                 )
                 Timber.i("SupabaseAuth: authentication successful")
-
-                syncRotatedCookies(decoded, credentials)
+                if (client.auth.currentSessionOrNull() == null) {
+                    SupabaseSessionState.Unavailable(
+                        SupabaseUnavailableReason.AUTHENTICATION_FAILED,
+                    )
+                } else {
+                    SupabaseSessionState.Ready
+                }
             } catch (e: Exception) {
                 Timber.w(e, "SupabaseAuth: authentication failed")
+                SupabaseSessionState.Unavailable(
+                    SupabaseUnavailableReason.AUTHENTICATION_FAILED,
+                )
             }
         }
     }
 
     /**
      * Cold-start: if SDK has no session, re-mint via edge function using stored Lectio cookies.
-     * Always ends by marking the session gate ready (even on failure / skip).
+     * Always completes the session gate with the real bootstrap outcome.
      */
-    suspend fun ensureSessionIfNeeded(student: Student) {
-        try {
-            if (student.isDemo) return
-            val client = manager.client ?: return
-            // Wait for SDK to load any persisted session from storage
-            runCatching { client.auth.awaitInitialization() }
-            if (client.auth.currentSessionOrNull() != null) {
-                Timber.d("SupabaseAuth: existing session present")
-                return
+    suspend fun ensureSessionIfNeeded(student: Student): SupabaseSessionState {
+        val result = when {
+            student.isDemo -> {
+                SupabaseSessionState.Unavailable(SupabaseUnavailableReason.DEMO_SESSION)
             }
-
-            val credentials = credentialStore.loadCredentials(student.studentId) ?: return
-            Timber.i("SupabaseAuth: no cached session — re-authenticating via Edge Function")
-            authenticateWithLectio(credentials, student.gymId)
-        } finally {
-            manager.markSessionReady()
+            manager.client == null -> {
+                SupabaseSessionState.Unavailable(SupabaseUnavailableReason.NOT_CONFIGURED)
+            }
+            else -> {
+                val client = checkNotNull(manager.client)
+                // Wait for SDK to load any persisted session from storage
+                runCatching { client.auth.awaitInitialization() }
+                if (client.auth.currentSessionOrNull() != null) {
+                    Timber.d("SupabaseAuth: existing session present")
+                    SupabaseSessionState.Ready
+                } else {
+                    val credentials = credentialStore.loadCredentials(student.studentId)
+                    if (credentials == null) {
+                        SupabaseSessionState.Unavailable(
+                            SupabaseUnavailableReason.MISSING_CREDENTIALS,
+                        )
+                    } else {
+                        Timber.i("SupabaseAuth: no cached session — re-authenticating via Edge Function")
+                        authenticateWithLectio(credentials, student.studentId, student.gymId)
+                    }
+                }
+            }
         }
+        manager.completeSessionBootstrap(result)
+        return result
     }
 
     /**
      * Login path: mint session then open the gate for other remote work.
      */
-    suspend fun authenticateAndMarkReady(credentials: LectioCredentials, gymId: Int) {
-        try {
-            authenticateWithLectio(credentials, gymId)
-        } finally {
-            manager.markSessionReady()
-        }
+    suspend fun authenticateAndMarkReady(
+        credentials: LectioCredentials,
+        studentId: String,
+        gymId: Int,
+    ): SupabaseSessionState {
+        val result = authenticateWithLectio(credentials, studentId, gymId)
+        manager.completeSessionBootstrap(result)
+        return result
     }
 
     suspend fun signOutLocal() {
-        val client = manager.client ?: return
+        val client = manager.client
         try {
-            client.auth.signOut()
+            client?.auth?.signOut()
         } catch (e: Exception) {
             Timber.w(e, "SupabaseAuth: local signOut failed")
         } finally {
@@ -126,18 +176,22 @@ class SupabaseAuthService @Inject constructor(
     private fun syncRotatedCookies(
         response: EdgeFunctionResponse,
         fallbackCredentials: LectioCredentials,
-    ) {
+        expectedStudentId: String,
+    ): Boolean {
         val rotated = response.cookies ?: run {
-            Timber.i("SupabaseAuth: EF response carried no rotated cookies — skipping credential sync")
-            return
+            Timber.w("SupabaseAuth: EF response carried no rotated cookies")
+            return false
         }
         val studentId = response.studentId ?: run {
-            Timber.i("SupabaseAuth: no studentId in EF response — skipping credential sync")
-            return
+            Timber.w("SupabaseAuth: no studentId in EF response")
+            return false
+        }
+        if (studentId != expectedStudentId) {
+            return false
         }
         if (rotated.autologinkey.isBlank() || rotated.sessionId.isBlank()) {
             Timber.w("SupabaseAuth: EF returned empty primary cookie — refusing to overwrite")
-            return
+            return false
         }
 
         val additional = (rotated.additional ?: emptyMap()).toMutableMap()
@@ -155,8 +209,10 @@ class SupabaseAuthService @Inject constructor(
         try {
             credentialStore.updateCredentials(updated, studentId)
             Timber.i("SupabaseAuth: credentials synced with EF-rotated cookies for student %s", studentId)
+            return true
         } catch (e: Exception) {
             Timber.w(e, "SupabaseAuth: failed to write rotated cookies")
+            return false
         }
     }
 
@@ -172,6 +228,7 @@ class SupabaseAuthService @Inject constructor(
         @SerialName("token_hash") val tokenHash: String,
         val email: String,
         val studentId: String? = null,
+        @SerialName("request_id") val requestId: String? = null,
         val cookies: RotatedCookies? = null,
     )
 

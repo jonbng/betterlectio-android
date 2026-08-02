@@ -29,7 +29,7 @@ class SupabaseReferralService @Inject constructor(
     suspend fun getStats(studentId: String): ReferralStats? {
         if (studentId.isBlank()) return null
         val client = manager.client ?: return null
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return null
         return try {
             val rows = client.postgrest.rpc(
                 function = "get_referral_stats",
@@ -64,7 +64,7 @@ class SupabaseReferralService @Inject constructor(
         cookieId: String,
     ): FinalizeResult? {
         val client = manager.client ?: return null
-        manager.awaitSessionReady()
+        if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return null
         if (client.auth.currentSessionOrNull() == null) return null
         return try {
             val response = client.functions.invoke("referral-finalize") {
