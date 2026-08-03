@@ -205,13 +205,14 @@ object MessageParser {
             }
         }
 
-        val entries = entryEls.mapIndexed { index, el ->
+        val rawEntries = entryEls.mapIndexed { index, el ->
             val topic = el.selectFirst(".message-thread-message-header")?.text()?.trim()
             val contentEl = el.selectFirst(".message-thread-message-content")
             val attachments = parseAttachments(contentEl)
             contentEl?.select(".message-attachements, .message-attachments")?.remove()
-            var contentHtml = contentEl?.html()?.trim()
-            contentHtml = stripAppSignatures(contentHtml)
+            val rawContentHtml = contentEl?.html()?.trim().orEmpty()
+            val editAudit = MessageEditAudit.extract(rawContentHtml)
+            val contentHtml = stripAppSignatures(editAudit.html)
 
             val senderSpan = el.selectFirst(".message-thread-message-sender span")
             val senderBlock = el.selectFirst(".message-thread-message-sender")
@@ -221,18 +222,33 @@ object MessageParser {
                 ?: senderBlock?.text()?.trim()?.substringBefore(',')?.trim()
             val infoText = senderBlock?.text().orEmpty()
             val sentAt = parseMessageTimestamp(infoText, sender)
+            val editElement = el.selectFirst("a[id*=EditModeToggleBtn], a[onclick*=EditModeToggleBtn]")
+            val editScript = editElement?.attr("onclick").orEmpty().ifBlank {
+                editElement?.attr("href").orEmpty()
+            }
+            val editTarget = Regex("""__doPostBack\('([^']+)'""")
+                .find(editScript)?.groupValues?.get(1).orEmpty()
 
-            ThreadEntry(
-                id = "${ref.id}_$index",
-                topic = topic,
-                contentHtml = contentHtml,
-                senderName = sender,
-                sentAt = sentAt,
-                attachments = attachments,
-                senderEntityId = person?.entityId,
-                senderKind = person?.kind,
+            MessageReactionProtocol.RawMessage(
+                entry = ThreadEntry(
+                    id = "${ref.id}_$index",
+                    topic = topic,
+                    contentHtml = contentHtml,
+                    editedAt = editAudit.editedAt,
+                    senderName = sender,
+                    sentAt = sentAt,
+                    attachments = attachments,
+                    senderEntityId = person?.entityId,
+                    senderKind = person?.kind,
+                    editPostbackTarget = editTarget,
+                ),
+                rawContentHtml = rawContentHtml,
+                editPostbackTarget = editTarget,
             )
         }
+
+        val resolvedReactions = MessageReactionProtocol.resolve(rawEntries)
+        val entries = resolvedReactions.entries
 
         return MessageThreadDetail(
             thread = ref,
@@ -240,11 +256,13 @@ object MessageParser {
                 val contentEl = doc.selectFirst(
                     "#s_m_Content_Content_MessageThreadCtrl_MessageContent, .message-thread-message-content",
                 )
+                val editAudit = MessageEditAudit.extract(contentEl?.html())
                 listOf(
                     ThreadEntry(
                         id = ref.id,
                         topic = ref.topic,
-                        contentHtml = stripAppSignatures(contentEl?.html()),
+                        contentHtml = stripAppSignatures(editAudit.html),
+                        editedAt = editAudit.editedAt,
                         senderName = ref.sender,
                         sentAt = ref.dateChanged,
                         attachments = parseAttachments(contentEl),
@@ -255,6 +273,8 @@ object MessageParser {
             },
             receivers = receivers,
             receiverEntityIds = receiverEntityIds,
+            ownReactionCarrierTargets = resolvedReactions.ownCarriersByTarget
+                .mapValues { it.value.editPostbackTarget },
         )
     }
 
@@ -275,7 +295,7 @@ object MessageParser {
     }
 
     /** iOS signature cleanup for BetterLectio / Flutter footers. */
-    private fun stripAppSignatures(html: String?): String? {
+    internal fun stripAppSignatures(html: String?): String? {
         if (html.isNullOrBlank()) return html
         var out: String = html
         listOf(

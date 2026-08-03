@@ -39,6 +39,8 @@ class MessageRepository @Inject constructor(
     /** Demo-mutable state; same instance production demo mode uses. Exposed for tests via companion. */
     internal val demoState = DemoMessageState()
 
+    fun isDemoSession(): Boolean = session.currentStudent?.isDemo == true
+
     suspend fun loadFolder(
         folder: MessageFolder = MessageFolder.NEWEST,
         forceRefresh: Boolean = false,
@@ -339,6 +341,202 @@ class MessageRepository @Inject constructor(
             }
         }
     }
+
+    /**
+     * Sets, changes, or clears the signed-in user's reaction using only Lectio.
+     * Every mutation starts from a freshly opened thread so row targets and
+     * ViewState cannot be stale.
+     */
+    suspend fun setReaction(
+        thread: MessageThread,
+        target: MessageLocator,
+        emoji: MessageReactionEmoji?,
+    ): AppResult<MessageThreadDetail> {
+        if (session.currentStudent?.isDemo == true) {
+            return AppResult.Failure(AppError.Unknown("Demo reactions are handled locally"))
+        }
+        val page = postBeskederListPageBack(
+            folderId = thread.folderId,
+            eventArgument = openThreadEventArgument(thread),
+            priority = FetchPriority.Important,
+        )
+        if (page is AppResult.Failure) return page
+        val initialHtml = (page as AppResult.Success).data
+        if (!MessageParser.looksLikeThreadDetail(initialHtml)) {
+            return AppResult.Failure(AppError.Parsing("Kunne ikke åbne beskedtråden"))
+        }
+        val initialDetail = MessageParser.parseThreadDetail(initialHtml, thread)
+        if (initialDetail.entries.none { it.locator == target }) {
+            return AppResult.Failure(AppError.Parsing("Den valgte besked findes ikke længere"))
+        }
+        val envelope = emoji?.let { MessageReactionProtocol.Envelope.Set(it, target) }
+            ?: MessageReactionProtocol.Envelope.Clear(target)
+        val showSignature = !MessageSignature.shouldSkipSignature(
+            recipientIds = initialDetail.receiverEntityIds,
+            disableSignature = settings.disableSignature.value,
+        )
+        val body = MessageReactionProtocol.carrierBody(envelope, showSignature)
+        val editTarget = initialDetail.ownReactionCarrierTargets[target]
+        val response = if (editTarget.isNullOrBlank()) {
+            sendRawThreadReply(initialHtml, thread, body)
+        } else {
+            editReactionCarrier(initialHtml, thread, editTarget, body)
+        }
+        if (response is AppResult.Failure) return response
+        val responseHtml = (response as AppResult.Success).data
+        if (isLectioErrorPage(responseHtml) || !MessageParser.looksLikeThreadDetail(responseHtml)) {
+            return AppResult.Failure(AppError.Unknown("Lectio bekræftede ikke reaktionen"))
+        }
+        val detail = MessageParser.parseThreadDetail(responseHtml, thread)
+        val resolved = detail.entries.firstOrNull { it.locator == target }
+            ?: return AppResult.Failure(AppError.Unknown("Reaktionen kunne ikke genfindes"))
+        if (resolved.ownReaction != emoji || target !in detail.ownReactionCarrierTargets) {
+            return AppResult.Failure(AppError.Unknown("Lectio bekræftede ikke reaktionen"))
+        }
+        val studentId = session.currentStudent?.studentId
+        if (studentId != null) {
+            cache.remove(threadCacheKey(studentId, thread.normalizedId))
+            cache.put(threadCacheKey(studentId, thread.normalizedId), responseHtml)
+        }
+        invalidateMessageListCache()
+        return AppResult.Success(detail)
+    }
+
+    private suspend fun sendRawThreadReply(
+        html: String,
+        thread: MessageThread,
+        body: String,
+    ): AppResult<String> {
+        val contentField = SmartPostback.findFieldName(
+            html,
+            listOf("EditModeContentBBTB", "WriteContent", "CreateNewAnswer", "MessageBody"),
+        ) ?: return AppResult.Failure(AppError.Parsing("Kunne ikke finde reaktionsfeltet"))
+        val titleField = SmartPostback.findFieldName(html, listOf("EditModeHeaderTitleTB", "MessagesSubject"))
+            ?: return AppResult.Failure(AppError.Parsing("Kunne ikke finde reaktionstitlen"))
+        val title = SmartPostback.existingFieldValue(html, titleField)
+            ?.takeIf { it.isNotBlank() }
+            ?: "Re: ${thread.topic}"
+        val sendTarget = MessagePostbackFields.findSendMessageTarget(html)
+        if (sendTarget.isBlank()) {
+            return AppResult.Failure(AppError.Parsing("Kunne ikke finde send-knappen"))
+        }
+        val post = SmartPostback.resolve(
+            html = html,
+            preferredTargets = listOf(sendTarget),
+            extra = mapOf(contentField to body, titleField to title),
+            nameContainsAny = listOf("SendMessage", "SendAnswer"),
+        )
+        return when (val result = client.postForm(folderListPostPath(thread.folderId), post.fields)) {
+            is AppResult.Failure -> result
+            is AppResult.Success -> AppResult.Success(result.data.body)
+        }
+    }
+
+    private suspend fun editReactionCarrier(
+        html: String,
+        thread: MessageThread,
+        editTarget: String,
+        body: String,
+    ): AppResult<String> {
+        val openFields = SmartPostback.resolve(html, listOf(editTarget)).fields
+        val openResult = client.postForm(folderListPostPath(thread.folderId), openFields)
+        if (openResult is AppResult.Failure) return openResult
+        val editHtml = (openResult as AppResult.Success).data.body
+        val fields = parseReactionEditFields(editHtml, editTarget)
+            ?: return AppResult.Failure(AppError.Parsing("Kunne ikke åbne reaktionen til redigering"))
+        val save = SmartPostback.resolve(
+            html = editHtml,
+            preferredTargets = listOf(fields.saveTarget),
+            extra = mapOf(fields.titleField to fields.title, fields.bodyField to body),
+        )
+        return when (val result = client.postForm(folderListPostPath(thread.folderId), save.fields)) {
+            is AppResult.Failure -> result
+            is AppResult.Success -> AppResult.Success(result.data.body)
+        }
+    }
+
+    suspend fun beginMessageEdit(
+        thread: MessageThread,
+        locator: MessageLocator,
+    ): AppResult<MessageEditDraft> {
+        if (session.currentStudent?.isDemo == true) {
+            return AppResult.Failure(AppError.Unknown("Redigering er ikke tilgængelig i demo"))
+        }
+        val fresh = postBeskederListPageBack(
+            folderId = thread.folderId,
+            eventArgument = openThreadEventArgument(thread),
+            priority = FetchPriority.Important,
+        )
+        if (fresh is AppResult.Failure) return fresh
+        val html = (fresh as AppResult.Success).data
+        val detail = MessageParser.parseThreadDetail(html, thread)
+        val target = detail.entries.firstOrNull { it.locator == locator }
+            ?.editPostbackTarget.orEmpty()
+        if (target.isBlank()) {
+            return AppResult.Failure(AppError.Unknown("Beskeden kan ikke længere redigeres"))
+        }
+        val open = client.postForm(
+            MessageEditProtocol.formAction(html, folderListPostPath(thread.folderId)),
+            SmartPostback.resolve(html, listOf(target)).fields,
+            FetchPriority.Important,
+        )
+        if (open is AppResult.Failure) return open
+        val editHtml = (open as AppResult.Success).data.body
+        val fields = MessageEditProtocol.parseFields(editHtml, target)
+            ?: return AppResult.Failure(AppError.Parsing("Kunne ikke åbne beskeden til redigering"))
+        val (body, signature) = MessageEditProtocol.splitSignature(fields.body)
+        return AppResult.Success(
+            MessageEditDraft(
+                thread = thread,
+                locator = locator,
+                title = fields.title,
+                body = body,
+                signatureSuffix = signature,
+                editHtml = editHtml,
+                formAction = MessageEditProtocol.formAction(editHtml, folderListPostPath(thread.folderId)),
+                titleField = fields.titleField,
+                bodyField = fields.bodyField,
+                saveTarget = fields.saveTarget,
+            ),
+        )
+    }
+
+    suspend fun saveMessageEdit(
+        draft: MessageEditDraft,
+        title: String,
+        body: String,
+    ): AppResult<MessageThreadDetail> {
+        if (title.length > 100 || body.length + draft.signatureSuffix.length > 100_000) {
+            return AppResult.Failure(AppError.Parsing("Beskeden overskrider Lectios tegnbegrænsning"))
+        }
+        val post = SmartPostback.resolve(
+            html = draft.editHtml,
+            preferredTargets = listOf(draft.saveTarget),
+            extra = mapOf(
+                draft.titleField to title,
+                draft.bodyField to (body + draft.signatureSuffix),
+            ),
+        )
+        return when (val result = client.postForm(draft.formAction, post.fields)) {
+            is AppResult.Failure -> result
+            is AppResult.Success -> {
+                val html = result.data.body
+                if (isLectioErrorPage(html) || !MessageParser.looksLikeThreadDetail(html)) {
+                    AppResult.Failure(AppError.Unknown("Lectio bekræftede ikke redigeringen"))
+                } else {
+                    val studentId = session.currentStudent?.studentId
+                    if (studentId != null) {
+                        cache.remove(threadCacheKey(studentId, draft.thread.normalizedId))
+                    }
+                    invalidateMessageListCache()
+                    AppResult.Success(MessageParser.parseThreadDetail(html, draft.thread))
+                }
+            }
+        }
+    }
+
+    private fun parseReactionEditFields(html: String, editTarget: String): MessageEditProtocol.Fields? =
+        MessageEditProtocol.parseFields(html, editTarget)
 
     /**
      * Reply succeeded if Lectio still shows the thread and our text appears in it

@@ -29,6 +29,7 @@
     <string name="error_robot_hint">Lectio har midlertidigt blokeret anmodninger. Vent et par minutter.</string>
     <string name="action_retry">Prøv igen</string>
     <string name="action_cancel">Annuller</string>
+    <string name="action_close">Luk</string>
     <string name="action_logout">Log ud</string>
 
     <string name="empty_schedule">Ingen skemadata</string>
@@ -181,6 +182,27 @@
     <string name="message_subject">Emne</string>
     <string name="message_recipients">Modtagere</string>
     <string name="message_body">Besked</string>
+    <string name="message_add_reaction">Tilføj reaktion</string>
+    <string name="message_more_actions">Flere handlinger</string>
+    <string name="message_edit">Rediger besked</string>
+    <string name="action_save">Gem</string>
+    <string name="message_edited_just_now">Redigeret lige nu</string>
+    <string name="message_edited_at">Redigeret %1$s</string>
+    <plurals name="message_edited_minutes">
+        <item quantity="one">Redigeret for %1$d minut siden</item>
+        <item quantity="other">Redigeret for %1$d minutter siden</item>
+    </plurals>
+    <plurals name="message_edited_hours">
+        <item quantity="one">Redigeret for %1$d time siden</item>
+        <item quantity="other">Redigeret for %1$d timer siden</item>
+    </plurals>
+    <plurals name="message_edited_days">
+        <item quantity="one">Redigeret for %1$d dag siden</item>
+        <item quantity="other">Redigeret for %1$d dage siden</item>
+    </plurals>
+    <string name="message_reacted_with">Reagerede med %1$s</string>
+    <string name="message_reaction_you">Dig</string>
+    <string name="message_reaction_failed">Kunne ikke bekræfte reaktionen. Tråden er genindlæst.</string>
 
     <string name="homework_no_note">Ingen lektienote</string>
     <string name="homework_done">Færdig</string>

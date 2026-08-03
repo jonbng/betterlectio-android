@@ -2,6 +2,7 @@ package dk.betterlectio.android.feature.messages
 
 import android.net.Uri
 import java.time.LocalDateTime
+import java.time.Instant
 
 data class MessageFolder(
     val id: String,
@@ -38,18 +39,67 @@ data class MessageAttachment(
     val url: String,
 )
 
+enum class MessageReactionEmoji(val glyph: String) {
+    THUMBS_UP("👍"),
+    HEART("❤️"),
+    LAUGH("😂"),
+    SURPRISED("😮"),
+    SAD("😢"),
+    THUMBS_DOWN("👎");
+
+    companion object {
+        fun fromGlyph(value: String?): MessageReactionEmoji? = entries.firstOrNull { it.glyph == value }
+    }
+}
+
+data class MessageLocator(
+    val senderKey: String,
+    val sentAt: String,
+    val occurrence: Int,
+)
+
+data class MessageReactionParticipant(
+    val key: String,
+    val name: String,
+    val isOwn: Boolean,
+)
+
+data class MessageReactionGroup(
+    val emoji: MessageReactionEmoji,
+    val reactors: List<MessageReactionParticipant>,
+)
+
 data class ThreadEntry(
     val id: String,
     val topic: String?,
     val contentHtml: String?,
     val senderName: String?,
     val sentAt: LocalDateTime?,
+    val editedAt: Instant? = null,
     val attachments: List<MessageAttachment> = emptyList(),
     val senderEntityId: String? = null,
     val senderKind: String? = null,
+    val locator: MessageLocator? = null,
+    val reactions: List<MessageReactionGroup> = emptyList(),
+    val ownReaction: MessageReactionEmoji? = null,
+    /** Present only when Lectio grants edit permission for this row. */
+    val editPostbackTarget: String = "",
 ) {
     val attachmentNames: List<String> get() = attachments.map { it.name }
 }
+
+data class MessageEditDraft(
+    val thread: MessageThread,
+    val locator: MessageLocator,
+    val title: String,
+    val body: String,
+    val signatureSuffix: String,
+    internal val editHtml: String,
+    internal val formAction: String,
+    internal val titleField: String,
+    internal val bodyField: String,
+    internal val saveTarget: String,
+)
 
 data class MessageThreadDetail(
     val thread: MessageThread,
@@ -57,6 +107,8 @@ data class MessageThreadDetail(
     val receivers: List<String> = emptyList(),
     /** Lectio context-card ids for thread recipients (`S…` / `T…`) — signature skip. */
     val receiverEntityIds: List<String> = emptyList(),
+    /** Fresh row-scoped edit targets for the signed-in user's reaction carriers. */
+    val ownReactionCarrierTargets: Map<MessageLocator, String> = emptyMap(),
 )
 
 /**

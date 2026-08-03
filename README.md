@@ -135,6 +135,24 @@ Run foundation tests:
 ./gradlew :app:testDebugUnitTest
 ```
 
+## Native message reactions
+
+Message reactions use ordinary Lectio replies and row-scoped message edits;
+there is no reaction backend or Supabase storage. The app implements the shared
+`blr1` carrier protocol, resolves reactions onto their target messages, and
+keeps malformed or unresolved carriers visible. Changing or removing a
+reaction edits the same carrier, and removal stores no copy of the old emoji.
+The parser turns Lectio's automatic `Redigeret af …` audit line into a compact,
+localized edited-time label and also tolerates it on valid reaction carriers.
+
+## Sent-message editing
+
+Sent-message editing uses the native two-ViewState flow documented in
+`../extension/docs/message-editing-protocol.md`, with Lectio-native eligibility.
+
+The protocol is intentionally kept byte-compatible with the web extension and
+iOS implementation.
+
 ## Next milestones
 
 1. MitID login UI (uses `AuthSessionInstaller` + `WebViewCookieExtractor`)

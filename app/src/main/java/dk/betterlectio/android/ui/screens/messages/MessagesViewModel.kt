@@ -13,7 +13,12 @@ import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.messages.ComposeAttachment
 import dk.betterlectio.android.feature.messages.ComposeMessageDraft
 import dk.betterlectio.android.feature.messages.MessageFolder
+import dk.betterlectio.android.feature.messages.MessageEditDraft
 import dk.betterlectio.android.feature.messages.MessageRecipient
+import dk.betterlectio.android.feature.messages.MessageLocator
+import dk.betterlectio.android.feature.messages.MessageReactionEmoji
+import dk.betterlectio.android.feature.messages.MessageReactionGroup
+import dk.betterlectio.android.feature.messages.MessageReactionParticipant
 import dk.betterlectio.android.feature.messages.MessageRepository
 import dk.betterlectio.android.feature.messages.MessageThread
 import dk.betterlectio.android.feature.messages.MessageThreadDetail
@@ -37,6 +42,14 @@ data class MessagesUiState(
     val replyText: String = "",
     val replyAttachments: List<ComposeAttachment> = emptyList(),
     val replyError: UiText? = null,
+    val reactionPendingTarget: MessageLocator? = null,
+    val reactionError: UiText? = null,
+    val editDraft: MessageEditDraft? = null,
+    val editTitle: String = "",
+    val editBody: String = "",
+    val editLoading: Boolean = false,
+    val editSaving: Boolean = false,
+    val editError: UiText? = null,
     val showCompose: Boolean = false,
     val composeSubject: String = "",
     val composeBody: String = "",
@@ -204,6 +217,136 @@ class MessagesViewModel @Inject constructor(
                 }
             }
         }
+    }
+
+    fun react(entryId: String, selectedEmoji: MessageReactionEmoji) {
+        val state = _state.value
+        val detail = state.detail ?: return
+        val entry = detail.entries.firstOrNull { it.id == entryId } ?: return
+        val locator = entry.locator ?: return
+        if (state.reactionPendingTarget != null || state.isSending) return
+        val nextEmoji = selectedEmoji.takeUnless { entry.ownReaction == it }
+        val snapshot = detail
+        val optimistic = detail.copy(
+            entries = detail.entries.map { item ->
+                if (item.id != entryId) item else optimisticReaction(item, nextEmoji)
+            },
+        )
+        _state.update {
+            it.copy(
+                detail = optimistic,
+                reactionPendingTarget = locator,
+                reactionError = null,
+            )
+        }
+        viewModelScope.launch {
+            if (repository.isDemoSession()) {
+                _state.update { it.copy(reactionPendingTarget = null) }
+                return@launch
+            }
+            when (val result = repository.setReaction(detail.thread, locator, nextEmoji)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(
+                        detail = result.data,
+                        reactionPendingTarget = null,
+                        reactionError = null,
+                    )
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(
+                        detail = snapshot,
+                        reactionPendingTarget = null,
+                        reactionError = UiText.Res(R.string.message_reaction_failed),
+                    )
+                }
+            }
+        }
+    }
+
+    fun clearReactionError() {
+        _state.update { it.copy(reactionError = null) }
+    }
+
+    fun beginEdit(entryId: String) {
+        val detail = _state.value.detail ?: return
+        val entry = detail.entries.firstOrNull { it.id == entryId } ?: return
+        val locator = entry.locator ?: return
+        if (entry.editPostbackTarget.isBlank() || _state.value.editLoading || _state.value.isSending) return
+        _state.update { it.copy(editLoading = true, editError = null) }
+        viewModelScope.launch {
+            when (val result = repository.beginMessageEdit(detail.thread, locator)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(
+                        editDraft = result.data,
+                        editTitle = result.data.title,
+                        editBody = result.data.body,
+                        editLoading = false,
+                    )
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(editLoading = false, editError = result.error.toUiText())
+                }
+            }
+        }
+    }
+
+    fun updateEdit(title: String? = null, body: String? = null) {
+        _state.update { it.copy(editTitle = title ?: it.editTitle, editBody = body ?: it.editBody, editError = null) }
+    }
+
+    fun cancelEdit() {
+        if (_state.value.editSaving) return
+        _state.update {
+            it.copy(editDraft = null, editTitle = "", editBody = "", editError = null, editLoading = false)
+        }
+    }
+
+    fun saveEdit() {
+        val state = _state.value
+        val draft = state.editDraft ?: return
+        if (state.editSaving || state.editTitle.length > 100 || state.editBody.length + draft.signatureSuffix.length > 100_000) return
+        _state.update { it.copy(editSaving = true, editError = null) }
+        viewModelScope.launch {
+            when (val result = repository.saveMessageEdit(draft, state.editTitle, state.editBody)) {
+                is AppResult.Success -> _state.update {
+                    it.copy(
+                        detail = result.data,
+                        editDraft = null,
+                        editTitle = "",
+                        editBody = "",
+                        editSaving = false,
+                    )
+                }
+                is AppResult.Failure -> _state.update {
+                    it.copy(editSaving = false, editError = result.error.toUiText())
+                }
+            }
+        }
+    }
+
+    private fun optimisticReaction(
+        entry: dk.betterlectio.android.feature.messages.ThreadEntry,
+        nextEmoji: MessageReactionEmoji?,
+    ): dk.betterlectio.android.feature.messages.ThreadEntry {
+        val groups = entry.reactions.mapNotNull { group ->
+            group.copy(reactors = group.reactors.filterNot { it.isOwn })
+                .takeIf { it.reactors.isNotEmpty() }
+        }.associateBy { it.emoji }.toMutableMap()
+        if (nextEmoji != null) {
+            val current = groups[nextEmoji]?.reactors.orEmpty()
+            groups[nextEmoji] = MessageReactionGroup(
+                emoji = nextEmoji,
+                reactors = current + MessageReactionParticipant(
+                    key = "pending-own",
+                    name = "",
+                    isOwn = true,
+                ),
+            )
+        }
+        return entry.copy(
+            reactions = MessageReactionEmoji.entries.mapNotNull(groups::get),
+            ownReaction = nextEmoji,
+        )
     }
 
     fun openCompose(preselected: List<MessageRecipient> = emptyList()) {

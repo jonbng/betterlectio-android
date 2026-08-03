@@ -6,6 +6,8 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.PickVisualMediaRequest
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
+import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.combinedClickable
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -41,7 +43,11 @@ import androidx.compose.material.icons.filled.Delete
 import androidx.compose.material.icons.filled.Drafts
 import androidx.compose.material.icons.filled.Flag
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Edit
+import androidx.compose.material.icons.filled.MoreVert
 import androidx.compose.material.icons.outlined.MailOutline
+import androidx.compose.material.icons.outlined.AddReaction
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Button
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
@@ -54,6 +60,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.InputChip
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.OutlinedTextFieldDefaults
 import androidx.compose.material3.Scaffold
@@ -76,10 +83,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.ui.hapticfeedback.HapticFeedbackType
+import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
@@ -97,6 +107,10 @@ import dk.betterlectio.android.feature.messages.ComposeAttachment
 import dk.betterlectio.android.feature.messages.MessageSearch
 import dk.betterlectio.android.feature.messages.MessageThread
 import dk.betterlectio.android.feature.messages.MessageThreadDetail
+import dk.betterlectio.android.feature.messages.MessageReactionEmoji
+import dk.betterlectio.android.feature.messages.MessageReactionGroup
+import dk.betterlectio.android.feature.messages.MessageEditedTimeFormatter
+import dk.betterlectio.android.feature.messages.MessageEditedTimeValue
 import dk.betterlectio.android.ui.components.AppListDivider
 import dk.betterlectio.android.ui.components.AppListMeta
 import dk.betterlectio.android.ui.components.AppListPrimary
@@ -113,10 +127,12 @@ import dk.betterlectio.android.ui.components.SectionHeader
 import dk.betterlectio.android.ui.components.UnreadDot
 import dk.betterlectio.android.ui.components.bbcode.BbcodeEditor
 import java.time.LocalDate
+import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
 import java.util.Locale
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.delay
 
 private object MsgRoutes {
     const val LIST = "messages_list"
@@ -223,11 +239,25 @@ fun MessagesScreen(
                     replyText = state.replyText,
                     replyAttachments = state.replyAttachments,
                     replyError = state.replyError,
+                    reactionPendingTarget = state.reactionPendingTarget,
+                    reactionError = state.reactionError,
+                    editDraft = state.editDraft,
+                    editTitle = state.editTitle,
+                    editBody = state.editBody,
+                    editLoading = state.editLoading,
+                    editSaving = state.editSaving,
+                    editError = state.editError,
                     isSending = state.isSending,
                     onReplyChange = viewModel::onReplyChange,
                     onSendReply = viewModel::sendReply,
                     onAddReplyAttachments = viewModel::addReplyAttachments,
                     onRemoveReplyAttachment = viewModel::removeReplyAttachment,
+                    onReact = viewModel::react,
+                    onReactionErrorShown = viewModel::clearReactionError,
+                    onBeginEdit = viewModel::beginEdit,
+                    onEditChange = viewModel::updateEdit,
+                    onSaveEdit = viewModel::saveEdit,
+                    onCancelEdit = viewModel::cancelEdit,
                     onMarkRead = viewModel::markRead,
                     onToggleFlag = viewModel::toggleFlag,
                     onDelete = {
@@ -553,24 +583,69 @@ private fun SwipeableMessageRow(
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class)
+@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class, ExperimentalLayoutApi::class)
 @Composable
 private fun MessageThreadPane(
     detail: MessageThreadDetail,
     replyText: String,
     replyAttachments: List<ComposeAttachment>,
     replyError: UiText?,
+    reactionPendingTarget: dk.betterlectio.android.feature.messages.MessageLocator?,
+    reactionError: UiText?,
+    editDraft: dk.betterlectio.android.feature.messages.MessageEditDraft?,
+    editTitle: String,
+    editBody: String,
+    editLoading: Boolean,
+    editSaving: Boolean,
+    editError: UiText?,
     isSending: Boolean,
     onReplyChange: (String) -> Unit,
     onSendReply: () -> Unit,
     onAddReplyAttachments: (List<Uri>) -> Unit,
     onRemoveReplyAttachment: (Uri) -> Unit,
+    onReact: (String, MessageReactionEmoji) -> Unit,
+    onReactionErrorShown: () -> Unit,
+    onBeginEdit: (String) -> Unit,
+    onEditChange: (String?, String?) -> Unit,
+    onSaveEdit: () -> Unit,
+    onCancelEdit: () -> Unit,
     onMarkRead: () -> Unit,
     onToggleFlag: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val haptics = LocalHapticFeedback.current
+    var pickerEntryId by remember { mutableStateOf<String?>(null) }
+    var reactorGroup by remember { mutableStateOf<MessageReactionGroup?>(null) }
+    var actionEntryId by remember { mutableStateOf<String?>(null) }
+    var loadingEditEntryId by remember { mutableStateOf<String?>(null) }
+    var previousPending by remember { mutableStateOf(reactionPendingTarget) }
+    var relativeTimeNow by remember { mutableStateOf(Instant.now()) }
+    val reactionErrorText = reactionError?.asString()
+    LaunchedEffect(reactionErrorText) {
+        if (reactionErrorText != null) {
+            snackbarHostState.showSnackbar(reactionErrorText)
+            onReactionErrorShown()
+        }
+    }
+    LaunchedEffect(reactionPendingTarget, reactionErrorText) {
+        if (previousPending != null && reactionPendingTarget == null && reactionErrorText == null) {
+            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+        }
+        previousPending = reactionPendingTarget
+    }
+    LaunchedEffect(detail.entries.any { it.editedAt != null }) {
+        if (detail.entries.none { it.editedAt != null }) return@LaunchedEffect
+        relativeTimeNow = Instant.now()
+        while (true) {
+            delay(60_000)
+            relativeTimeNow = Instant.now()
+        }
+    }
+    LaunchedEffect(editLoading) {
+        if (!editLoading) loadingEditEntryId = null
+    }
     // adjustResize already shrinks the window for the keyboard. Do not also apply
     // IME content insets / imePadding or we get a large empty band above the keyboard.
     Scaffold(
@@ -664,6 +739,14 @@ private fun MessageThreadPane(
                     )
                     Spacer(Modifier.height(12.dp))
                     Row(
+                        modifier = Modifier.combinedClickable(
+                            onClick = {},
+                            onLongClick = {
+                                if (entry.locator != null && reactionPendingTarget == null && !isSending) {
+                                    pickerEntryId = entry.id
+                                }
+                            },
+                        ),
                         verticalAlignment = Alignment.CenterVertically,
                         horizontalArrangement = Arrangement.spacedBy(10.dp),
                     ) {
@@ -688,6 +771,85 @@ private fun MessageThreadPane(
                                     style = MaterialTheme.typography.labelSmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                                 )
+                            }
+                            entry.editedAt?.let { editedAt ->
+                                Text(
+                                    editedMessageLabel(editedAt, relativeTimeNow),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                        if (entry.locator != null) {
+                            Box {
+                                IconButton(
+                                    onClick = { pickerEntryId = entry.id },
+                                    enabled = reactionPendingTarget == null && !isSending,
+                                ) {
+                                    if (reactionPendingTarget == entry.locator) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(18.dp),
+                                            strokeWidth = 2.dp,
+                                        )
+                                    } else {
+                                        Icon(
+                                            Icons.Outlined.AddReaction,
+                                            contentDescription = stringResource(R.string.message_add_reaction),
+                                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        )
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = pickerEntryId == entry.id,
+                                    onDismissRequest = { pickerEntryId = null },
+                                ) {
+                                    Row(
+                                        modifier = Modifier.padding(horizontal = 6.dp, vertical = 2.dp),
+                                        horizontalArrangement = Arrangement.spacedBy(2.dp),
+                                    ) {
+                                        MessageReactionEmoji.entries.forEach { emoji ->
+                                            IconButton(
+                                                onClick = {
+                                                    pickerEntryId = null
+                                                    onReact(entry.id, emoji)
+                                                },
+                                            ) {
+                                                Text(
+                                                    emoji.glyph,
+                                                    style = MaterialTheme.typography.titleLarge,
+                                                )
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                        if (entry.editPostbackTarget.isNotBlank()) {
+                            Box {
+                                IconButton(
+                                    onClick = { actionEntryId = entry.id },
+                                    enabled = reactionPendingTarget == null && !isSending && !editLoading,
+                                ) {
+                                    if (editLoading && loadingEditEntryId == entry.id) {
+                                        CircularProgressIndicator(Modifier.size(18.dp), strokeWidth = 2.dp)
+                                    } else {
+                                        Icon(Icons.Default.MoreVert, contentDescription = stringResource(R.string.message_more_actions))
+                                    }
+                                }
+                                DropdownMenu(
+                                    expanded = actionEntryId == entry.id,
+                                    onDismissRequest = { actionEntryId = null },
+                                ) {
+                                    DropdownMenuItem(
+                                        text = { Text(stringResource(R.string.message_edit)) },
+                                        leadingIcon = { Icon(Icons.Default.Edit, contentDescription = null) },
+                                        onClick = {
+                                            loadingEditEntryId = entry.id
+                                            actionEntryId = null
+                                            onBeginEdit(entry.id)
+                                        },
+                                    )
+                                }
                             }
                         }
                     }
@@ -725,6 +887,54 @@ private fun MessageThreadPane(
                             }
                         }
                     }
+                    if (entry.reactions.isNotEmpty()) {
+                        Spacer(Modifier.height(8.dp))
+                        FlowRow(
+                            horizontalArrangement = Arrangement.spacedBy(6.dp),
+                            verticalArrangement = Arrangement.spacedBy(6.dp),
+                        ) {
+                            entry.reactions.forEach { group ->
+                                val selected = group.reactors.any { it.isOwn }
+                                val background = if (selected) {
+                                    MaterialTheme.colorScheme.primaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.surfaceContainerHigh
+                                }
+                                val foreground = if (selected) {
+                                    MaterialTheme.colorScheme.onPrimaryContainer
+                                } else {
+                                    MaterialTheme.colorScheme.onSurface
+                                }
+                                Row(
+                                    modifier = Modifier
+                                        .clip(RoundedCornerShape(50))
+                                        .background(background)
+                                        .combinedClickable(
+                                            enabled = reactionPendingTarget == null && !isSending,
+                                            onClick = { onReact(entry.id, group.emoji) },
+                                            onLongClick = { reactorGroup = group },
+                                        )
+                                        .padding(horizontal = 10.dp, vertical = 6.dp),
+                                    verticalAlignment = Alignment.CenterVertically,
+                                    horizontalArrangement = Arrangement.spacedBy(5.dp),
+                                ) {
+                                    Text(group.emoji.glyph)
+                                    Text(
+                                        group.reactors.size.toString(),
+                                        style = MaterialTheme.typography.labelMedium,
+                                        color = foreground,
+                                    )
+                                    if (reactionPendingTarget == entry.locator && selected) {
+                                        CircularProgressIndicator(
+                                            modifier = Modifier.size(12.dp),
+                                            strokeWidth = 1.5.dp,
+                                            color = foreground,
+                                        )
+                                    }
+                                }
+                            }
+                        }
+                    }
                     Spacer(Modifier.height(8.dp))
                 }
             }
@@ -736,12 +946,86 @@ private fun MessageThreadPane(
                 replyText = replyText,
                 replyAttachments = replyAttachments,
                 replyError = replyError,
-                isSending = isSending,
+                isSending = isSending || reactionPendingTarget != null,
                 onReplyChange = onReplyChange,
                 onSendReply = onSendReply,
                 onAddAttachments = onAddReplyAttachments,
                 onRemoveAttachment = onRemoveReplyAttachment,
             )
+        }
+    }
+    reactorGroup?.let { group ->
+        AlertDialog(
+            onDismissRequest = { reactorGroup = null },
+            title = { Text(stringResource(R.string.message_reacted_with, group.emoji.glyph)) },
+            text = {
+                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                    group.reactors.forEach { reactor ->
+                        Text(
+                            if (reactor.isOwn) stringResource(R.string.message_reaction_you)
+                            else reactor.name,
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { reactorGroup = null }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
+    }
+    editDraft?.let { draft ->
+        ModalBottomSheet(onDismissRequest = { if (!editSaving) onCancelEdit() }) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .padding(horizontal = 20.dp)
+                    .padding(bottom = 28.dp),
+                verticalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                Text(stringResource(R.string.message_edit), style = MaterialTheme.typography.headlineSmall)
+                OutlinedTextField(
+                    value = editTitle,
+                    onValueChange = { if (it.length <= 100) onEditChange(it, null) },
+                    label = { Text(stringResource(R.string.message_subject)) },
+                    enabled = !editSaving,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                BbcodeEditor(
+                    value = editBody,
+                    onValueChange = { onEditChange(null, it) },
+                    label = stringResource(R.string.message_body),
+                    enabled = !editSaving,
+                    minLines = 8,
+                    maxLines = 16,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                Text(
+                    "${editBody.length + draft.signatureSuffix.length} / 100000",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.align(Alignment.End),
+                )
+                editError?.let { Text(it.asString(), color = MaterialTheme.colorScheme.error) }
+                Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.End) {
+                    TextButton(onClick = onCancelEdit, enabled = !editSaving) {
+                        Text(stringResource(R.string.action_cancel))
+                    }
+                    Button(
+                        onClick = onSaveEdit,
+                        enabled = !editSaving && editTitle.length <= 100 &&
+                            editBody.length + draft.signatureSuffix.length <= 100_000 &&
+                            (editTitle != draft.title || editBody != draft.body),
+                    ) {
+                        if (editSaving) {
+                            CircularProgressIndicator(Modifier.size(16.dp), strokeWidth = 2.dp)
+                            Spacer(Modifier.width(8.dp))
+                        }
+                        Text(stringResource(R.string.action_save))
+                    }
+                }
+            }
         }
     }
 }
@@ -1091,3 +1375,25 @@ private fun AttachMenuButton(
 
 private fun formatMessageTimestamp(value: LocalDateTime, fmt: DateTimeFormatter): String =
     value.format(fmt)
+
+@Composable
+private fun editedMessageLabel(editedAt: Instant, now: Instant): String =
+    when (val value = MessageEditedTimeFormatter.value(editedAt, now)) {
+        MessageEditedTimeValue.JustNow -> stringResource(R.string.message_edited_just_now)
+        is MessageEditedTimeValue.Minutes -> pluralStringResource(
+            R.plurals.message_edited_minutes,
+            value.count,
+            value.count,
+        )
+        is MessageEditedTimeValue.Hours -> pluralStringResource(
+            R.plurals.message_edited_hours,
+            value.count,
+            value.count,
+        )
+        is MessageEditedTimeValue.Days -> pluralStringResource(
+            R.plurals.message_edited_days,
+            value.count,
+            value.count,
+        )
+        is MessageEditedTimeValue.Absolute -> stringResource(R.string.message_edited_at, value.value)
+    }
