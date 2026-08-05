@@ -11,11 +11,8 @@
     <!-- AppCompat parent required by MainActivity (AppCompatActivity) for per-app locales. -->
     <style name="Theme.BetterLectio" parent="Theme.AppCompat.NoActionBar">
         <item name="android:windowBackground">@drawable/launch_background</item>
-        <item name="android:statusBarColor">@android:color/transparent</item>
-        <item name="android:navigationBarColor">@android:color/transparent</item>
         <item name="android:windowLightStatusBar">false</item>
         <item name="android:colorBackground">@color/splash_background</item>
         <item name="android:forceDarkAllowed">false</item>
-        <item name="android:windowLayoutInDisplayCutoutMode">shortEdges</item>
     </style>
 </resources>

@@ -1,11 +1,14 @@
 package dk.betterlectio.android.feature.supabase
 
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.core.model.Student
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
+import io.github.jan.supabase.postgrest.postgrest
+import io.github.jan.supabase.postgrest.rpc
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
 import io.ktor.http.ContentType
@@ -60,6 +63,11 @@ class SupabaseAuthService @Inject constructor(
                                 autologinkey = credentials.autologinkey,
                                 sessionId = credentials.sessionId,
                                 gymId = gymId.toString(),
+                                client = ClientMetadata(
+                                    platform = "android",
+                                    appVersion = BuildConfig.VERSION_NAME,
+                                    appBuild = BuildConfig.VERSION_CODE.toString(),
+                                ),
                             ),
                         ),
                     )
@@ -102,6 +110,16 @@ class SupabaseAuthService @Inject constructor(
                         SupabaseUnavailableReason.AUTHENTICATION_FAILED,
                     )
                 } else {
+                    decoded.requestId?.let { requestId ->
+                        try {
+                            client.postgrest.rpc(
+                                function = "confirm_auth_attempt",
+                                parameters = ConfirmAttemptParams(requestId),
+                            )
+                        } catch (e: Exception) {
+                            Timber.w(e, "SupabaseAuth: auth-attempt confirmation failed")
+                        }
+                    }
                     SupabaseSessionState.Ready
                 }
             } catch (e: Exception) {
@@ -221,6 +239,20 @@ class SupabaseAuthService @Inject constructor(
         val autologinkey: String,
         val sessionId: String,
         val gymId: String,
+        val client: ClientMetadata,
+    )
+
+    @Serializable
+    private data class ClientMetadata(
+        val platform: String,
+        @SerialName("app_version") val appVersion: String,
+        @SerialName("app_build") val appBuild: String,
+    )
+
+    @Serializable
+    private data class ConfirmAttemptParams(
+        @SerialName("p_request_id") val requestId: String,
+        @SerialName("p_completion_kind") val completionKind: String = "session_ready",
     )
 
     @Serializable

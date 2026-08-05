@@ -139,6 +139,7 @@ fastlane/Preview.html
 fastlane/screenshots/**/*.png
 fastlane/test_output/
 fastlane/readme.md
+play-store/output/
 
 # -----------------------------------------------------------------------------
 # Docs generators / site

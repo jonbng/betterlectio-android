@@ -2,11 +2,13 @@ package dk.betterlectio.android
 
 import android.Manifest
 import android.content.pm.PackageManager
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
+import androidx.activity.SystemBarStyle
 import androidx.appcompat.app.AppCompatActivity
 import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.fillMaxSize
@@ -111,6 +113,23 @@ class MainActivity : AppCompatActivity() {
                 AppearanceMode.SYSTEM -> isSystemInDarkTheme()
                 AppearanceMode.LIGHT -> false
                 AppearanceMode.DARK -> true
+            }
+            // Keep system-bar icon contrast in sync with the in-app appearance setting.
+            // This matters when the app is forced light/dark independently of the device.
+            SideEffect {
+                val transparent = Color.TRANSPARENT
+                val systemBarStyle = if (dark) {
+                    SystemBarStyle.dark(scrim = transparent)
+                } else {
+                    SystemBarStyle.light(
+                        scrim = transparent,
+                        darkScrim = transparent,
+                    )
+                }
+                enableEdgeToEdge(
+                    statusBarStyle = systemBarStyle,
+                    navigationBarStyle = systemBarStyle,
+                )
             }
             // Dismiss splash after the first successful composition/apply.
             SideEffect { keepSplash = false }
