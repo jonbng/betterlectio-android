@@ -276,7 +276,7 @@ private fun RejectedState(state: ProfilePictureState) {
             Column {
                 Text(stringResource(R.string.profile_picture_rejected), fontWeight = FontWeight.SemiBold)
                 Text(
-                    listOfNotNull(reason, state.submission?.reviewNote).joinToString(" — "),
+                    listOfNotNull(reason, state.submission?.reviewNote).joinToString(" · "),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     modifier = Modifier.padding(top = 3.dp),

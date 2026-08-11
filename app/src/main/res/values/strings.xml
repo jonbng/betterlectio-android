@@ -20,10 +20,10 @@
     <string name="login_resume_subtitle">Fortsæt med MitID på din skole.</string>
     <string name="login_resume_session_expired_title">Din session er udløbet</string>
     <string name="login_resume_session_expired_subtitle">Log ind med MitID for at fortsætte.</string>
-    <string name="login_resume_cta">Log ind igen — %1$s</string>
+    <string name="login_resume_cta">Log ind igen, %1$s</string>
     <string name="login_choose_other_school">Vælg anden skole</string>
     <string name="settings_sync_subjects">Synkroniser fagfarver (Supabase)</string>
-    <string name="placeholder_coming_soon">Kommer snart — under opbygning.</string>
+    <string name="placeholder_coming_soon">Kommer snart. Under opbygning.</string>
     <string name="loading">Indlæser…</string>
     <string name="error_generic">Noget gik galt</string>
     <string name="error_generic_hint">Prøv igen om et øjeblik. Hvis problemet fortsætter, log ud og ind igen.</string>
@@ -31,7 +31,7 @@
     <string name="error_offline_hint">Tjek din forbindelse. Gemte data vises, når det er muligt.</string>
     <string name="error_session_expired">Din session er udløbet. Log ind igen.</string>
     <string name="error_session_hint">Lectio kræver en frisk session. Log ind med MitID igen.</string>
-    <string name="error_robot">Robot-detektion — prøv igen om lidt.</string>
+    <string name="error_robot">Robot-detektion. Prøv igen om lidt.</string>
     <string name="error_robot_hint">Lectio har midlertidigt blokeret anmodninger. Vent et par minutter.</string>
     <string name="action_retry">Prøv igen</string>
     <string name="action_cancel">Annuller</string>
@@ -47,7 +47,7 @@
     <string name="empty_messages_hint">Når lærere eller klassen skriver, dukker det op her.</string>
     <string name="empty_messages_folder_hint">Der er ingen tråde i denne mappe lige nu.</string>
     <string name="empty_homework">Ingen lektier</string>
-    <string name="empty_homework_hint">Når der er lektier i Lectio, vises de her — træk ned for at opdatere.</string>
+    <string name="empty_homework_hint">Når der er lektier i Lectio, vises de her. Træk ned for at opdatere.</string>
     <string name="empty_homework_all_clear">Alt klaret!</string>
     <string name="empty_homework_all_clear_hint">Du har ingen lektier de næste 14 dage.</string>
     <string name="homework_swipe_done">Færdig</string>
@@ -115,9 +115,9 @@
     <string name="attachment_downloading">Henter %1$s…</string>
     <string name="attachment_saved">Gemt i Downloads</string>
     <string name="attachment_error_generic">Kunne ikke åbne filen</string>
-    <string name="attachment_error_offline">Ingen forbindelse — prøv igen når du er online</string>
-    <string name="attachment_error_session">Session udløbet — log ind igen for at hente filen</string>
-    <string name="attachment_error_robot">Lectio blokerede midlertidigt — prøv igen om lidt</string>
+    <string name="attachment_error_offline">Ingen forbindelse. Prøv igen når du er online</string>
+    <string name="attachment_error_session">Session udløbet. Log ind igen for at hente filen</string>
+    <string name="attachment_error_robot">Lectio blokerede midlertidigt. Prøv igen om lidt</string>
     <string name="attachment_error_empty">Filen er tom</string>
     <string name="attachment_error_html">Filen kunne ikke hentes (login-side)</string>
     <string name="attachment_error_no_app">Ingen app kan åbne denne filtype</string>
@@ -309,7 +309,7 @@
     <string name="extension_invite_copied">Kopieret</string>
 
     <string name="review_prompt_title">Kan du lide BetterLectio?</string>
-    <string name="review_prompt_body">Det tager kun et øjeblik — og det hjælper os med at gøre appen bedre for dig og dine klassekammerater.</string>
+    <string name="review_prompt_body">Det tager kun et øjeblik, og det hjælper os med at gøre appen bedre for dig og dine klassekammerater.</string>
     <string name="review_prompt_positive">Ja, den er god</string>
     <string name="review_prompt_negative">Kunne være bedre</string>
     <string name="review_prompt_dismiss">Ikke nu</string>
@@ -451,7 +451,7 @@
     <string name="msg_absence_cause_history">Fraværsårsag opdateret: %1$s</string>
     <string name="msg_subject_name_saved">Fagnavn gemt</string>
     <string name="msg_notif_history_cleared">Notifikationshistorik ryddet</string>
-    <string name="msg_supabase_not_configured">Supabase ikke konfigureret — lokale fagfarver bruges</string>
+    <string name="msg_supabase_not_configured">Supabase ikke konfigureret. Lokale fagfarver bruges</string>
     <string name="msg_no_remote_subject_mapping">Ingen remote fagmapping fundet</string>
     <string name="msg_subjects_synced">Fagfarver synkroniseret (%1$d)</string>
 
@@ -492,9 +492,9 @@
     <string name="update_ready_retry_activity">Play In-App Updates er klar. Tryk igen fra en Activity for at tjekke butikken.</string>
     <string name="update_not_linked">Play In-App Updates er ikke linket i denne build (graceful no-op).</string>
     <string name="update_check_failed">Opdateringscheck mislykkedes: %1$s</string>
-    <string name="update_flexible_started">Opdatering tilgængelig — fleksibel opdatering startet.</string>
+    <string name="update_flexible_started">Opdatering tilgængelig. Fleksibel opdatering startet.</string>
     <string name="update_flexible_failed">Opdatering fundet, men flow kunne ikke startes: %1$s</string>
-    <string name="update_immediate_started">Opdatering tilgængelig — øjeblikkelig opdatering startet.</string>
+    <string name="update_immediate_started">Opdatering tilgængelig. Øjeblikkelig opdatering startet.</string>
     <string name="update_immediate_failed">Opdatering fundet (immediate), flow fejlede: %1$s</string>
     <string name="update_none_available">Ingen opdatering tilgængelig (version %1$s).</string>
     <string name="update_play_check_failed">Kunne ikke tjekke Play: %1$s (sideload/debug er normalt).</string>

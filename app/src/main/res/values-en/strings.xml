@@ -20,11 +20,11 @@
     <string name="login_resume_subtitle">Continue with MitID at your school.</string>
     <string name="login_resume_session_expired_title">Your session has expired</string>
     <string name="login_resume_session_expired_subtitle">Sign in with MitID to continue.</string>
-    <string name="login_resume_cta">Sign in again — %1$s</string>
+    <string name="login_resume_cta">Sign in again, %1$s</string>
     <string name="login_choose_other_school">Choose another school</string>
     <string name="settings_sync_subjects">Sync subject colors (Supabase)</string>
 
-    <string name="placeholder_coming_soon">Coming soon — under construction.</string>
+    <string name="placeholder_coming_soon">Coming soon. Under construction.</string>
     <string name="loading">Loading…</string>
     <string name="error_generic">Something went wrong</string>
     <string name="error_generic_hint">Try again in a moment. If it keeps failing, log out and back in.</string>
@@ -32,7 +32,7 @@
     <string name="error_offline_hint">Check your connection. Cached data is shown when available.</string>
     <string name="error_session_expired">Your session has expired. Please log in again.</string>
     <string name="error_session_hint">Lectio needs a fresh session. Sign in with MitID again.</string>
-    <string name="error_robot">Robot detection — try again in a moment.</string>
+    <string name="error_robot">Robot detection. Try again in a moment.</string>
     <string name="error_robot_hint">Lectio temporarily blocked requests. Wait a few minutes.</string>
     <string name="action_retry">Try again</string>
     <string name="action_cancel">Cancel</string>
@@ -48,7 +48,7 @@
     <string name="empty_messages_hint">When teachers or classmates write, it shows up here.</string>
     <string name="empty_messages_folder_hint">No threads in this folder right now.</string>
     <string name="empty_homework">No homework</string>
-    <string name="empty_homework_hint">When Lectio has homework, it appears here — pull down to refresh.</string>
+    <string name="empty_homework_hint">When Lectio has homework, it appears here. Pull down to refresh.</string>
     <string name="empty_homework_all_clear">All clear!</string>
     <string name="empty_homework_all_clear_hint">You have no homework for the next 14 days.</string>
     <string name="homework_swipe_done">Done</string>
@@ -116,9 +116,9 @@
     <string name="attachment_downloading">Downloading %1$s…</string>
     <string name="attachment_saved">Saved to Downloads</string>
     <string name="attachment_error_generic">Could not open the file</string>
-    <string name="attachment_error_offline">No connection — try again when you are online</string>
-    <string name="attachment_error_session">Session expired — log in again to download the file</string>
-    <string name="attachment_error_robot">Lectio temporarily blocked requests — try again shortly</string>
+    <string name="attachment_error_offline">No connection. Try again when you are online</string>
+    <string name="attachment_error_session">Session expired. Log in again to download the file</string>
+    <string name="attachment_error_robot">Lectio temporarily blocked requests. Try again shortly</string>
     <string name="attachment_error_empty">The file is empty</string>
     <string name="attachment_error_html">Could not download the file (login page)</string>
     <string name="attachment_error_no_app">No app can open this file type</string>
@@ -311,7 +311,7 @@
     <string name="extension_invite_copied">Copied</string>
 
     <string name="review_prompt_title">Do you like BetterLectio?</string>
-    <string name="review_prompt_body">It only takes a moment — and it helps us make the app better for you and your classmates.</string>
+    <string name="review_prompt_body">It only takes a moment, and it helps us make the app better for you and your classmates.</string>
     <string name="review_prompt_positive">Yes, it\'s good</string>
     <string name="review_prompt_negative">Could be better</string>
     <string name="review_prompt_dismiss">Not now</string>
@@ -453,7 +453,7 @@
     <string name="msg_absence_cause_history">Absence cause updated: %1$s</string>
     <string name="msg_subject_name_saved">Subject name saved</string>
     <string name="msg_notif_history_cleared">Notification history cleared</string>
-    <string name="msg_supabase_not_configured">Supabase not configured — using local subject colors</string>
+    <string name="msg_supabase_not_configured">Supabase not configured. Using local subject colors</string>
     <string name="msg_no_remote_subject_mapping">No remote subject mapping found</string>
     <string name="msg_subjects_synced">Subject colors synced (%1$d)</string>
 
@@ -494,9 +494,9 @@
     <string name="update_ready_retry_activity">Play In-App Updates is ready. Tap again from an Activity to check the store.</string>
     <string name="update_not_linked">Play In-App Updates is not linked in this build (graceful no-op).</string>
     <string name="update_check_failed">Update check failed: %1$s</string>
-    <string name="update_flexible_started">Update available — flexible update started.</string>
+    <string name="update_flexible_started">Update available. Flexible update started.</string>
     <string name="update_flexible_failed">Update found, but the flow could not be started: %1$s</string>
-    <string name="update_immediate_started">Update available — immediate update started.</string>
+    <string name="update_immediate_started">Update available. Immediate update started.</string>
     <string name="update_immediate_failed">Update found (immediate), flow failed: %1$s</string>
     <string name="update_none_available">No update available (version %1$s).</string>
     <string name="update_play_check_failed">Could not check Play: %1$s (sideload/debug is normal).</string>

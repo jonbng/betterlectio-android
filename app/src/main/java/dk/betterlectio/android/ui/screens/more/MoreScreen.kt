@@ -2747,7 +2747,7 @@ private fun AbsenceRegistrationRow(
             append(reg.cause)
         }
         if (reg.note.isNotBlank()) {
-            append(" — ")
+            append(" · ")
             append(reg.note)
         }
     }
