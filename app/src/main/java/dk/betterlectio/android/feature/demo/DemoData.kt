@@ -402,24 +402,43 @@ object DemoData {
         note = event.notes ?: "Demo-note: medbring lommeregner.",
         homework = event.homework ?: "Læs kap. 3",
         contentBlocks = listOf(
-            LessonContentBlock("heading", "Indhold"),
-            LessonContentBlock("paragraph", "Gennemgang af opgaver og fælles opsamling."),
+            LessonContentBlock("heading", "Læs kap. 3", isHomework = true),
+            LessonContentBlock("paragraph", "Gennemgå opgaverne i bogen.", isHomework = true),
+            LessonContentBlock("heading", "I timen", isHomework = false),
+            LessonContentBlock("paragraph", "Gennemgang af opgaver og fælles opsamling.", isHomework = false),
             LessonContentBlock(
                 kind = "image",
                 text = "Tavle-figur",
                 url = "https://picsum.photos/seed/lesson-${event.id}/640/300",
+                isHomework = false,
             ),
-            LessonContentBlock("note", "Husk bog."),
+            LessonContentBlock("note", "Husk bog.", isHomework = false),
         ),
         participants = listOf(
-            LessonParticipant("T1", "Jens Jensen", "Lærer"),
-            LessonParticipant("S1", "Demo Elev", "Elev"),
-            LessonParticipant("S2", "Anna Andersen", "Elev"),
+            LessonParticipant(
+                id = "T1",
+                name = "Jens Jensen",
+                role = "Lærer",
+                kind = DirectoryEntityKind.TEACHER,
+            ),
+            LessonParticipant(
+                id = "S1",
+                name = "Demo Elev",
+                role = "Elev",
+                kind = DirectoryEntityKind.STUDENT,
+            ),
+            LessonParticipant(
+                id = "S2",
+                name = "Anna Andersen",
+                role = "Elev",
+                kind = DirectoryEntityKind.STUDENT,
+            ),
         ),
         resources = listOf(
             LessonResource("Opgavesæt (PDF)", "https://www.lectio.dk/", isFile = true),
             LessonResource("Geogebra", "https://www.geogebra.org/", isFile = false),
         ),
+        holdId = "HE1",
     )
 
     val directoryMembers = mapOf(

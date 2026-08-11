@@ -136,7 +136,8 @@ class DirectorySyncService @Inject constructor(
             if (hold.kind != DirectoryEntityKind.HOLD && hold.kind != DirectoryEntityKind.CLASS) continue
             val holdElementId = DirectoryParser.numericId(hold.id)
             if (holdElementId.isEmpty()) continue
-            val path = "subnav/members.aspx?holdelementid=$holdElementId"
+            val path =
+                "subnav/members.aspx?holdelementid=$holdElementId&showteachers=1&showstudents=1&reporttype=withpics"
             when (val res = client.get(path, FetchPriority.Opportunistic)) {
                 is AppResult.Success -> {
                     val members = DirectoryParser.parseMembers(res.data.body, hold)

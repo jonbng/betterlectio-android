@@ -16,6 +16,12 @@
     <string name="login_mitid_app_chooser">Vælg app</string>
     <string name="login_mitid_app_missing">Kunne ikke åbne MitID-appen. Installér MitID fra Play Butik, og prøv igen.</string>
     <string name="login_demo">Prøv demo</string>
+    <string name="login_resume_title">Log ind igen</string>
+    <string name="login_resume_subtitle">Fortsæt med MitID på din skole.</string>
+    <string name="login_resume_session_expired_title">Din session er udløbet</string>
+    <string name="login_resume_session_expired_subtitle">Log ind med MitID for at fortsætte.</string>
+    <string name="login_resume_cta">Log ind igen — %1$s</string>
+    <string name="login_choose_other_school">Vælg anden skole</string>
     <string name="settings_sync_subjects">Synkroniser fagfarver (Supabase)</string>
     <string name="placeholder_coming_soon">Kommer snart — under opbygning.</string>
     <string name="loading">Indlæser…</string>
@@ -85,6 +91,7 @@
     <string name="absence_stat_current">Opgjort</string>
     <string name="absence_chart_modules">Modulers fravær</string>
     <string name="more_catalog">Katalog</string>
+    <string name="catalog_students">Elever</string>
     <string name="catalog_teachers">Lærere</string>
     <string name="catalog_classes">Klasser</string>
     <string name="catalog_holds">Hold</string>
@@ -155,9 +162,11 @@
 
     <string name="message_mark_unread">Marker som ulæst</string>
     <string name="message_swipe_read">Læst</string>
+    <string name="message_swipe_unread">Ulæst</string>
     <string name="message_swipe_delete">Slet</string>
     <string name="message_deleted_snackbar">Besked slettet</string>
     <string name="message_marked_read_snackbar">Markeret som læst</string>
+    <string name="message_marked_unread_snackbar">Markeret som ulæst</string>
     <string name="action_undo">Fortryd</string>
     <string name="message_section_today">I dag</string>
     <string name="message_section_yesterday">I går</string>
@@ -244,6 +253,7 @@
     <string name="more_settings">Indstillinger</string>
     <string name="more_referral">Inviter venner</string>
     <string name="more_browser_extension">Browser-udvidelse</string>
+    <string name="more_feedback">Giv feedback</string>
 
     <string name="referral_subtitle_progress">%1$d/%2$d · Lås profilbillede op</string>
     <string name="referral_subtitle_unlocked">Profilbillede låst op</string>
@@ -252,8 +262,8 @@
     <string name="referral_unlock_body">Inviter %1$d mere for at låse dit eget profilbillede op.</string>
     <string name="referral_unlock_done_body">Du kan nu vælge dit eget profilbillede. Det bliver vist, når det er godkendt.</string>
     <string name="referral_teaser_title">Dit eget profilbillede</string>
-    <string name="referral_teaser_body">Inviter %1$d klassekammerater for at låse op.</string>
-    <string name="referral_share_cta">Del med din klasse</string>
+    <string name="referral_teaser_body">Inviter %1$d venner for at låse op.</string>
+    <string name="referral_share_cta">Del med dine venner</string>
     <string name="referral_share_chooser">Del BetterLectio</string>
     <string name="referral_share_text">Prøv BetterLectio. Lectio der faktisk virker på mobilen.\n%1$s</string>
     <string name="referral_copy_link">Kopiér link</string>
@@ -262,13 +272,13 @@
     <string name="referral_stat_clicks">Klik</string>
     <string name="referral_recent_title">Senest inviterede</string>
     <string name="referral_anonymous">Anonym</string>
-    <string name="referral_nudge_title">Del med din klasse</string>
+    <string name="referral_nudge_title">Del med dine venner</string>
     <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link, og invitationen knyttes automatisk.</string>
     <string name="referral_nudge_share">Del nu</string>
     <string name="profile_picture_edit">Skift profilbillede</string>
     <string name="profile_picture_title">Profilbillede</string>
     <string name="profile_picture_unlocked">Låst op med invitationer</string>
-    <string name="profile_picture_locked">%1$d af %2$d invitationer. Invitér klassekammerater for at låse op.</string>
+    <string name="profile_picture_locked">%1$d af %2$d invitationer. Invitér venner for at låse op.</string>
     <string name="profile_picture_choose">Vælg billede</string>
     <string name="profile_picture_choose_another">Vælg et andet</string>
     <string name="profile_picture_submit">Send til godkendelse</string>
@@ -286,7 +296,7 @@
     <string name="profile_picture_invalid_file">Vælg et JPEG-, PNG- eller WebP-billede på højst 5 MB.</string>
     <string name="profile_picture_load_failed">Kunne ikke hente status for profilbilledet.</string>
     <string name="profile_picture_upload_failed">Kunne ikke sende billedet. Prøv igen.</string>
-    <string name="profile_picture_not_unlocked">Invitér tre klassekammerater for at låse funktionen op.</string>
+    <string name="profile_picture_not_unlocked">Invitér tre venner for at låse funktionen op.</string>
     <string name="profile_picture_pending_exists">Du har allerede et billede, der afventer godkendelse.</string>
     <string name="profile_picture_cooldown_active">Der er endnu ikke gået tre måneder siden sidste ændring.</string>
     <string name="referral_nudge_dismiss">Ikke nu</string>
@@ -297,6 +307,12 @@
     <string name="extension_invite_got_it">Forstået</string>
     <string name="extension_invite_copy_link">Kopiér link</string>
     <string name="extension_invite_copied">Kopieret</string>
+
+    <string name="review_prompt_title">Kan du lide BetterLectio?</string>
+    <string name="review_prompt_body">Det tager kun et øjeblik — og det hjælper os med at gøre appen bedre for dig og dine klassekammerater.</string>
+    <string name="review_prompt_positive">Ja, den er god</string>
+    <string name="review_prompt_negative">Kunne være bedre</string>
+    <string name="review_prompt_dismiss">Ikke nu</string>
 
     <string name="settings_appearance">Udseende</string>
     <string name="settings_appearance_system">System</string>
@@ -312,6 +328,8 @@
     <string name="settings_calendar_timeline_hint">Timegrid som Google Kalender (anbefalet)</string>
     <string name="settings_calendar_list">Liste</string>
     <string name="settings_calendar_list_hint">Flade rækker for dagens lektioner</string>
+    <string name="settings_use_subject_colors">Fagfarver</string>
+    <string name="settings_use_subject_colors_hint">Vis unikke farver for hvert fag. Når slået fra vises blå for normale, grøn for ændrede og rød for aflyste lektioner</string>
     <string name="settings_subject_colors">Fag</string>
     <string name="settings_subject_colors_hint">Tryk på et fag for at ændre dets navn og farve. Synkroniseres via Supabase.</string>
     <string name="settings_subject_rename">Visningsnavn</string>
@@ -348,7 +366,11 @@
     <string name="private_event_deleted">Privat aftale slettet</string>
 
     <string name="lesson_content">Indhold</string>
+    <string name="lesson_other_content">Øvrigt indhold</string>
     <string name="lesson_participants">Deltagere</string>
+    <string name="lesson_participants_teachers">Lærere</string>
+    <string name="lesson_participants_students">Elever</string>
+    <string name="lesson_empty">Ingen indhold</string>
     <string name="lesson_resources">Ressourcer</string>
 
     <string name="grades_notes">Noter</string>
@@ -369,7 +391,6 @@
     <string name="directory_person_schedule_empty">Ingen lektioner denne uge</string>
     <string name="directory_person_kind_student">Elev</string>
     <string name="directory_person_kind_teacher">Lærer</string>
-    <string name="student_profile_no_betterlectio">Denne elev har ikke BetterLectio endnu.</string>
     <string name="student_profile_birthday_cd">Fødselsdag</string>
     <string name="student_profile_instagram_cd">Instagram</string>
     <string name="student_profile_week_prev_cd">Forrige uge</string>
@@ -377,6 +398,8 @@
     <string name="student_profile_bl_badge">BL</string>
     <string name="student_profile_photo_cd">Foto af %1$s</string>
     <string name="student_profile_photo_preview_cd">Forhåndsvisning af foto</string>
+    <string name="student_profile_expand_cd">Vis profil</string>
+    <string name="student_profile_collapse_cd">Skjul profil</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Fjern flag</string>
@@ -394,6 +417,11 @@
     <string name="widget_schedule_description">Viser dagens lektioner fra BetterLectio</string>
     <string name="widget_open_app_hint">Åbn appen for at opdatere skemaet</string>
     <string name="widget_day_title">Skema · %1$s</string>
+    <string name="widget_now">Nu</string>
+    <string name="widget_next">Næste</string>
+    <string name="widget_free_day">Ingen lektioner i dag</string>
+    <string name="widget_day_done">Færdig for i dag</string>
+    <string name="widget_more">+%1$d mere</string>
 
     <string name="cd_prev_week">Forrige uge</string>
     <string name="cd_next_week">Næste uge</string>
@@ -473,6 +501,8 @@
     <string name="update_play_core_unavailable">Play Core utilgængelig: %1$s</string>
 
     <!-- Shake-to-feedback -->
+    <string name="feedback_prompt_action">Giv feedback</string>
+    <string name="feedback_prompt_dismiss">Luk</string>
     <string name="feedback_title">Feedback</string>
     <string name="feedback_subtitle">Beskriv problemet eller din idé. Vi læser det.</string>
     <string name="feedback_category_label">Kategori</string>
@@ -499,4 +529,33 @@
     <string name="feedback_done">Luk</string>
     <string name="feedback_error_title">Kunne ikke sende</string>
     <string name="feedback_error_body">Tjek din forbindelse og prøv igen.</string>
+
+    <!-- First-login onboarding -->
+    <string name="onboarding_welcome_title">Velkommen til BetterLectio</string>
+    <string name="onboarding_welcome_body">Et nyt look til Lectio: pænere, hurtigere og nemmere at bruge.</string>
+    <string name="onboarding_welcome_supporting">Lad os tage en hurtig tur rundt.</string>
+    <string name="onboarding_colors_title">Skemafarver</string>
+    <string name="onboarding_colors_body">Giv hvert fag sin egen farve i skemaet, så det er lettere at skelne mellem dem.</string>
+    <string name="onboarding_colors_with">Med farver</string>
+    <string name="onboarding_colors_without">Uden farver</string>
+    <string name="onboarding_colors_hint">Du kan tilpasse farverne for hvert fag senere under Mere.</string>
+    <string name="onboarding_preview_math">Matematik</string>
+    <string name="onboarding_preview_danish">Dansk</string>
+    <string name="onboarding_preview_english">Engelsk</string>
+    <string name="onboarding_preview_history">Historie</string>
+    <string name="onboarding_preview_physics">Fysik</string>
+    <string name="onboarding_hobby_title">Én sidste ting</string>
+    <string name="onboarding_hobby_body">BetterLectio er et hobbyprojekt under udvikling, og din feedback gør en kæmpe forskel.</string>
+    <string name="onboarding_practice_shake_body">Har du fundet en fejl eller har en idé? Ryst telefonen, så dukker der en knap op.</string>
+    <string name="onboarding_practice_chip_title">Tryk på knappen</string>
+    <string name="onboarding_practice_chip_body">Tryk på \"Giv feedback\" for at bekræfte. Sådan sender du feedback senere også.</string>
+    <string name="onboarding_practice_success_title">Sådan!</string>
+    <string name="onboarding_practice_success_body">Ryst, tryk på knappen, og send. Du kan altid gøre det igen.</string>
+    <string name="onboarding_shake_hint">Ryst din telefon nu</string>
+    <string name="onboarding_shake_to_continue">Ryst for at fortsætte</string>
+    <string name="onboarding_tap_chip_to_continue">Tryk på Giv feedback</string>
+    <string name="onboarding_back">Tilbage</string>
+    <string name="onboarding_next">Næste</string>
+    <string name="onboarding_start">Kom i gang</string>
+    <string name="onboarding_skip_shake">Fortsæt uden at øve</string>
 </resources>

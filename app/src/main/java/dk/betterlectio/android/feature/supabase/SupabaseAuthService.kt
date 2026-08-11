@@ -1,9 +1,11 @@
 package dk.betterlectio.android.feature.supabase
 
 import dk.betterlectio.android.BuildConfig
+import dk.betterlectio.android.core.lectio.auth.LectioQrMinter
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.lectio.session.CredentialStore
 import dk.betterlectio.android.core.model.Student
+import dk.betterlectio.android.core.result.AppResult
 import io.github.jan.supabase.auth.OtpType
 import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.functions.functions
@@ -23,13 +25,14 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Lectio cookies → Supabase session via Edge Function `token-for-auth`
- * (iOS: `SupabaseAuthService`).
+ * Lectio QR → Supabase session via Edge Function `lectio-auth`
+ * (iOS: `SupabaseAuthService`). Does not transfer Lectio cookies.
  */
 @Singleton
 class SupabaseAuthService @Inject constructor(
     private val manager: SupabaseManager,
     private val credentialStore: CredentialStore,
+    private val lectioQrMinter: LectioQrMinter,
 ) {
     private val mutex = Mutex()
     private val json = Json {
@@ -38,8 +41,8 @@ class SupabaseAuthService @Inject constructor(
     }
 
     /**
-     * Best-effort: invoke edge function, verify magic-link OTP, sync rotated cookies.
-     * Never throws into Lectio auth paths.
+     * Best-effort: mint Lectio QR, invoke lectio-auth, verify magic-link OTP.
+     * Never throws into Lectio auth paths. Device Lectio cookies stay local.
      */
     suspend fun authenticateWithLectio(
         credentials: LectioCredentials,
@@ -52,17 +55,29 @@ class SupabaseAuthService @Inject constructor(
         }
 
         return mutex.withLock {
-            Timber.i("SupabaseAuth: starting authentication via Edge Function")
+            Timber.i("SupabaseAuth: starting QR mint + lectio-auth")
             try {
-                val response = client.functions.invoke("token-for-auth") {
+                val qr = when (
+                    val minted = lectioQrMinter.mint(credentials, expectedStudentId, gymId)
+                ) {
+                    is AppResult.Success -> minted.data
+                    is AppResult.Failure -> {
+                        Timber.w("SupabaseAuth: QR mint failed: %s", minted.error)
+                        return@withLock SupabaseSessionState.Unavailable(
+                            SupabaseUnavailableReason.QR_MINT_FAILED,
+                        )
+                    }
+                }
+
+                val response = client.functions.invoke("lectio-auth") {
                     contentType(ContentType.Application.Json)
                     setBody(
                         json.encodeToString(
                             EdgeFunctionRequest.serializer(),
                             EdgeFunctionRequest(
-                                autologinkey = credentials.autologinkey,
-                                sessionId = credentials.sessionId,
-                                gymId = gymId.toString(),
+                                qrId = qr.qrId,
+                                userId = qr.userId,
+                                schoolId = gymId.toString(),
                                 client = ClientMetadata(
                                     platform = "android",
                                     appVersion = BuildConfig.VERSION_NAME,
@@ -84,14 +99,6 @@ class SupabaseAuthService @Inject constructor(
                     )
                     return@withLock SupabaseSessionState.Unavailable(
                         SupabaseUnavailableReason.IDENTITY_MISMATCH,
-                    )
-                }
-
-                // The Edge Function may rotate the same Lectio cookies used by the app.
-                // Persist those rotations before any later Supabase step can fail.
-                if (!syncRotatedCookies(decoded, credentials, expectedStudentId)) {
-                    return@withLock SupabaseSessionState.Unavailable(
-                        SupabaseUnavailableReason.COOKIE_PERSISTENCE_FAILED,
                     )
                 }
 
@@ -132,8 +139,8 @@ class SupabaseAuthService @Inject constructor(
     }
 
     /**
-     * Cold-start: if SDK has no session, re-mint via edge function using stored Lectio cookies.
-     * Always completes the session gate with the real bootstrap outcome.
+     * Cold-start: if SDK has no session, mint a fresh Lectio QR from stored cookies
+     * and re-authenticate via lectio-auth.
      */
     suspend fun ensureSessionIfNeeded(student: Student): SupabaseSessionState {
         val result = when {
@@ -145,7 +152,6 @@ class SupabaseAuthService @Inject constructor(
             }
             else -> {
                 val client = checkNotNull(manager.client)
-                // Wait for SDK to load any persisted session from storage
                 runCatching { client.auth.awaitInitialization() }
                 if (client.auth.currentSessionOrNull() != null) {
                     Timber.d("SupabaseAuth: existing session present")
@@ -157,7 +163,7 @@ class SupabaseAuthService @Inject constructor(
                             SupabaseUnavailableReason.MISSING_CREDENTIALS,
                         )
                     } else {
-                        Timber.i("SupabaseAuth: no cached session — re-authenticating via Edge Function")
+                        Timber.i("SupabaseAuth: no cached session — re-authenticating via lectio-auth")
                         authenticateWithLectio(credentials, student.studentId, student.gymId)
                     }
                 }
@@ -167,9 +173,6 @@ class SupabaseAuthService @Inject constructor(
         return result
     }
 
-    /**
-     * Login path: mint session then open the gate for other remote work.
-     */
     suspend fun authenticateAndMarkReady(
         credentials: LectioCredentials,
         studentId: String,
@@ -191,54 +194,11 @@ class SupabaseAuthService @Inject constructor(
         }
     }
 
-    private fun syncRotatedCookies(
-        response: EdgeFunctionResponse,
-        fallbackCredentials: LectioCredentials,
-        expectedStudentId: String,
-    ): Boolean {
-        val rotated = response.cookies ?: run {
-            Timber.w("SupabaseAuth: EF response carried no rotated cookies")
-            return false
-        }
-        val studentId = response.studentId ?: run {
-            Timber.w("SupabaseAuth: no studentId in EF response")
-            return false
-        }
-        if (studentId != expectedStudentId) {
-            return false
-        }
-        if (rotated.autologinkey.isBlank() || rotated.sessionId.isBlank()) {
-            Timber.w("SupabaseAuth: EF returned empty primary cookie — refusing to overwrite")
-            return false
-        }
-
-        val additional = (rotated.additional ?: emptyMap()).toMutableMap()
-        if (!additional.containsKey(LectioCredentials.COOKIE_IS_LOGGED_IN)) {
-            additional[LectioCredentials.COOKIE_IS_LOGGED_IN] = "Y"
-        }
-
-        val updated = LectioCredentials(
-            autologinkey = rotated.autologinkey,
-            sessionId = rotated.sessionId,
-            autologinkeyExpiresAt = fallbackCredentials.autologinkeyExpiresAt,
-            sessionIdExpiresAt = fallbackCredentials.sessionIdExpiresAt,
-            additionalCookies = additional,
-        )
-        try {
-            credentialStore.updateCredentials(updated, studentId)
-            Timber.i("SupabaseAuth: credentials synced with EF-rotated cookies for student %s", studentId)
-            return true
-        } catch (e: Exception) {
-            Timber.w(e, "SupabaseAuth: failed to write rotated cookies")
-            return false
-        }
-    }
-
     @Serializable
     private data class EdgeFunctionRequest(
-        val autologinkey: String,
-        val sessionId: String,
-        val gymId: String,
+        val qrId: String,
+        val userId: String,
+        val schoolId: String,
         val client: ClientMetadata,
     )
 
@@ -259,15 +219,9 @@ class SupabaseAuthService @Inject constructor(
     private data class EdgeFunctionResponse(
         @SerialName("token_hash") val tokenHash: String,
         val email: String,
-        val studentId: String? = null,
+        @SerialName("student_id") val studentId: String? = null,
+        @SerialName("school_id") val schoolId: String? = null,
+        @SerialName("was_first_install") val wasFirstInstall: Boolean? = null,
         @SerialName("request_id") val requestId: String? = null,
-        val cookies: RotatedCookies? = null,
-    )
-
-    @Serializable
-    private data class RotatedCookies(
-        val autologinkey: String,
-        val sessionId: String,
-        val additional: Map<String, String>? = null,
     )
 }

@@ -36,6 +36,7 @@ class SessionController @Inject constructor(
     private val sessionEvents: SessionEvents,
     private val offlineDataCleaner: OfflineDataCleaner,
     private val externalWiper: SessionExternalWiper,
+    private val lastSchoolStore: LastSchoolStore,
 ) {
     private val scope = CoroutineScope(SupervisorJob() + Dispatchers.Main.immediate)
     private val ioScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
@@ -68,7 +69,17 @@ class SessionController @Inject constructor(
             return
         }
         Timber.w("Session expired — full wipe (store + WebView + Supabase)")
-        PostHog.capture(event = "session_expired")
+        student?.let { lastSchoolStore.remember(it, LastSchoolReason.SESSION_EXPIRED) }
+        // Match extension event name: `lectio session lost` (unexpected session death).
+        PostHog.capture(
+            event = "lectio session lost",
+            properties = buildMap {
+                student?.gymId?.let { put("school_id", it.toString()) }
+                student?.schoolName?.takeIf { it.isNotBlank() }?.let { put("school_name", it) }
+                put("detection_source", "http_session_expired")
+                put("platform", "android")
+            },
+        )
         PostHog.reset()
         clearSession(keepStudentProfile = false)
         ioScope.launch {
@@ -89,6 +100,17 @@ class SessionController @Inject constructor(
         }
         val creds = credentialStore.loadCredentials(student.studentId)
         if (creds == null || creds.autologinkey.isEmpty()) {
+            lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
+            PostHog.capture(
+                event = "lectio session lost",
+                properties = mapOf(
+                    "school_id" to student.gymId.toString(),
+                    "school_name" to (student.schoolName ?: ""),
+                    "detection_source" to "missing_credentials_on_restore",
+                    "platform" to "android",
+                ),
+            )
+            PostHog.reset()
             credentialStore.deleteStudent()
             _authState.value = AuthState.Unauthenticated
             return
@@ -100,6 +122,10 @@ class SessionController @Inject constructor(
         credentialStore.saveStudent(student)
         if (credentials != null && !student.isDemo) {
             credentialStore.saveCredentials(credentials, student.studentId)
+        }
+        // Keep last-school hint fresh for the next logout / expiry (non-demo only).
+        if (!student.isDemo) {
+            lastSchoolStore.remember(student, LastSchoolReason.LOGGED_OUT)
         }
         _authState.value = AuthState.Authenticated(student)
         Timber.i(

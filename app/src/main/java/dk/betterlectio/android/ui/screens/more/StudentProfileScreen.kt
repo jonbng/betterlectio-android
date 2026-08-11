@@ -2,15 +2,20 @@ package dk.betterlectio.android.ui.screens.more
 
 import android.content.Intent
 import android.net.Uri
+import androidx.compose.animation.AnimatedContent
+import androidx.compose.animation.SizeTransform
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.gestures.detectVerticalDragGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
-import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
@@ -18,20 +23,18 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
-import androidx.compose.foundation.layout.width
-import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
-import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.Message
 import androidx.compose.material.icons.filled.Cake
 import androidx.compose.material.icons.filled.ChevronLeft
 import androidx.compose.material.icons.filled.ChevronRight
+import androidx.compose.material.icons.filled.KeyboardArrowDown
+import androidx.compose.material.icons.filled.KeyboardArrowUp
 import androidx.compose.material.icons.filled.Link
 import androidx.compose.material.icons.filled.PushPin
 import androidx.compose.material.icons.filled.School
 import androidx.compose.material.icons.outlined.PushPin
-import androidx.compose.material3.Button
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -39,13 +42,13 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
-import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableFloatStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -54,11 +57,13 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import coil3.compose.SubcomposeAsyncImage
 import coil3.request.ImageRequest
@@ -84,6 +89,7 @@ import dk.betterlectio.android.ui.components.InitialsAvatar
 import dk.betterlectio.android.ui.components.LectioImagePreviewDialog
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.components.StatusChip
+import dk.betterlectio.android.ui.screens.schedule.ScheduleDayPager
 import dk.betterlectio.android.ui.screens.schedule.StandardDayList
 import dk.betterlectio.android.ui.screens.schedule.TimelineDayView
 import dk.betterlectio.android.ui.theme.BetterLectioThemeExtras
@@ -120,27 +126,20 @@ fun StudentProfileScreen(
         ?: entity.subtitle?.takeIf { it.isNotBlank() }
 
     Column(Modifier.fillMaxSize()) {
-        Column(
-            Modifier
+        StudentProfileHero(
+            entity = entity,
+            profile = profile,
+            displayName = displayName,
+            classLabel = classLabel,
+            hasBetterLectio = hasBetterLectio,
+            pinned = pinned,
+            onWriteMessage = onWriteMessage,
+            onTogglePin = onTogglePin,
+            onViewClass = onViewClass,
+            modifier = Modifier
                 .fillMaxWidth()
-                .verticalScroll(rememberScrollState())
-                .padding(bottom = 4.dp),
-        ) {
-            StudentProfileHero(
-                entity = entity,
-                profile = profile,
-                displayName = displayName,
-                classLabel = classLabel,
-                hasBetterLectio = hasBetterLectio,
-                pinned = pinned,
-                onWriteMessage = onWriteMessage,
-                onTogglePin = onTogglePin,
-                onViewClass = onViewClass,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 12.dp, vertical = 8.dp),
-            )
-        }
+                .padding(horizontal = 12.dp, vertical = 6.dp),
+        )
         HorizontalDivider(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
             thickness = 0.5.dp,
@@ -199,9 +198,14 @@ fun PersonSchedulePane(
     }
 
     val weekDays = week?.days.orEmpty()
-    val eventsForSelected = weekDays.find { it.date == selectedDate }?.events.orEmpty()
     val isCurrentWeek = weekYear == LectioDateUtils.isoWeekYear(today) &&
         weekNumber == LectioDateUtils.isoWeek(today)
+
+    fun selectDate(date: LocalDate) {
+        selectedDate = date
+        val inLoadedWeek = weekDays.any { it.date == date }
+        if (!inLoadedWeek) onLoadWeekForDate(date)
+    }
 
     Column(modifier = modifier.fillMaxSize()) {
         PersonWeekHeader(
@@ -244,26 +248,21 @@ fun PersonSchedulePane(
             )
         }
 
-        if (weekDays.isNotEmpty()) {
-            DateStrip(
-                days = weekDays.map { day ->
-                    DateStripDay(
-                        date = day.date,
-                        hasEvents = day.events.isNotEmpty(),
-                    )
-                },
-                selected = selectedDate,
-                onSelect = { selectedDate = it },
-                onWeekChanged = { date ->
-                    selectedDate = date
-                    onLoadWeekForDate(date)
-                },
-                hasEvents = { date ->
-                    weekDays.find { it.date == date }?.events?.isNotEmpty() == true
-                },
-                modifier = Modifier.fillMaxWidth(),
-            )
-        }
+        DateStrip(
+            days = weekDays.map { day ->
+                DateStripDay(
+                    date = day.date,
+                    hasEvents = day.events.isNotEmpty(),
+                )
+            },
+            selected = selectedDate,
+            onSelect = ::selectDate,
+            onWeekChanged = ::selectDate,
+            hasEvents = { date ->
+                weekDays.find { it.date == date }?.events?.isNotEmpty() == true
+            },
+            modifier = Modifier.fillMaxWidth(),
+        )
 
         HorizontalDivider(
             color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
@@ -284,31 +283,35 @@ fun PersonSchedulePane(
                         modifier = Modifier.padding(16.dp),
                     )
                 }
-                calendarStyle == CalendarStyle.PROFESSIONAL -> {
-                    TimelineDayView(
-                        date = selectedDate,
-                        events = eventsForSelected,
-                        displayTitle = displayTitle,
-                        accentFor = accentFor,
-                        statusColor = { status ->
-                            when (status) {
-                                EventStatus.CHANGED -> extended.statusChanged
-                                EventStatus.CANCELLED -> extended.statusCancelled
-                                EventStatus.NORMAL -> extended.statusNormal
-                            }
-                        },
-                        onEventClick = { selectedEvent = it },
-                        modifier = Modifier.fillMaxSize(),
-                    )
-                }
                 else -> {
-                    StandardDayList(
-                        events = eventsForSelected,
-                        displayTitle = displayTitle,
-                        accentFor = accentFor,
-                        onEventClick = { selectedEvent = it },
+                    ScheduleDayPager(
+                        selectedDate = selectedDate,
+                        onSelectDate = ::selectDate,
                         modifier = Modifier.fillMaxSize(),
-                    )
+                    ) { date ->
+                        val events = weekDays.find { it.date == date }?.events.orEmpty()
+                        when (calendarStyle) {
+                            CalendarStyle.PROFESSIONAL -> {
+                                TimelineDayView(
+                                    date = date,
+                                    events = events,
+                                    displayTitle = displayTitle,
+                                    accentFor = accentFor,
+                                    onEventClick = { selectedEvent = it },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                            CalendarStyle.STANDARD -> {
+                                StandardDayList(
+                                    events = events,
+                                    displayTitle = displayTitle,
+                                    accentFor = accentFor,
+                                    onEventClick = { selectedEvent = it },
+                                    modifier = Modifier.fillMaxSize(),
+                                )
+                            }
+                        }
+                    }
                 }
             }
         }
@@ -403,6 +406,20 @@ private fun StudentProfileHero(
         )
     }
     var showPhotoPreview by remember { mutableStateOf(false) }
+    // Prefer schedule space; auto-expand once when a rich BL profile loads.
+    var expanded by remember(entity.id) { mutableStateOf(false) }
+    var userCollapsed by remember(entity.id) { mutableStateOf(false) }
+    var collapseDrag by remember { mutableFloatStateOf(0f) }
+
+    val hasRichProfile = hasBetterLectio && (
+        !profile?.description.isNullOrBlank() ||
+            profile?.formattedBirthday() != null ||
+            InstagramHandles.format(profile?.instagram).isNotEmpty()
+        )
+
+    LaunchedEffect(entity.id, hasRichProfile) {
+        if (hasRichProfile && !userCollapsed) expanded = true
+    }
 
     LaunchedEffect(entity.id, preferredUrl, entity.avatarUrl) {
         if (!preferredUrl.isNullOrBlank()) {
@@ -418,252 +435,75 @@ private fun StudentProfileHero(
         if (!resolved.isNullOrBlank()) resolvedUrl = resolved
     }
 
-    val pfpWidth = if (hasBetterLectio) 88.dp else 64.dp
-    val pfpHeight = if (hasBetterLectio) 116.dp else 84.dp
-    val shape = RoundedCornerShape(18.dp)
+    val openPreview = {
+        if (!resolvedUrl.isNullOrBlank()) showPhotoPreview = true
+    }
 
     Surface(
-        modifier = modifier,
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(20.dp),
-    ) {
-        Column(
-            Modifier.padding(14.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp),
-        ) {
-            Row(
-                horizontalArrangement = Arrangement.spacedBy(14.dp),
-                verticalAlignment = Alignment.Top,
-            ) {
-                Box(
-                    modifier = Modifier
-                        .size(width = pfpWidth, height = pfpHeight)
-                        .clip(shape)
-                        .border(
-                            width = if (hasBetterLectio) 2.dp else 1.dp,
-                            color = if (hasBetterLectio) {
-                                MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
-                            } else {
-                                MaterialTheme.colorScheme.outlineVariant
-                            },
-                            shape = shape,
-                        )
-                        .background(MaterialTheme.colorScheme.surfaceVariant)
-                        .clickable(enabled = !resolvedUrl.isNullOrBlank()) {
-                            showPhotoPreview = true
-                        },
-                    contentAlignment = Alignment.Center,
-                ) {
-                    val url = resolvedUrl
-                    if (!url.isNullOrBlank()) {
-                        SubcomposeAsyncImage(
-                            model = ImageRequest.Builder(context)
-                                .data(url)
-                                .crossfade(true)
-                                .build(),
-                            contentDescription = stringResource(
-                                R.string.student_profile_photo_cd,
-                                displayName,
-                            ),
-                            contentScale = ContentScale.Crop,
-                            alignment = Alignment.TopCenter,
-                            modifier = Modifier
-                                .fillMaxSize()
-                                .clip(shape),
-                            loading = {
-                                InitialsAvatar(
-                                    label = displayName,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            },
-                            error = {
-                                InitialsAvatar(
-                                    label = displayName,
-                                    modifier = Modifier.fillMaxSize(),
-                                )
-                            },
-                        )
-                    } else {
-                        InitialsAvatar(
-                            label = displayName,
-                            modifier = Modifier.fillMaxSize(),
-                        )
-                    }
-                }
-
-                Column(
-                    modifier = Modifier.weight(1f),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    Text(
-                        displayName,
-                        style = if (hasBetterLectio) {
-                            MaterialTheme.typography.headlineSmall
-                        } else {
-                            MaterialTheme.typography.titleLarge
-                        },
-                        fontWeight = FontWeight.Bold,
-                        maxLines = 2,
-                        overflow = TextOverflow.Ellipsis,
-                    )
-                    FlowRow(
-                        horizontalArrangement = Arrangement.spacedBy(6.dp),
-                        verticalArrangement = Arrangement.spacedBy(6.dp),
-                    ) {
-                        classLabel?.let {
-                            Text(
-                                it,
-                                style = MaterialTheme.typography.bodyMedium,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                fontWeight = FontWeight.Medium,
-                            )
+        modifier = modifier
+            .pointerInput(expanded) {
+                if (!expanded) return@pointerInput
+                detectVerticalDragGestures(
+                    onDragEnd = {
+                        if (collapseDrag < -48f) {
+                            userCollapsed = true
+                            expanded = false
                         }
-                        Surface(
-                            color = MaterialTheme.colorScheme.primary.copy(alpha = 0.12f),
-                            shape = RoundedCornerShape(6.dp),
-                        ) {
-                            Text(
-                                stringResource(R.string.directory_person_kind_student),
-                                style = MaterialTheme.typography.labelSmall,
-                                fontWeight = FontWeight.SemiBold,
-                                color = MaterialTheme.colorScheme.primary,
-                                modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                            )
+                        collapseDrag = 0f
+                    },
+                    onDragCancel = { collapseDrag = 0f },
+                    onVerticalDrag = { _, dragAmount ->
+                        collapseDrag += dragAmount
+                        if (collapseDrag < -72f) {
+                            userCollapsed = true
+                            expanded = false
+                            collapseDrag = 0f
                         }
-                        if (hasBetterLectio) {
-                            Surface(
-                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
-                                shape = RoundedCornerShape(6.dp),
-                            ) {
-                                Text(
-                                    stringResource(R.string.student_profile_bl_badge),
-                                    style = MaterialTheme.typography.labelSmall,
-                                    fontWeight = FontWeight.Bold,
-                                    color = MaterialTheme.colorScheme.tertiary,
-                                    modifier = Modifier.padding(horizontal = 8.dp, vertical = 2.dp),
-                                )
-                            }
-                        }
-                    }
-
-                    Row(
-                        horizontalArrangement = Arrangement.spacedBy(8.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Surface(
-                            onClick = onTogglePin,
-                            shape = RoundedCornerShape(12.dp),
-                            color = MaterialTheme.colorScheme.surface,
-                            tonalElevation = 1.dp,
-                        ) {
-                            Icon(
-                                imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                                contentDescription = stringResource(
-                                    if (pinned) R.string.directory_unpin else R.string.directory_pin,
-                                ),
-                                tint = if (pinned) {
-                                    MaterialTheme.colorScheme.primary
-                                } else {
-                                    MaterialTheme.colorScheme.onSurfaceVariant
-                                },
-                                modifier = Modifier.padding(10.dp),
-                            )
-                        }
-                        Button(
-                            onClick = onWriteMessage,
-                            contentPadding = PaddingValues(horizontal = 14.dp, vertical = 8.dp),
-                        ) {
-                            Icon(
-                                Icons.AutoMirrored.Filled.Message,
-                                contentDescription = null,
-                                modifier = Modifier.size(18.dp),
-                            )
-                            Spacer(Modifier.width(8.dp))
-                            Text(stringResource(R.string.directory_write_message))
-                        }
-                    }
-                }
-            }
-
-            if (hasBetterLectio) {
-                profile?.description?.takeIf { it.isNotBlank() }?.let { bio ->
-                    Text(
-                        bio,
-                        style = MaterialTheme.typography.bodyMedium,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                FlowRow(
-                    horizontalArrangement = Arrangement.spacedBy(8.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    profile?.formattedBirthday()?.let { birthday ->
-                        ProfileInfoChip(
-                            icon = Icons.Default.Cake,
-                            label = birthday,
-                            contentDescription = stringResource(R.string.student_profile_birthday_cd),
-                        )
-                    }
-                    val igHandle = InstagramHandles.format(profile?.instagram)
-                    val igUrl = InstagramHandles.profileUrl(profile?.instagram)
-                    if (igHandle.isNotEmpty() && igUrl != null) {
-                        ProfileInfoChip(
-                            icon = Icons.Default.Link,
-                            label = igHandle,
-                            contentDescription = stringResource(R.string.student_profile_instagram_cd),
-                            onClick = {
-                                context.startActivity(
-                                    Intent(Intent.ACTION_VIEW, Uri.parse(igUrl)),
-                                )
-                            },
-                        )
-                    }
-                    classLabel?.let { label ->
-                        ProfileInfoChip(
-                            icon = Icons.Default.School,
-                            label = label,
-                            contentDescription = null,
-                        )
-                    }
-                }
-                if (!classLabel.isNullOrBlank()) {
-                    OutlinedButton(
-                        onClick = onViewClass,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.School,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(R.string.directory_view_class_named, classLabel),
-                        )
-                    }
-                }
-            } else {
-                Text(
-                    stringResource(R.string.student_profile_no_betterlectio),
-                    style = MaterialTheme.typography.bodyMedium,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    },
                 )
-                if (!classLabel.isNullOrBlank()) {
-                    OutlinedButton(
-                        onClick = onViewClass,
-                        contentPadding = PaddingValues(horizontal = 12.dp, vertical = 6.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.School,
-                            contentDescription = null,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Spacer(Modifier.width(8.dp))
-                        Text(
-                            stringResource(R.string.directory_view_class_named, classLabel),
-                        )
-                    }
-                }
+            },
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
+        shape = RoundedCornerShape(16.dp),
+    ) {
+        AnimatedContent(
+            targetState = expanded,
+            transitionSpec = {
+                fadeIn() togetherWith fadeOut() using SizeTransform(clip = true)
+            },
+            label = "student-profile-hero",
+        ) { isExpanded ->
+            if (isExpanded) {
+                ExpandedStudentProfile(
+                    displayName = displayName,
+                    classLabel = classLabel,
+                    hasBetterLectio = hasBetterLectio,
+                    profile = profile,
+                    resolvedUrl = resolvedUrl,
+                    pinned = pinned,
+                    onWriteMessage = onWriteMessage,
+                    onTogglePin = onTogglePin,
+                    onViewClass = onViewClass,
+                    onCollapse = {
+                        userCollapsed = true
+                        expanded = false
+                    },
+                    onPhotoClick = openPreview,
+                )
+            } else {
+                CollapsedStudentProfile(
+                    displayName = displayName,
+                    classLabel = classLabel,
+                    hasBetterLectio = hasBetterLectio,
+                    resolvedUrl = resolvedUrl,
+                    pinned = pinned,
+                    onWriteMessage = onWriteMessage,
+                    onTogglePin = onTogglePin,
+                    onExpand = {
+                        userCollapsed = false
+                        expanded = true
+                    },
+                    onPhotoClick = openPreview,
+                )
             }
         }
     }
@@ -675,6 +515,329 @@ private fun StudentProfileHero(
                 url = url,
                 contentDescription = displayName,
                 onDismiss = { showPhotoPreview = false },
+            )
+        }
+    }
+}
+
+@Composable
+private fun CollapsedStudentProfile(
+    displayName: String,
+    classLabel: String?,
+    hasBetterLectio: Boolean,
+    resolvedUrl: String?,
+    pinned: Boolean,
+    onWriteMessage: () -> Unit,
+    onTogglePin: () -> Unit,
+    onExpand: () -> Unit,
+    onPhotoClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clickable(onClick = onExpand)
+            .padding(horizontal = 10.dp, vertical = 8.dp),
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(10.dp),
+    ) {
+        StudentPortrait(
+            url = resolvedUrl,
+            displayName = displayName,
+            hasBetterLectio = hasBetterLectio,
+            width = 36.dp,
+            height = 48.dp,
+            corner = 10.dp,
+            onClick = onPhotoClick,
+        )
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                displayName,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            val subtitle = buildString {
+                classLabel?.let { append(it) }
+                if (hasBetterLectio) {
+                    if (isNotEmpty()) append(" · ")
+                    append(stringResource(R.string.student_profile_bl_badge))
+                }
+            }
+            if (subtitle.isNotEmpty()) {
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.labelMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
+                )
+            }
+        }
+        IconButton(
+            onClick = onWriteMessage,
+            modifier = Modifier.size(40.dp),
+        ) {
+            Icon(
+                Icons.AutoMirrored.Filled.Message,
+                contentDescription = stringResource(R.string.directory_write_message),
+                tint = MaterialTheme.colorScheme.primary,
+            )
+        }
+        IconButton(
+            onClick = onTogglePin,
+            modifier = Modifier.size(40.dp),
+        ) {
+            Icon(
+                imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                contentDescription = stringResource(
+                    if (pinned) R.string.directory_unpin else R.string.directory_pin,
+                ),
+                tint = if (pinned) {
+                    MaterialTheme.colorScheme.primary
+                } else {
+                    MaterialTheme.colorScheme.onSurfaceVariant
+                },
+            )
+        }
+        Icon(
+            Icons.Default.KeyboardArrowDown,
+            contentDescription = stringResource(R.string.student_profile_expand_cd),
+            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.size(20.dp),
+        )
+    }
+}
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+private fun ExpandedStudentProfile(
+    displayName: String,
+    classLabel: String?,
+    hasBetterLectio: Boolean,
+    profile: StudentProfile?,
+    resolvedUrl: String?,
+    pinned: Boolean,
+    onWriteMessage: () -> Unit,
+    onTogglePin: () -> Unit,
+    onViewClass: () -> Unit,
+    onCollapse: () -> Unit,
+    onPhotoClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val bio = profile?.description?.takeIf { it.isNotBlank() }.takeIf { hasBetterLectio }
+    val birthday = profile?.formattedBirthday().takeIf { hasBetterLectio }
+    val igHandle = InstagramHandles.format(profile?.instagram).takeIf { hasBetterLectio && it.isNotEmpty() }
+    val igUrl = InstagramHandles.profileUrl(profile?.instagram).takeIf { igHandle != null }
+
+    Column(
+        Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 12.dp, vertical = 8.dp),
+        verticalArrangement = Arrangement.spacedBy(8.dp),
+    ) {
+        Row(
+            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            verticalAlignment = Alignment.CenterVertically,
+        ) {
+            StudentPortrait(
+                url = resolvedUrl,
+                displayName = displayName,
+                hasBetterLectio = hasBetterLectio,
+                width = 52.dp,
+                height = 68.dp,
+                corner = 12.dp,
+                onClick = onPhotoClick,
+            )
+
+            Column(
+                modifier = Modifier.weight(1f),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
+            ) {
+                Text(
+                    displayName,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.Bold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
+                )
+                Row(
+                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    classLabel?.let {
+                        Text(
+                            it,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            fontWeight = FontWeight.Medium,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f, fill = false),
+                        )
+                    }
+                    if (hasBetterLectio) {
+                        Surface(
+                            color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.14f),
+                            shape = RoundedCornerShape(6.dp),
+                        ) {
+                            Text(
+                                stringResource(R.string.student_profile_bl_badge),
+                                style = MaterialTheme.typography.labelSmall,
+                                fontWeight = FontWeight.Bold,
+                                color = MaterialTheme.colorScheme.tertiary,
+                                modifier = Modifier.padding(horizontal = 6.dp, vertical = 1.dp),
+                            )
+                        }
+                    }
+                }
+            }
+
+            IconButton(
+                onClick = onWriteMessage,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.AutoMirrored.Filled.Message,
+                    contentDescription = stringResource(R.string.directory_write_message),
+                    tint = MaterialTheme.colorScheme.primary,
+                )
+            }
+            IconButton(
+                onClick = onTogglePin,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
+                    contentDescription = stringResource(
+                        if (pinned) R.string.directory_unpin else R.string.directory_pin,
+                    ),
+                    tint = if (pinned) {
+                        MaterialTheme.colorScheme.primary
+                    } else {
+                        MaterialTheme.colorScheme.onSurfaceVariant
+                    },
+                )
+            }
+            IconButton(
+                onClick = onCollapse,
+                modifier = Modifier.size(40.dp),
+            ) {
+                Icon(
+                    Icons.Default.KeyboardArrowUp,
+                    contentDescription = stringResource(R.string.student_profile_collapse_cd),
+                )
+            }
+        }
+
+        if (bio != null) {
+            Text(
+                bio,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                maxLines = 3,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
+
+        if (birthday != null || igHandle != null || !classLabel.isNullOrBlank()) {
+            FlowRow(
+                horizontalArrangement = Arrangement.spacedBy(6.dp),
+                verticalArrangement = Arrangement.spacedBy(6.dp),
+            ) {
+                birthday?.let {
+                    ProfileInfoChip(
+                        icon = Icons.Default.Cake,
+                        label = it,
+                        contentDescription = stringResource(R.string.student_profile_birthday_cd),
+                    )
+                }
+                if (igHandle != null && igUrl != null) {
+                    ProfileInfoChip(
+                        icon = Icons.Default.Link,
+                        label = igHandle,
+                        contentDescription = stringResource(R.string.student_profile_instagram_cd),
+                        onClick = {
+                            context.startActivity(
+                                Intent(Intent.ACTION_VIEW, Uri.parse(igUrl)),
+                            )
+                        },
+                    )
+                }
+                classLabel?.let { label ->
+                    ProfileInfoChip(
+                        icon = Icons.Default.School,
+                        label = label,
+                        contentDescription = stringResource(R.string.directory_view_class),
+                        onClick = onViewClass,
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun StudentPortrait(
+    url: String?,
+    displayName: String,
+    hasBetterLectio: Boolean,
+    width: Dp,
+    height: Dp,
+    corner: Dp,
+    onClick: () -> Unit,
+) {
+    val context = LocalContext.current
+    val shape = RoundedCornerShape(corner)
+    Box(
+        modifier = Modifier
+            .size(width = width, height = height)
+            .clip(shape)
+            .border(
+                width = if (hasBetterLectio) 1.5.dp else 1.dp,
+                color = if (hasBetterLectio) {
+                    MaterialTheme.colorScheme.primary.copy(alpha = 0.35f)
+                } else {
+                    MaterialTheme.colorScheme.outlineVariant
+                },
+                shape = shape,
+            )
+            .background(MaterialTheme.colorScheme.surfaceVariant)
+            .clickable(enabled = !url.isNullOrBlank(), onClick = onClick),
+        contentAlignment = Alignment.Center,
+    ) {
+        if (!url.isNullOrBlank()) {
+            SubcomposeAsyncImage(
+                model = ImageRequest.Builder(context)
+                    .data(url)
+                    .crossfade(true)
+                    .build(),
+                contentDescription = stringResource(
+                    R.string.student_profile_photo_cd,
+                    displayName,
+                ),
+                contentScale = ContentScale.Crop,
+                alignment = Alignment.TopCenter,
+                modifier = Modifier
+                    .fillMaxSize()
+                    .clip(shape),
+                loading = {
+                    InitialsAvatar(
+                        label = displayName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+                error = {
+                    InitialsAvatar(
+                        label = displayName,
+                        modifier = Modifier.fillMaxSize(),
+                    )
+                },
+            )
+        } else {
+            InitialsAvatar(
+                label = displayName,
+                modifier = Modifier.fillMaxSize(),
             )
         }
     }
@@ -730,7 +893,7 @@ private fun ProfileInfoChip(
     contentDescription: String?,
     onClick: (() -> Unit)? = null,
 ) {
-    val shape = RoundedCornerShape(12.dp)
+    val shape = RoundedCornerShape(10.dp)
     Row(
         modifier = Modifier
             .clip(shape)
@@ -742,19 +905,19 @@ private fun ProfileInfoChip(
                     Modifier
                 },
             )
-            .padding(horizontal = 12.dp, vertical = 8.dp),
+            .padding(horizontal = 8.dp, vertical = 5.dp),
         verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(6.dp),
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
     ) {
         Icon(
             imageVector = icon,
             contentDescription = contentDescription,
-            modifier = Modifier.size(16.dp),
+            modifier = Modifier.size(14.dp),
             tint = MaterialTheme.colorScheme.onSurfaceVariant,
         )
         Text(
             label,
-            style = MaterialTheme.typography.labelLarge,
+            style = MaterialTheme.typography.labelMedium,
             color = MaterialTheme.colorScheme.onSurface,
         )
     }

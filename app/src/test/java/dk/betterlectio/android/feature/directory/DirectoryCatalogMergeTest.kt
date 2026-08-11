@@ -28,6 +28,59 @@ class DirectoryCatalogMergeTest {
     }
 
     @Test
+    fun parseMembers_withpics_uses_fornavn_efternavn_not_id_column() {
+        val html = """
+            <html><body>
+            <table id="s_m_Content_Content_laerereleverpanel_alm_gv">
+              <tr>
+                <th>Foto</th><th>Type</th><th>ID</th><th>Fornavn</th><th>Efternavn</th>
+              </tr>
+              <tr>
+                <td data-lectiocontextcard="T99">
+                  <img src="/lectio/94/GetImage.aspx?pictureid=111"/>
+                </td>
+                <td>Lærer</td>
+                <td><span class="noWrap">JK</span></td>
+                <td><a href="#">Jens</a></td>
+                <td><span class="noWrap">Jensen</span></td>
+              </tr>
+              <tr>
+                <td data-lectiocontextcard="S10">
+                  <img src="/lectio/94/GetImage.aspx?pictureid=74096247556"/>
+                </td>
+                <td>Elev</td>
+                <td><span class="noWrap">2x 02</span></td>
+                <td><a href="#">Anna</a></td>
+                <td><span class="noWrap">Andersen</span></td>
+              </tr>
+              <tr>
+                <td data-lectiocontextcard="S11">
+                  <img src="/lectio/94/GetImage.aspx?pictureid=2"/>
+                </td>
+                <td>Elev</td>
+                <td><span class="noWrap">2x 03</span></td>
+                <td><a href="#">Bo</a></td>
+                <td><span class="noWrap">Berg</span></td>
+              </tr>
+            </table>
+            </body></html>
+        """.trimIndent()
+        val parent = DirectoryEntity("HE1", "2x Ma", DirectoryEntityKind.HOLD)
+        val members = DirectoryParser.parseMembers(html, parent, gymId = 94)
+        assertEquals(3, members.size)
+        assertEquals("Jens Jensen", members[0].name)
+        assertEquals(DirectoryEntityKind.TEACHER, members[0].kind)
+        assertEquals("Anna Andersen", members[1].name)
+        assertEquals("2x", members[1].subtitle)
+        assertEquals("Bo Berg", members[2].name)
+        assertFalse(members.any { it.name == "2x 02" || it.name == "JK" || it.name == "2x 03" })
+        assertEquals(
+            "https://www.lectio.dk/lectio/94/GetImage.aspx?pictureid=74096247556&fullsize=1",
+            members[1].avatarUrl,
+        )
+    }
+
+    @Test
     fun parseMembers_extracts_pictureid_thumbnails() {
         val html = """
             <html><body>
@@ -73,6 +126,22 @@ class DirectoryCatalogMergeTest {
             "https://www.lectio.dk/lectio/94/GetImage.aspx?pictureid=1&fullsize=1",
             s1.avatarUrl,
         )
+    }
+
+    @Test
+    fun mergeEntity_does_not_overwrite_real_name_with_class_code() {
+        val existing = DirectoryEntity("S10", "Anna Andersen", DirectoryEntityKind.STUDENT, "2x")
+        val polluted = DirectoryEntity("S10", "2x 02", DirectoryEntityKind.STUDENT, "Hold")
+        val merged = DirectoryParser.mergeEntity(existing, polluted)
+        assertEquals("Anna Andersen", merged.name)
+    }
+
+    @Test
+    fun looksLikeIdColumnLabel_detects_seat_and_initials() {
+        assertTrue(DirectoryParser.looksLikeIdColumnLabel("2x 02"))
+        assertTrue(DirectoryParser.looksLikeIdColumnLabel("JK"))
+        assertFalse(DirectoryParser.looksLikeIdColumnLabel("Anna Andersen"))
+        assertFalse(DirectoryParser.looksLikeIdColumnLabel("Jens Jensen"))
     }
 
     @Test

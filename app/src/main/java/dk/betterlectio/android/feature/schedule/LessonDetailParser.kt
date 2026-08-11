@@ -1,21 +1,23 @@
 package dk.betterlectio.android.feature.schedule
 
+import dk.betterlectio.android.core.lectio.scrape.AspNetForm
 import org.jsoup.Jsoup
 import org.jsoup.nodes.Element
 
 /**
  * Lesson detail page (aktivitetforside2.aspx).
  * iOS: [ScheduleParser.parseLessonContent] — homeworkContentContainer, ACH articles, sections.
- * Flutter: events/scraping ActNote + raw content.
+ * Extension: [activity-detail.ts] — holdActLink / HE* for members.aspx.
+ *
+ * Participants are **not** on this page — load via [DirectoryRepository.loadMembers] using [LessonDetail.holdId].
  */
 object LessonDetailParser {
 
     fun parse(html: String, eventId: String, fallbackTitle: String = ""): LessonDetail {
         val doc = Jsoup.parse(html)
 
-        // iOS: textarea.activity-note inside #homeworkContentContainer (before empty check)
-        // Flutter: #s_m_Content_Content_tocAndToolbar_ActNoteTB_tb
         val homeworkContainer = doc.selectFirst("#homeworkContentContainer")
+        // iOS: textarea.activity-note inside container (before empty-content early return)
         val note = homeworkContainer?.selectFirst("textarea.activity-note")
             ?.text()?.trim()?.ifBlank { null }
             ?: doc.getElementById("s_m_Content_Content_tocAndToolbar_ActNoteTB_tb")
@@ -23,96 +25,30 @@ object LessonDetailParser {
             ?: doc.selectFirst("textarea[id*=ActNote], #m_Content_commentTextBox_tb")
                 ?.text()?.trim()?.ifBlank { null }
 
-        val contentRoot = doc.getElementById("s_m_Content_Content_tocAndToolbar_inlineHomeworkDiv")
+        val holdId = parseHoldId(doc)
+        val title = doc.selectFirst("#s_m_Content_Content_ActivityTitle, .ls-activity-title, h1")
+            ?.text()?.trim()?.ifBlank { fallbackTitle } ?: fallbackTitle
+
+        val inlineDiv = homeworkContainer
+            ?.selectFirst("#s_m_Content_Content_tocAndToolbar_inlineHomeworkDiv")
+            ?: doc.getElementById("s_m_Content_Content_tocAndToolbar_inlineHomeworkDiv")
             ?: homeworkContainer?.selectFirst("[id*=inlineHomework]")
-            ?: doc.selectFirst("[id*=inlineHomework], [id*=tocAndToolbar]")
-            ?: homeworkContainer
+            ?: doc.selectFirst("[id*=inlineHomework]")
 
         val blocks = mutableListOf<LessonContentBlock>()
         val resources = mutableListOf<LessonResource>()
-        var homework: String? = null
-        var sectionIsHomework = false
 
-        if (contentRoot != null) {
-            val empty = contentRoot.text().contains("ikke noget indhold", ignoreCase = true)
+        if (inlineDiv != null) {
+            val empty = inlineDiv.text().contains("ikke noget indhold", ignoreCase = true)
             if (!empty) {
-                // Walk children for section headers + ACH articles (iOS)
-                for (child in contentRoot.children()) {
-                    val tag = child.tagName().lowercase()
-                    val text = child.text().trim()
-                    when {
-                        tag.matches(Regex("h[1-6]")) || child.hasClass("section-header") -> {
-                            when {
-                                text.contains("Lektier", ignoreCase = true) -> sectionIsHomework = true
-                                text.contains("Øvrigt", ignoreCase = true) -> sectionIsHomework = false
-                            }
-                            if (text.isNotEmpty()) {
-                                blocks += LessonContentBlock(kind = "heading", text = text, isHomework = sectionIsHomework)
-                            }
-                        }
-                        tag == "hr" -> blocks += LessonContentBlock(kind = "divider", text = "", isHomework = sectionIsHomework)
-                        tag == "article" || child.hasClass("ls-paper") || child.hasClass("activity-content") ||
-                            child.id().startsWith("ACH") || child.hasClass("lc-display-fragment") -> {
-                            parseArticle(child, blocks, resources, sectionIsHomework)
-                        }
-                    }
-                }
-                if (blocks.isEmpty()) {
-                    contentRoot.select("article, .ls-paper, .activity-content, [id^=ACH]").forEach { article ->
-                        parseArticle(article, blocks, resources, sectionIsHomework)
-                    }
-                }
-                if (blocks.isEmpty()) {
-                    contentRoot.select("p, h1, h2, h3, li, blockquote").forEach { el ->
-                        val t = el.text().trim()
-                        if (t.isNotEmpty()) {
-                            blocks += LessonContentBlock(
-                                kind = when {
-                                    el.tagName().startsWith("h") -> "heading"
-                                    el.tagName() == "blockquote" -> "note"
-                                    else -> "paragraph"
-                                },
-                                text = t,
-                                isHomework = sectionIsHomework,
-                            )
-                        }
-                    }
-                }
-                contentRoot.select("a[href]").forEach { a ->
-                    val href = a.attr("href")
-                    if (href.isBlank()) return@forEach
-                    val title = a.text().trim().ifBlank { href }
-                    val isFile = a.attr("data-lc-display-linktype") == "file" ||
-                        href.contains("GetFile", ignoreCase = true) ||
-                        href.contains("document", ignoreCase = true)
-                    if (isFile || href.startsWith("http") || href.startsWith("/")) {
-                        resources += LessonResource(
-                            title = title,
-                            url = absoluteUrl(href),
-                            isFile = isFile,
-                        )
-                    }
-                }
-                // Images (skip Lectio chrome icons)
-                contentRoot.select("img[src]").forEach { img ->
-                    val src = img.attr("src")
-                    if (src.isBlank() || src.contains("/lectio/img/", ignoreCase = true)) return@forEach
-                    blocks += LessonContentBlock(
-                        kind = "image",
-                        text = img.attr("alt").ifBlank { "Billede" },
-                        url = absoluteUrl(src),
-                        isHomework = sectionIsHomework,
-                    )
-                }
-                homework = blocks.filter { it.isHomework && it.kind != "heading" && it.kind != "divider" }
-                    .joinToString("\n") { it.text }
-                    .ifBlank { null }
+                parseInlineContent(inlineDiv, blocks, resources)
             }
         }
 
-        val participants = parseParticipants(doc)
-        val title = doc.selectFirst("#s_m_Content_Content_ActivityTitle, .ls-activity-title, h1")
-            ?.text()?.trim()?.ifBlank { fallbackTitle } ?: fallbackTitle
+        val homework = blocks
+            .filter { it.isHomework && it.kind != "heading" && it.kind != "divider" }
+            .joinToString("\n") { it.text }
+            .ifBlank { null }
 
         return LessonDetail(
             eventId = eventId,
@@ -120,9 +56,103 @@ object LessonDetailParser {
             note = note,
             homework = homework,
             contentBlocks = blocks.distinctBy { it.kind + it.text + (it.url ?: "") },
-            participants = participants,
+            participants = emptyList(),
             resources = resources.distinctBy { it.url },
+            holdId = holdId,
         )
+    }
+
+    /**
+     * Extension: `#s_m_Content_Content_holdActLink` → holdelementid;
+     * fallback: `data-lectiocontextcard="HE…"`.
+     */
+    fun parseHoldId(doc: org.jsoup.nodes.Document): String? {
+        val holdHref = doc.selectFirst("#s_m_Content_Content_holdActLink")?.attr("href")
+        val fromQuery = AspNetForm.queriesFromUrl(holdHref)["holdelementid"]
+            ?.takeIf { it.isNotBlank() }
+            ?.let { id -> if (id.startsWith("HE", ignoreCase = true)) id else "HE$id" }
+        if (fromQuery != null) return fromQuery
+
+        val card = doc.selectFirst("[data-lectiocontextcard^=HE], [data-lectiocontextcard^=he]")
+            ?.attr("data-lectiocontextcard")
+            ?.trim()
+            ?.ifBlank { null }
+        return card
+    }
+
+    private fun parseInlineContent(
+        inlineDiv: Element,
+        blocks: MutableList<LessonContentBlock>,
+        resources: MutableList<LessonResource>,
+    ) {
+        var sectionIsHomework = true // iOS default before first heading
+        var sawAch = false
+
+        for (child in inlineDiv.children()) {
+            val sectionHeading = child.selectFirst("h1.ls-paper-section-heading")
+            if (sectionHeading != null) {
+                val headingText = sectionHeading.text().trim()
+                when {
+                    headingText.equals("Lektier", ignoreCase = true) -> sectionIsHomework = true
+                    headingText.equals("Øvrigt indhold", ignoreCase = true) -> sectionIsHomework = false
+                    headingText.contains("Lektier", ignoreCase = true) -> sectionIsHomework = true
+                    headingText.contains("Øvrigt", ignoreCase = true) -> sectionIsHomework = false
+                }
+                continue
+            }
+
+            val childId = child.id()
+            if (childId.startsWith("ACH")) {
+                val article = child.selectFirst("article.lc-display-fragment")
+                    ?: child.selectFirst("article")
+                if (article != null) {
+                    sawAch = true
+                    parseArticle(article, blocks, resources, sectionIsHomework)
+                }
+                continue
+            }
+
+            // ACP presentations (extension) — treat as other content
+            if (childId.startsWith("ACP")) {
+                val article = child.selectFirst("article.lc-display-fragment")
+                    ?: child.selectFirst("article")
+                if (article != null) {
+                    sawAch = true
+                    parseArticle(article, blocks, resources, isHomework = false)
+                }
+            }
+        }
+
+        // Fallback for fixtures / older markup without ACH wrappers
+        if (!sawAch && blocks.isEmpty()) {
+            for (child in inlineDiv.children()) {
+                val tag = child.tagName().lowercase()
+                val text = child.text().trim()
+                when {
+                    tag.matches(Regex("h[1-6]")) || child.hasClass("section-header") ||
+                        child.hasClass("ls-paper-section-heading") -> {
+                        when {
+                            text.contains("Lektier", ignoreCase = true) -> sectionIsHomework = true
+                            text.contains("Øvrigt", ignoreCase = true) -> sectionIsHomework = false
+                        }
+                    }
+                    tag == "article" || child.hasClass("ls-paper") || child.hasClass("activity-content") ||
+                        child.hasClass("lc-display-fragment") -> {
+                        parseArticle(child, blocks, resources, sectionIsHomework)
+                    }
+                }
+            }
+            if (blocks.isEmpty()) {
+                inlineDiv.select("article, .ls-paper, .activity-content, [id^=ACH]").forEach { article ->
+                    val root = if (article.tagName().equals("article", ignoreCase = true)) {
+                        article
+                    } else {
+                        article.selectFirst("article") ?: article
+                    }
+                    parseArticle(root, blocks, resources, sectionIsHomework)
+                }
+            }
+        }
     }
 
     private fun parseArticle(
@@ -131,13 +161,23 @@ object LessonDetailParser {
         resources: MutableList<LessonResource>,
         isHomework: Boolean = false,
     ) {
-        // iOS: style classes doc-homework / doc-not-homework
+        val hasHwStyle = article.selectFirst("[style*=doc-homework]") != null
+        val hasNotHwStyle = article.selectFirst("[style*=doc-not-homework]") != null
         val articleHw = when {
-            article.className().contains("doc-homework") -> true
-            article.className().contains("doc-not-homework") -> false
+            article.className().contains("doc-not-homework") || hasNotHwStyle -> false
+            article.className().contains("doc-homework") || (hasHwStyle && !hasNotHwStyle) -> true
             else -> isHomework
         }
+
+        // Prefer title header (iOS: h2[id*=titleHeader] or first h1 with homework icon)
+        val titleEl = article.selectFirst("h2[id*=titleHeader]")
+            ?: article.selectFirst("h1[id], h1")
+        titleEl?.text()?.trim()?.takeIf { it.isNotEmpty() }?.let { t ->
+            blocks += LessonContentBlock("heading", t, isHomework = articleHw)
+        }
+
         article.select("h1, h2, h3, h4, .ls-paper-header").forEach { h ->
+            if (h === titleEl) return@forEach
             val t = h.text().trim()
             if (t.isNotEmpty()) blocks += LessonContentBlock("heading", t, isHomework = articleHw)
         }
@@ -155,7 +195,8 @@ object LessonDetailParser {
             resources += LessonResource(
                 title = a.text().trim().ifBlank { href },
                 url = absoluteUrl(href),
-                isFile = href.contains("GetFile", ignoreCase = true) ||
+                isFile = a.attr("data-lc-display-linktype") == "file" ||
+                    href.contains("GetFile", ignoreCase = true) ||
                     href.contains("document", ignoreCase = true),
             )
         }
@@ -172,36 +213,6 @@ object LessonDetailParser {
         article.select("hr").forEach {
             blocks += LessonContentBlock("divider", "", isHomework = articleHw)
         }
-    }
-
-    private fun parseParticipants(doc: org.jsoup.nodes.Document): List<LessonParticipant> {
-        val out = mutableListOf<LessonParticipant>()
-        // Prefer explicit participant tables (incl. fixture m_Content_Participants)
-        val rows = doc.select(
-            "table[id*=Elev] tr, table[id*=deltag] tr, table[id*=Participant] tr, table[id*=participant] tr",
-        )
-        for (el in rows) {
-            val cells = el.select("td")
-            if (cells.isEmpty()) continue
-            // Skip leading index/number cells; pick first name-like cell
-            val name = cells.map { it.text().trim() }
-                .firstOrNull { it.isNotEmpty() && !it.matches(Regex("""^\d+$""")) }
-                ?: continue
-            val role = cells.getOrNull(cells.size - 1)?.text()?.trim()
-                ?.takeIf { it != name && !it.matches(Regex("""^\d+$""")) }
-            val id = el.selectFirst("[data-lectiocontextcard]")?.attr("data-lectiocontextcard")
-                ?: name
-            out += LessonParticipant(id = id, name = name, role = role)
-        }
-        if (out.isEmpty()) {
-            doc.select("[data-lectiocontextcard]").forEach { el ->
-                val card = el.attr("data-lectiocontextcard")
-                if (card.isBlank()) return@forEach
-                val name = el.text().trim()
-                if (name.isNotEmpty()) out += LessonParticipant(id = card, name = name)
-            }
-        }
-        return out.distinctBy { it.id }.take(80)
     }
 
     private fun absoluteUrl(href: String): String = when {

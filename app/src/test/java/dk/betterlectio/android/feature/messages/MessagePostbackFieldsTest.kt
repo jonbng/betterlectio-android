@@ -24,6 +24,7 @@ class MessagePostbackFieldsTest {
     @Test
     fun action_target_lists_non_empty() {
         assertTrue(MessagePostbackFields.markReadTargets.isNotEmpty())
+        assertTrue(MessagePostbackFields.markUnreadTargets.isNotEmpty())
         assertTrue(MessagePostbackFields.flagTargets.isNotEmpty())
         assertTrue(MessagePostbackFields.deleteTargets.isNotEmpty())
     }
@@ -31,6 +32,7 @@ class MessagePostbackFieldsTest {
     @Test
     fun list_event_args_match_ios_flutter() {
         assertEquals("READMESSAGE_42", MessagePostbackFields.readMessageArg("42"))
+        assertEquals("UNREADMESSAGE_42", MessagePostbackFields.unreadMessageArg("42"))
         assertEquals("FLAGMESSAGE_42", MessagePostbackFields.flagMessageArg("42"))
         assertEquals("HIDEMESSAGE_42", MessagePostbackFields.hideMessageArg("42"))
         // Must match Lectio onclick: $LB2$_MC_$_42 (underscore before the second $)

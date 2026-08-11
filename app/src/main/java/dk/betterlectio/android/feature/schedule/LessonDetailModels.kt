@@ -1,10 +1,32 @@
 package dk.betterlectio.android.feature.schedule
 
+import dk.betterlectio.android.feature.directory.DirectoryEntity
+import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+
 data class LessonParticipant(
     val id: String,
     val name: String,
     val role: String? = null,
-)
+    val kind: DirectoryEntityKind? = null,
+    val avatarUrl: String? = null,
+) {
+    companion object {
+        fun fromDirectory(entity: DirectoryEntity): LessonParticipant {
+            val role = when (entity.kind) {
+                DirectoryEntityKind.TEACHER -> "Lærer"
+                DirectoryEntityKind.STUDENT -> "Elev"
+                else -> null
+            }
+            return LessonParticipant(
+                id = entity.id,
+                name = entity.name,
+                role = role,
+                kind = entity.kind,
+                avatarUrl = entity.avatarUrl,
+            )
+        }
+    }
+}
 
 data class LessonResource(
     val title: String,
@@ -28,6 +50,8 @@ data class LessonDetail(
     val contentBlocks: List<LessonContentBlock> = emptyList(),
     val participants: List<LessonParticipant> = emptyList(),
     val resources: List<LessonResource> = emptyList(),
+    /** Hold element id (`HE123`) from activity detail nav — used to load members.aspx. */
+    val holdId: String? = null,
 )
 
 data class PrivateEventDraft(

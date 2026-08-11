@@ -17,6 +17,7 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
@@ -46,18 +47,21 @@ import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dk.betterlectio.android.R
+import dk.betterlectio.android.core.lectio.session.LastSchoolReason
 import dk.betterlectio.android.core.model.School
 import dk.betterlectio.android.ui.components.AppListDivider
 import dk.betterlectio.android.ui.components.AppListPrimary
 import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AppListSecondary
 import dk.betterlectio.android.ui.components.EmptyBox
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun LoginScreen(
@@ -67,210 +71,238 @@ fun LoginScreen(
     val focusManager = LocalFocusManager.current
     val keyboardController = LocalSoftwareKeyboardController.current
 
-    Scaffold { padding ->
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(padding)
-                .imePadding(),
-        ) {
-            // Brand moment
+    if (state.showResume) {
+        ResumeLoginContent(
+            state = state,
+            onResume = viewModel::resumeLastSchool,
+            onChooseOther = viewModel::chooseOtherSchool,
+            onDemo = viewModel::enterDemo,
+        )
+    } else {
+        Scaffold(
+            topBar = {
+                if (state.lastSchool != null && state.choosingOtherSchool) {
+                    TopAppBar(
+                        title = { Text(stringResource(R.string.login_choose_other_school)) },
+                        navigationIcon = {
+                            IconButton(onClick = viewModel::backToResume) {
+                                Icon(
+                                    Icons.AutoMirrored.Filled.ArrowBack,
+                                    contentDescription = stringResource(R.string.action_cancel),
+                                )
+                            }
+                        },
+                        colors = TopAppBarDefaults.topAppBarColors(
+                            containerColor = MaterialTheme.colorScheme.surface,
+                        ),
+                    )
+                }
+            },
+        ) { padding ->
             Column(
                 Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 24.dp)
-                    .padding(top = 32.dp, bottom = 16.dp),
+                    .fillMaxSize()
+                    .padding(padding)
+                    .imePadding(),
             ) {
-                Text(
-                    stringResource(R.string.app_name),
-                    style = MaterialTheme.typography.displaySmall,
-                    fontWeight = FontWeight.SemiBold,
-                    color = MaterialTheme.colorScheme.primary,
-                )
-                Spacer(Modifier.height(8.dp))
-                Text(
-                    stringResource(R.string.login_subtitle),
-                    style = MaterialTheme.typography.bodyLarge,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-            }
-
-            OutlinedTextField(
-                value = state.query,
-                onValueChange = viewModel::onQuery,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .padding(horizontal = 16.dp),
-                leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
-                placeholder = { Text(stringResource(R.string.login_search_school)) },
-                singleLine = true,
-                shape = RoundedCornerShape(28.dp),
-                colors = OutlinedTextFieldDefaults.colors(
-                    unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
-                    focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
-                ),
-            )
-
-            Spacer(Modifier.height(8.dp))
-            HorizontalDivider(
-                color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                thickness = 0.5.dp,
-            )
-
-            if (state.loadingSchools) {
-                Box(
-                    Modifier
-                        .weight(1f)
-                        .fillMaxWidth(),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    CircularProgressIndicator()
-                }
-            } else if (state.filtered.isEmpty()) {
-                EmptyBox(
-                    text = stringResource(R.string.empty_login_schools),
-                    description = stringResource(R.string.empty_login_schools_hint),
-                    icon = Icons.Outlined.School,
-                    actionLabel = if (state.query.isNotBlank()) {
-                        stringResource(R.string.cd_clear_search)
-                    } else {
-                        null
-                    },
-                    onAction = if (state.query.isNotBlank()) {
-                        { viewModel.onQuery("") }
-                    } else {
-                        null
-                    },
-                    modifier = Modifier.weight(1f),
-                )
-            } else {
-                LazyColumn(Modifier.weight(1f)) {
-                    items(state.filtered, key = { it.id }) { school ->
-                        val selected = state.selected?.id == school.id
-                        Surface(
-                            color = if (selected) {
-                                MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
-                            } else {
-                                MaterialTheme.colorScheme.surface
-                            },
-                            tonalElevation = 0.dp,
-                            shadowElevation = 0.dp,
-                        ) {
-                            AppListRow(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                    viewModel.select(school)
-                                },
-                                leading = {
-                                    Box(
-                                        Modifier
-                                            .size(40.dp)
-                                            .clip(CircleShape)
-                                            .background(
-                                                if (selected) {
-                                                    MaterialTheme.colorScheme.primary
-                                                } else {
-                                                    MaterialTheme.colorScheme.surfaceContainerHighest
-                                                },
-                                            ),
-                                        contentAlignment = Alignment.Center,
-                                    ) {
-                                        Text(
-                                            school.name.take(1).uppercase(),
-                                            style = MaterialTheme.typography.titleMedium,
-                                            fontWeight = FontWeight.SemiBold,
-                                            color = if (selected) {
-                                                MaterialTheme.colorScheme.onPrimary
-                                            } else {
-                                                MaterialTheme.colorScheme.onSurfaceVariant
-                                            },
-                                        )
-                                    }
-                                },
-                                trailing = {
-                                    if (selected) {
-                                        Icon(
-                                            Icons.Default.Check,
-                                            contentDescription = null,
-                                            tint = MaterialTheme.colorScheme.primary,
-                                        )
-                                    }
-                                },
-                            ) {
-                                AppListPrimary(school.name, emphasized = selected)
-                                if (school.isDemo) {
-                                    AppListSecondary(stringResource(R.string.login_demo_badge))
-                                }
-                            }
-                        }
-                        AppListDivider()
-                    }
-                }
-            }
-
-            // Sticky actions
-            Surface(
-                tonalElevation = 0.dp,
-                shadowElevation = 0.dp,
-                color = MaterialTheme.colorScheme.surface,
-            ) {
-                Column(
-                    Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    verticalArrangement = Arrangement.spacedBy(8.dp),
-                ) {
-                    HorizontalDivider(
-                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
-                        thickness = 0.5.dp,
-                        modifier = Modifier.padding(bottom = 4.dp),
-                    )
-
-                    state.error?.let {
+                if (state.lastSchool == null || !state.choosingOtherSchool) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 24.dp)
+                            .padding(top = 32.dp, bottom = 16.dp),
+                    ) {
                         Text(
-                            text = it.toString(),
-                            color = MaterialTheme.colorScheme.error,
-                            style = MaterialTheme.typography.bodySmall,
+                            stringResource(R.string.app_name),
+                            style = MaterialTheme.typography.displaySmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.primary,
+                        )
+                        Spacer(Modifier.height(8.dp))
+                        Text(
+                            stringResource(R.string.login_subtitle),
+                            style = MaterialTheme.typography.bodyLarge,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                } else {
+                    Spacer(Modifier.height(8.dp))
+                }
 
-                    // Primary path is tap-to-login on a school row. Sticky MitID is
-                    // only a retry after cancel / failed session install.
-                    state.selected?.let { school ->
-                        if (!school.isDemo) {
-                            Text(
-                                school.name,
-                                style = MaterialTheme.typography.labelLarge,
-                                color = MaterialTheme.colorScheme.primary,
-                            )
-                            Button(
-                                onClick = {
-                                    focusManager.clearFocus()
-                                    keyboardController?.hide()
-                                    viewModel.startMitId()
+                OutlinedTextField(
+                    value = state.query,
+                    onValueChange = viewModel::onQuery,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp),
+                    leadingIcon = { Icon(Icons.Default.Search, contentDescription = null) },
+                    placeholder = { Text(stringResource(R.string.login_search_school)) },
+                    singleLine = true,
+                    shape = RoundedCornerShape(28.dp),
+                    colors = OutlinedTextFieldDefaults.colors(
+                        unfocusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                        focusedContainerColor = MaterialTheme.colorScheme.surfaceContainerHighest.copy(alpha = 0.5f),
+                    ),
+                )
+
+                Spacer(Modifier.height(8.dp))
+                HorizontalDivider(
+                    color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                    thickness = 0.5.dp,
+                )
+
+                if (state.loadingSchools) {
+                    Box(
+                        Modifier
+                            .weight(1f)
+                            .fillMaxWidth(),
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        CircularProgressIndicator()
+                    }
+                } else if (state.filtered.isEmpty()) {
+                    EmptyBox(
+                        text = stringResource(R.string.empty_login_schools),
+                        description = stringResource(R.string.empty_login_schools_hint),
+                        icon = Icons.Outlined.School,
+                        actionLabel = if (state.query.isNotBlank()) {
+                            stringResource(R.string.cd_clear_search)
+                        } else {
+                            null
+                        },
+                        onAction = if (state.query.isNotBlank()) {
+                            { viewModel.onQuery("") }
+                        } else {
+                            null
+                        },
+                        modifier = Modifier.weight(1f),
+                    )
+                } else {
+                    LazyColumn(Modifier.weight(1f)) {
+                        items(state.filtered, key = { it.id }) { school ->
+                            val selected = state.selected?.id == school.id
+                            Surface(
+                                color = if (selected) {
+                                    MaterialTheme.colorScheme.primaryContainer.copy(alpha = 0.45f)
+                                } else {
+                                    MaterialTheme.colorScheme.surface
                                 },
-                                enabled = !state.loggingIn,
-                                modifier = Modifier.fillMaxWidth(),
+                                tonalElevation = 0.dp,
+                                shadowElevation = 0.dp,
                             ) {
-                                if (state.loggingIn) {
-                                    CircularProgressIndicator(
-                                        Modifier.size(20.dp),
-                                        strokeWidth = 2.dp,
-                                        color = MaterialTheme.colorScheme.onPrimary,
-                                    )
-                                    Spacer(Modifier.width(10.dp))
+                                AppListRow(
+                                    onClick = {
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                        viewModel.select(school)
+                                    },
+                                    leading = {
+                                        Box(
+                                            Modifier
+                                                .size(40.dp)
+                                                .clip(CircleShape)
+                                                .background(
+                                                    if (selected) {
+                                                        MaterialTheme.colorScheme.primary
+                                                    } else {
+                                                        MaterialTheme.colorScheme.surfaceContainerHighest
+                                                    },
+                                                ),
+                                            contentAlignment = Alignment.Center,
+                                        ) {
+                                            Icon(
+                                                Icons.Outlined.School,
+                                                contentDescription = null,
+                                                modifier = Modifier.size(22.dp),
+                                                tint = if (selected) {
+                                                    MaterialTheme.colorScheme.onPrimary
+                                                } else {
+                                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                                },
+                                            )
+                                        }
+                                    },
+                                    trailing = {
+                                        if (selected) {
+                                            Icon(
+                                                Icons.Default.Check,
+                                                contentDescription = null,
+                                                tint = MaterialTheme.colorScheme.primary,
+                                            )
+                                        }
+                                    },
+                                ) {
+                                    AppListPrimary(school.name, emphasized = selected)
+                                    if (school.isDemo) {
+                                        AppListSecondary(stringResource(R.string.login_demo_badge))
+                                    }
                                 }
-                                Text(stringResource(R.string.login_mitid))
                             }
+                            AppListDivider()
                         }
                     }
+                }
 
-                    TextButton(
-                        onClick = viewModel::enterDemo,
-                        modifier = Modifier.fillMaxWidth(),
+                Surface(
+                    tonalElevation = 0.dp,
+                    shadowElevation = 0.dp,
+                    color = MaterialTheme.colorScheme.surface,
+                ) {
+                    Column(
+                        Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 12.dp),
+                        verticalArrangement = Arrangement.spacedBy(8.dp),
                     ) {
-                        Text(stringResource(R.string.login_demo))
+                        HorizontalDivider(
+                            color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f),
+                            thickness = 0.5.dp,
+                            modifier = Modifier.padding(bottom = 4.dp),
+                        )
+
+                        state.error?.let {
+                            Text(
+                                text = it.toString(),
+                                color = MaterialTheme.colorScheme.error,
+                                style = MaterialTheme.typography.bodySmall,
+                            )
+                        }
+
+                        state.selected?.let { school ->
+                            if (!school.isDemo) {
+                                Text(
+                                    school.name,
+                                    style = MaterialTheme.typography.labelLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Button(
+                                    onClick = {
+                                        focusManager.clearFocus()
+                                        keyboardController?.hide()
+                                        viewModel.startMitId()
+                                    },
+                                    enabled = !state.loggingIn,
+                                    modifier = Modifier.fillMaxWidth(),
+                                ) {
+                                    if (state.loggingIn) {
+                                        CircularProgressIndicator(
+                                            Modifier.size(20.dp),
+                                            strokeWidth = 2.dp,
+                                            color = MaterialTheme.colorScheme.onPrimary,
+                                        )
+                                        Spacer(Modifier.width(10.dp))
+                                    }
+                                    Text(stringResource(R.string.login_mitid))
+                                }
+                            }
+                        }
+
+                        TextButton(
+                            onClick = viewModel::enterDemo,
+                            modifier = Modifier.fillMaxWidth(),
+                        ) {
+                            Text(stringResource(R.string.login_demo))
+                        }
                     }
                 }
             }
@@ -288,6 +320,100 @@ fun LoginScreen(
             onAppSwitchFailed = viewModel::onMitIdAppSwitchFailed,
             onClearAppSwitchError = viewModel::clearMitIdAppSwitchError,
         )
+    }
+}
+
+@Composable
+private fun ResumeLoginContent(
+    state: LoginUiState,
+    onResume: () -> Unit,
+    onChooseOther: () -> Unit,
+    onDemo: () -> Unit,
+) {
+    val hint = state.lastSchool ?: return
+    Scaffold { padding ->
+        Column(
+            Modifier
+                .fillMaxSize()
+                .padding(padding)
+                .padding(horizontal = 24.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+        ) {
+            Spacer(Modifier.height(48.dp))
+            Text(
+                stringResource(R.string.app_name),
+                style = MaterialTheme.typography.displaySmall,
+                fontWeight = FontWeight.SemiBold,
+                color = MaterialTheme.colorScheme.primary,
+            )
+            Spacer(Modifier.height(16.dp))
+            Text(
+                text = when (hint.reason) {
+                    LastSchoolReason.SESSION_EXPIRED ->
+                        stringResource(R.string.login_resume_session_expired_title)
+                    LastSchoolReason.LOGGED_OUT ->
+                        stringResource(R.string.login_resume_title)
+                },
+                style = MaterialTheme.typography.headlineSmall,
+                fontWeight = FontWeight.SemiBold,
+                textAlign = TextAlign.Center,
+            )
+            Spacer(Modifier.height(8.dp))
+            Text(
+                text = when (hint.reason) {
+                    LastSchoolReason.SESSION_EXPIRED ->
+                        stringResource(R.string.login_resume_session_expired_subtitle)
+                    LastSchoolReason.LOGGED_OUT ->
+                        stringResource(R.string.login_resume_subtitle)
+                },
+                style = MaterialTheme.typography.bodyLarge,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                textAlign = TextAlign.Center,
+            )
+
+            Spacer(Modifier.weight(1f))
+
+            state.error?.let {
+                Text(
+                    text = it.toString(),
+                    color = MaterialTheme.colorScheme.error,
+                    style = MaterialTheme.typography.bodySmall,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.padding(bottom = 12.dp),
+                )
+            }
+
+            Button(
+                onClick = onResume,
+                enabled = !state.loggingIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                if (state.loggingIn) {
+                    CircularProgressIndicator(
+                        Modifier.size(20.dp),
+                        strokeWidth = 2.dp,
+                        color = MaterialTheme.colorScheme.onPrimary,
+                    )
+                    Spacer(Modifier.width(10.dp))
+                }
+                Text(stringResource(R.string.login_resume_cta, hint.schoolName))
+            }
+            TextButton(
+                onClick = onChooseOther,
+                enabled = !state.loggingIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.login_choose_other_school))
+            }
+            TextButton(
+                onClick = onDemo,
+                enabled = !state.loggingIn,
+                modifier = Modifier.fillMaxWidth(),
+            ) {
+                Text(stringResource(R.string.login_demo))
+            }
+            Spacer(Modifier.height(32.dp))
+        }
     }
 }
 

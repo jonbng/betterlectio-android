@@ -7,13 +7,12 @@ import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.pager.HorizontalPager
-import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
@@ -41,9 +40,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableLongStateOf
 import androidx.compose.runtime.remember
-import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
-import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -57,12 +54,15 @@ import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.asString
 import dk.betterlectio.android.feature.live.LiveLessonBoundary
+import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.schedule.EventStatus
+import dk.betterlectio.android.feature.schedule.LessonParticipant
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.statusLabelText
 import dk.betterlectio.android.feature.schedule.timeLabelText
 import dk.betterlectio.android.feature.settings.CalendarStyle
 import dk.betterlectio.android.ui.components.AppListPrimary
+import dk.betterlectio.android.ui.components.AppListRow
 import dk.betterlectio.android.ui.components.AttachmentRow
 import dk.betterlectio.android.ui.components.DateStrip
 import dk.betterlectio.android.ui.components.DateStripDay
@@ -72,19 +72,14 @@ import dk.betterlectio.android.ui.components.DetailSheetPadding
 import dk.betterlectio.android.ui.components.ErrorBox
 import dk.betterlectio.android.ui.components.LessonContentBlocks
 import dk.betterlectio.android.ui.components.LoadingBox
+import dk.betterlectio.android.ui.components.PersonAvatar
 import dk.betterlectio.android.ui.components.StatusChip
 import dk.betterlectio.android.ui.theme.BetterLectioThemeExtras
 import kotlinx.coroutines.delay
-import kotlinx.coroutines.flow.distinctUntilChanged
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.TextStyle
-import java.time.temporal.ChronoUnit
 import java.util.Locale
-import java.util.concurrent.atomic.AtomicBoolean
-
-/** Large day index space so users can swipe across many weeks. */
-private const val DAY_CENTER_PAGE = 5000
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -94,80 +89,17 @@ fun ScheduleScreen(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val calendarStyle by viewModel.calendarStyle.collectAsStateWithLifecycle()
-    // Subscribe so bricks recompose when Supabase lesson mappings arrive.
+    // Subscribe so bricks recompose when Supabase lesson mappings / color mode change.
     @Suppress("UNUSED_VARIABLE")
     val lessonMappings by viewModel.lessonMappings.collectAsStateWithLifecycle()
+    @Suppress("UNUSED_VARIABLE")
+    val useSubjectColors by viewModel.useSubjectColors.collectAsStateWithLifecycle()
     val extended = BetterLectioThemeExtras.extendedColors
 
-    // Anchor "today" for day-page ↔ date mapping (stable for session).
-    val dayAnchor = remember { LocalDate.now() }
-
-    fun dateForPage(page: Int): LocalDate =
-        dayAnchor.plusDays((page - DAY_CENTER_PAGE).toLong())
-
-    fun pageForDate(date: LocalDate): Int =
-        DAY_CENTER_PAGE + ChronoUnit.DAYS.between(dayAnchor, date).toInt()
-
-    val dayPagerState = rememberPagerState(
-        initialPage = pageForDate(state.selectedDate),
-        pageCount = { DAY_CENTER_PAGE * 2 },
-    )
-
-    val selectDate by rememberUpdatedState(viewModel::selectDate)
-    val selectedDate by rememberUpdatedState(state.selectedDate)
-
-    // While we programmatically move the day pager (strip tap / today), ignore pager→state
-    // echoes so intermediate pages don't fight the intended selection.
-    val ignoreDayPagerSync = remember { AtomicBoolean(false) }
-
-    // User day-swipe → selection. Prefer targetPage (destination) over currentPage
-    // (which steps through intermediates during flings/animations).
-    LaunchedEffect(dayPagerState) {
-        snapshotFlow {
-            val scrolling = dayPagerState.isScrollInProgress
-            val page = if (scrolling) dayPagerState.targetPage else dayPagerState.settledPage
-            page to scrolling
-        }
-            .distinctUntilChanged()
-            .collect { (page, scrolling) ->
-                if (ignoreDayPagerSync.get()) return@collect
-                val date = dateForPage(page)
-                if (date != selectedDate) {
-                    selectDate(date)
-                }
-            }
-    }
-
-    // Strip tap / today / week change → snap day pager to match.
-    // Never skip because a previous scroll is in progress (that caused the jump-back bug).
-    LaunchedEffect(state.selectedDate) {
-        val target = pageForDate(state.selectedDate)
-        // Already there, or user gesture is already heading there.
-        if (dayPagerState.settledPage == target && dayPagerState.currentPage == target) {
-            return@LaunchedEffect
-        }
-        if (dayPagerState.isScrollInProgress && dayPagerState.targetPage == target) {
-            return@LaunchedEffect
-        }
-        ignoreDayPagerSync.set(true)
-        try {
-            dayPagerState.scrollToPage(target)
-        } finally {
-            ignoreDayPagerSync.set(false)
-        }
-    }
-
-    // Scroll-to-top: jump day pager to today
+    // Scroll-to-top: jump to today
     LaunchedEffect(scrollToTopToken) {
         if (scrollToTopToken > 0) {
-            val today = LocalDate.now()
-            selectDate(today)
-            ignoreDayPagerSync.set(true)
-            try {
-                dayPagerState.scrollToPage(pageForDate(today))
-            } finally {
-                ignoreDayPagerSync.set(false)
-            }
+            viewModel.selectDate(LocalDate.now())
         }
     }
 
@@ -229,7 +161,7 @@ fun ScheduleScreen(
                         enter = fadeIn(),
                         exit = fadeOut(),
                     ) {
-                        TextButton(onClick = { selectDate(today) }) {
+                        TextButton(onClick = { viewModel.selectDate(today) }) {
                             Text(
                                 stringResource(R.string.schedule_go_to_today),
                                 fontWeight = FontWeight.SemiBold,
@@ -315,16 +247,13 @@ fun ScheduleScreen(
                             thickness = 0.5.dp,
                         )
 
-                        // Day content pager — swipe between days
-                        HorizontalPager(
-                            state = dayPagerState,
+                        ScheduleDayPager(
+                            selectedDate = state.selectedDate,
+                            onSelectDate = viewModel::selectDate,
                             modifier = Modifier
                                 .fillMaxWidth()
                                 .weight(1f),
-                            beyondViewportPageCount = 1,
-                            key = { page -> dateForPage(page).toString() },
-                        ) { page ->
-                            val date = dateForPage(page)
+                        ) { date ->
                             val events = state.eventsByDate[date]
                                 ?: state.week?.days?.find { it.date == date }?.events
                                 ?: emptyList()
@@ -334,13 +263,6 @@ fun ScheduleScreen(
                                 events = events,
                                 calendarStyle = calendarStyle,
                                 viewModel = viewModel,
-                                extendedStatus = { status ->
-                                    when (status) {
-                                        EventStatus.CHANGED -> extended.statusChanged
-                                        EventStatus.CANCELLED -> extended.statusCancelled
-                                        EventStatus.NORMAL -> extended.statusNormal
-                                    }
-                                },
                             )
                         }
                     }
@@ -382,7 +304,7 @@ fun ScheduleScreen(
                     HorizontalDivider(
                         modifier = Modifier.fillMaxWidth(0.25f),
                         thickness = 3.dp,
-                        color = if (event.status == EventStatus.NORMAL) accent else statusColor,
+                        color = accent,
                     )
 
                     if (state.detailLoading) {
@@ -391,30 +313,46 @@ fun ScheduleScreen(
                     }
 
                     state.lessonDetail?.let { detail ->
+                        val homeworkBlocks = detail.contentBlocks.filter { it.isHomework }
+                        val otherBlocks = detail.contentBlocks.filter { !it.isHomework }
+                        val hasNote = !detail.note.isNullOrBlank()
+                        val hasBody = homeworkBlocks.isNotEmpty() || otherBlocks.isNotEmpty()
+                        val teachers = detail.participants.filter {
+                            it.kind == DirectoryEntityKind.TEACHER ||
+                                it.role.equals("Lærer", ignoreCase = true)
+                        }
+                        val students = detail.participants.filter {
+                            it.kind == DirectoryEntityKind.STUDENT ||
+                                it.role.equals("Elev", ignoreCase = true)
+                        }
+                        val otherParticipants = detail.participants.filter { p ->
+                            teachers.none { it.id == p.id } && students.none { it.id == p.id }
+                        }
+
+                        if (!state.detailLoading && !hasNote && !hasBody &&
+                            detail.participants.isEmpty() && detail.resources.isEmpty()
+                        ) {
+                            Spacer(Modifier.height(16.dp))
+                            Text(
+                                stringResource(R.string.lesson_empty),
+                                style = MaterialTheme.typography.bodyLarge,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            )
+                        }
+
                         detail.note?.takeIf { it.isNotBlank() }?.let {
                             DetailSection(stringResource(R.string.label_notes)) {
                                 Text(it, style = MaterialTheme.typography.bodyLarge)
                             }
                         }
-                        detail.homework?.takeIf { it.isNotBlank() }?.let {
+                        if (homeworkBlocks.isNotEmpty()) {
                             DetailSection(stringResource(R.string.label_homework)) {
-                                Text(it, style = MaterialTheme.typography.bodyLarge)
+                                LessonContentBlocks(homeworkBlocks)
                             }
                         }
-                        if (detail.contentBlocks.isNotEmpty()) {
-                            DetailSection(stringResource(R.string.lesson_content)) {
-                                LessonContentBlocks(detail.contentBlocks)
-                            }
-                        }
-                        if (detail.participants.isNotEmpty()) {
-                            DetailSection(stringResource(R.string.lesson_participants)) {
-                                detail.participants.forEach { p ->
-                                    AppListPrimary(
-                                        listOfNotNull(p.name, p.role).joinToString(" · "),
-                                        maxLines = 2,
-                                    )
-                                    Spacer(Modifier.height(4.dp))
-                                }
+                        if (otherBlocks.isNotEmpty()) {
+                            DetailSection(stringResource(R.string.lesson_other_content)) {
+                                LessonContentBlocks(otherBlocks)
                             }
                         }
                         if (detail.resources.isNotEmpty()) {
@@ -427,6 +365,30 @@ fun ScheduleScreen(
                                         snackbarHostState = sheetSnackbar,
                                     )
                                 }
+                            }
+                        }
+                        if (detail.participants.isNotEmpty()) {
+                            DetailSection(stringResource(R.string.lesson_participants)) {
+                                if (teachers.isNotEmpty()) {
+                                    Text(
+                                        stringResource(R.string.lesson_participants_teachers),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 4.dp),
+                                    )
+                                    teachers.forEach { p -> LessonParticipantRow(p) }
+                                }
+                                if (students.isNotEmpty()) {
+                                    if (teachers.isNotEmpty()) Spacer(Modifier.height(8.dp))
+                                    Text(
+                                        stringResource(R.string.lesson_participants_students),
+                                        style = MaterialTheme.typography.labelLarge,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(bottom = 4.dp),
+                                    )
+                                    students.forEach { p -> LessonParticipantRow(p) }
+                                }
+                                otherParticipants.forEach { p -> LessonParticipantRow(p) }
                             }
                         }
                     }
@@ -576,7 +538,6 @@ private fun DayPageContent(
     events: List<ScheduleEvent>,
     calendarStyle: CalendarStyle,
     viewModel: ScheduleViewModel,
-    extendedStatus: (EventStatus) -> Color,
 ) {
     if (calendarStyle == CalendarStyle.PROFESSIONAL) {
         TimelineDayView(
@@ -584,7 +545,6 @@ private fun DayPageContent(
             events = events,
             displayTitle = { viewModel.displayTitle(it) },
             accentFor = { Color(viewModel.accentArgbFor(it)) },
-            statusColor = extendedStatus,
             onEventClick = { viewModel.selectEvent(it) },
             modifier = Modifier.fillMaxSize(),
         )
@@ -697,6 +657,30 @@ private fun LiveLessonHeader(header: LiveHeaderUi?) {
                         .background(MaterialTheme.colorScheme.primary),
                 )
             }
+        }
+    }
+}
+
+@Composable
+private fun LessonParticipantRow(participant: LessonParticipant) {
+    AppListRow(
+        leading = {
+            PersonAvatar(
+                name = participant.name,
+                size = 36.dp,
+                entityId = participant.id,
+                kind = participant.kind,
+                knownUrl = participant.avatarUrl,
+            )
+        },
+    ) {
+        AppListPrimary(participant.name, emphasized = true)
+        participant.role?.takeIf { it.isNotBlank() }?.let { role ->
+            Text(
+                role,
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
         }
     }
 }

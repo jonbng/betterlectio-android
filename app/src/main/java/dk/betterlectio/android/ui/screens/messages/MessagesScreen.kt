@@ -259,6 +259,7 @@ fun MessagesScreen(
                     onSaveEdit = viewModel::saveEdit,
                     onCancelEdit = viewModel::cancelEdit,
                     onMarkRead = viewModel::markRead,
+                    onMarkUnread = viewModel::markUnread,
                     onToggleFlag = viewModel::toggleFlag,
                     onDelete = {
                         viewModel.deleteCurrent()
@@ -302,6 +303,7 @@ private fun MessageListPane(
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val markedReadLabel = stringResource(R.string.message_marked_read_snackbar)
+    val markedUnreadLabel = stringResource(R.string.message_marked_unread_snackbar)
     val deletedLabel = stringResource(R.string.message_deleted_snackbar)
     var searchQuery by remember { mutableStateOf("") }
     val filteredThreads = remember(state.threads, searchQuery) {
@@ -416,11 +418,16 @@ private fun MessageListPane(
                                         thread = thread,
                                         timeFmt = timeFmt,
                                         onOpen = { onOpenThread(thread) },
-                                        onMarkRead = {
+                                        onToggleRead = {
                                             if (thread.unread) {
                                                 viewModel.markThreadRead(thread)
                                                 scope.launch {
                                                     snackbarHostState.showSnackbar(markedReadLabel)
+                                                }
+                                            } else {
+                                                viewModel.markThreadUnread(thread)
+                                                scope.launch {
+                                                    snackbarHostState.showSnackbar(markedUnreadLabel)
                                                 }
                                             }
                                         },
@@ -485,14 +492,15 @@ private fun SwipeableMessageRow(
     thread: MessageThread,
     timeFmt: DateTimeFormatter,
     onOpen: () -> Unit,
-    onMarkRead: () -> Unit,
+    onToggleRead: () -> Unit,
     onDelete: () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    if (thread.unread) onMarkRead()
+                    // iOS leading swipe: mark read or unread depending on current state
+                    onToggleRead()
                     false // keep row; unread state updates in place
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
@@ -509,13 +517,27 @@ private fun SwipeableMessageRow(
         backgroundContent = {
             val direction = dismissState.dismissDirection
             val isDelete = direction == SwipeToDismissBoxValue.EndToStart
-            val color = if (isDelete) {
-                MaterialTheme.colorScheme.errorContainer
-            } else {
-                MaterialTheme.colorScheme.primaryContainer
+            val color = when {
+                isDelete -> MaterialTheme.colorScheme.errorContainer
+                thread.unread -> MaterialTheme.colorScheme.primaryContainer
+                else -> MaterialTheme.colorScheme.secondaryContainer
             }
-            val icon = if (isDelete) Icons.Default.Delete else Icons.Default.Drafts
+            val icon = when {
+                isDelete -> Icons.Default.Delete
+                thread.unread -> Icons.Default.Drafts
+                else -> Icons.Outlined.MailOutline
+            }
             val alignment = if (isDelete) Alignment.CenterEnd else Alignment.CenterStart
+            val contentDesc = when {
+                isDelete -> stringResource(R.string.message_swipe_delete)
+                thread.unread -> stringResource(R.string.message_swipe_read)
+                else -> stringResource(R.string.message_swipe_unread)
+            }
+            val tint = when {
+                isDelete -> MaterialTheme.colorScheme.onErrorContainer
+                thread.unread -> MaterialTheme.colorScheme.onPrimaryContainer
+                else -> MaterialTheme.colorScheme.onSecondaryContainer
+            }
             Box(
                 Modifier
                     .fillMaxSize()
@@ -525,20 +547,12 @@ private fun SwipeableMessageRow(
             ) {
                 Icon(
                     icon,
-                    contentDescription = if (isDelete) {
-                        stringResource(R.string.message_swipe_delete)
-                    } else {
-                        stringResource(R.string.message_swipe_read)
-                    },
-                    tint = if (isDelete) {
-                        MaterialTheme.colorScheme.onErrorContainer
-                    } else {
-                        MaterialTheme.colorScheme.onPrimaryContainer
-                    },
+                    contentDescription = contentDesc,
+                    tint = tint,
                 )
             }
         },
-        enableDismissFromStartToEnd = thread.unread,
+        enableDismissFromStartToEnd = true,
         enableDismissFromEndToStart = true,
     ) {
         AppListRow(
@@ -610,6 +624,7 @@ private fun MessageThreadPane(
     onSaveEdit: () -> Unit,
     onCancelEdit: () -> Unit,
     onMarkRead: () -> Unit,
+    onMarkUnread: () -> Unit,
     onToggleFlag: () -> Unit,
     onDelete: () -> Unit,
     onBack: () -> Unit,
@@ -675,6 +690,13 @@ private fun MessageThreadPane(
                             Icon(
                                 Icons.Default.Drafts,
                                 contentDescription = stringResource(R.string.message_mark_read),
+                            )
+                        }
+                    } else {
+                        IconButton(onClick = onMarkUnread) {
+                            Icon(
+                                Icons.Outlined.MailOutline,
+                                contentDescription = stringResource(R.string.message_mark_unread),
                             )
                         }
                     }

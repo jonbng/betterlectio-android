@@ -62,6 +62,16 @@ class MitIdAuthUrlsTest {
                 "http://appswitch.mitid.dk/x",
             ),
         )
+        assertTrue(
+            MitIdAuthUrls.isMitIdAppSwitchUrl(
+                "https://appswitch.mitid.dk?ticket=abc&returnUrl=Chrome",
+            ),
+        )
+        assertFalse(
+            MitIdAuthUrls.isMitIdAppSwitchUrl(
+                "https://appswitch.mitid.dk.evil.example/x",
+            ),
+        )
     }
 
     @Test

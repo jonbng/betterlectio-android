@@ -76,7 +76,6 @@ fun TimelineDayView(
     events: List<ScheduleEvent>,
     displayTitle: (ScheduleEvent) -> String,
     accentFor: (ScheduleEvent) -> Color,
-    statusColor: (EventStatus) -> Color,
     onEventClick: (ScheduleEvent) -> Unit,
     modifier: Modifier = Modifier,
     dayStartHour: Int = REFERENCE_HOUR,
@@ -165,11 +164,7 @@ fun TimelineDayView(
                     val h = (minuteHeight * (layout.endMin - layout.startMin)).coerceAtLeast(MinCardHeight)
                     val widthFraction = 1f / layout.totalColumns
                     val xFraction = layout.column.toFloat() / layout.totalColumns
-                    val accent = if (event.status == EventStatus.NORMAL) {
-                        accentFor(event)
-                    } else {
-                        statusColor(event.status)
-                    }
+                    val accent = accentFor(event)
                     val cancelled = event.status == EventStatus.CANCELLED
 
                     BoxWithConstraints(

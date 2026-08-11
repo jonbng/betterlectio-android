@@ -302,6 +302,9 @@ fun MitIdWebView(
 /**
  * Open MitID (or other eID) via ACTION_VIEW / intent:// parse.
  * Uses a chooser for appswitch HTTPS like Flutter's `launchChooser("Vælg app")`.
+ *
+ * Do not strip `returnUrl=Chrome` — MitID needs it for same-device approval;
+ * without it the app falls back to the cross-device QR flow.
  */
 internal fun launchExternalApp(context: Context, url: String): Boolean {
     return try {

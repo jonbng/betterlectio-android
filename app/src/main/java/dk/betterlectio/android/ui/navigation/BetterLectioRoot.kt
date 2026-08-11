@@ -44,11 +44,15 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dk.betterlectio.android.core.lectio.session.AuthState
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.feature.feedback.ShakeInteractionGate
 import dk.betterlectio.android.feature.messages.MessageRepository
+import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
 import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.ui.auth.LoginScreen
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
+import dk.betterlectio.android.ui.onboarding.OnboardingOverlay
+import dk.betterlectio.android.ui.review.ReviewPromptSheet
 import dk.betterlectio.android.ui.screens.assignments.AssignmentsScreen
 import dk.betterlectio.android.ui.screens.homework.HomeworkScreen
 import dk.betterlectio.android.ui.screens.messages.MessagesScreen
@@ -97,10 +101,23 @@ private fun AuthenticatedShell() {
     }
     val messageRepository = remember { entryPoint.messageRepository() }
     val settingsStore = remember { entryPoint.settingsStore() }
+    val reviewPromptCoordinator = remember { entryPoint.reviewPromptCoordinator() }
+    val shakeGate = remember { entryPoint.shakeInteractionGate() }
     val unreadCount by messageRepository.unreadCount.collectAsStateWithLifecycle()
+    val reviewPromptVisible by reviewPromptCoordinator.softPromptVisible.collectAsStateWithLifecycle()
 
+    var showOnboarding by remember { mutableStateOf(settingsStore.shouldShowOnboarding()) }
     var showExtensionInvite by remember { mutableStateOf(false) }
-    LaunchedEffect(Unit) {
+
+    LaunchedEffect(showOnboarding) {
+        reviewPromptCoordinator.setExternalPromptBlocking("onboarding", showOnboarding)
+    }
+
+    // Defer launch bookkeeping + extension invite until onboarding is done
+    // so they never stack over the first-run gate.
+    LaunchedEffect(showOnboarding) {
+        if (showOnboarding) return@LaunchedEffect
+        reviewPromptCoordinator.onAuthenticatedLaunch()
         if (settingsStore.recordAuthenticatedLaunch()) {
             delay(2_000)
             // Re-check: user may have dismissed via Mere/Settings during the delay.
@@ -108,6 +125,10 @@ private fun AuthenticatedShell() {
                 showExtensionInvite = true
             }
         }
+    }
+
+    LaunchedEffect(showExtensionInvite) {
+        reviewPromptCoordinator.setExternalPromptBlocking("extension_invite", showExtensionInvite)
     }
 
     // Same-tab reselect → bump scroll token for active route
@@ -242,12 +263,31 @@ private fun AuthenticatedShell() {
         }
     }
 
-    if (showExtensionInvite) {
+    if (showOnboarding) {
+        OnboardingOverlay(
+            shakeGate = shakeGate,
+            settingsStore = settingsStore,
+            onComplete = {
+                settingsStore.markOnboardingCompleted()
+                showOnboarding = false
+            },
+        )
+    }
+
+    if (showExtensionInvite && !showOnboarding) {
         ExtensionInviteSheet(
             onDismiss = {
                 showExtensionInvite = false
                 settingsStore.dismissExtensionInvite()
             },
+        )
+    }
+
+    if (reviewPromptVisible && !showExtensionInvite && !showOnboarding) {
+        ReviewPromptSheet(
+            onPositive = { activity -> reviewPromptCoordinator.onPositive(activity) },
+            onNegative = { reviewPromptCoordinator.onNegative() },
+            onDismiss = { reviewPromptCoordinator.onDismissed() },
         )
     }
 }
@@ -257,4 +297,6 @@ private fun AuthenticatedShell() {
 interface AuthenticatedShellEntryPoint {
     fun messageRepository(): MessageRepository
     fun settingsStore(): SettingsStore
+    fun reviewPromptCoordinator(): ReviewPromptCoordinator
+    fun shakeInteractionGate(): ShakeInteractionGate
 }

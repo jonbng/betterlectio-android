@@ -23,6 +23,8 @@ import dk.betterlectio.android.feature.messages.MessageRepository
 import dk.betterlectio.android.feature.messages.MessageThread
 import dk.betterlectio.android.feature.messages.MessageThreadDetail
 import dk.betterlectio.android.feature.messages.PendingComposeRecipient
+import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
+import dk.betterlectio.android.feature.review.ReviewTrigger
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -68,6 +70,7 @@ data class MessagesUiState(
 class MessagesViewModel @Inject constructor(
     private val repository: MessageRepository,
     private val pendingCompose: PendingComposeRecipient,
+    private val reviewPromptCoordinator: ReviewPromptCoordinator,
 ) : ViewModel() {
     private val _state = MutableStateFlow(MessagesUiState())
     val state: StateFlow<MessagesUiState> = _state.asStateFlow()
@@ -110,12 +113,29 @@ class MessagesViewModel @Inject constructor(
             properties = mapOf("is_unread" to thread.unread),
         )
         viewModelScope.launch {
-            _state.update { it.copy(loading = true) }
-            when (val res = repository.loadThread(thread)) {
+            // iOS selectThread + markAsRead: optimistic local read, then server READMESSAGE_
+            // and unread badge refresh. Opening alone used to leave list/badge stuck on unread.
+            val wasUnread = thread.unread
+            if (wasUnread) {
+                _state.update { s ->
+                    s.copy(
+                        loading = true,
+                        threads = s.threads.map { t ->
+                            if (t.id == thread.id) t.copy(unread = false) else t
+                        },
+                    )
+                }
+                repository.markRead(thread)
+            } else {
+                _state.update { it.copy(loading = true) }
+            }
+
+            val opened = thread.copy(unread = false)
+            when (val res = repository.loadThread(opened, forceNetwork = wasUnread)) {
                 is AppResult.Success -> _state.update {
                     it.copy(
                         loading = false,
-                        detail = res.data,
+                        detail = res.data.copy(thread = res.data.thread.copy(unread = false)),
                         replyText = "",
                         replyAttachments = emptyList(),
                         replyError = null,
@@ -125,6 +145,7 @@ class MessagesViewModel @Inject constructor(
                     it.copy(loading = false, error = res.error)
                 }
             }
+            repository.refreshUnreadBadge()
         }
     }
 
@@ -205,9 +226,11 @@ class MessagesViewModel @Inject constructor(
                             replyError = null,
                         )
                     }
+                    reviewPromptCoordinator.maybePrompt(ReviewTrigger.MessageSent)
                     openThread(detail.thread)
                 }
                 is AppResult.Failure -> {
+                    reviewPromptCoordinator.reportRecentError()
                     _state.update {
                         it.copy(
                             isSending = false,
@@ -472,9 +495,13 @@ class MessagesViewModel @Inject constructor(
                             repliesNotAllowed = false,
                         )
                     }
+                    reviewPromptCoordinator.maybePrompt(ReviewTrigger.MessageSent)
                 }
-                is AppResult.Failure -> _state.update {
-                    it.copy(isSending = false, composeMessage = res.error.toUiText())
+                is AppResult.Failure -> {
+                    reviewPromptCoordinator.reportRecentError()
+                    _state.update {
+                        it.copy(isSending = false, composeMessage = res.error.toUiText())
+                    }
                 }
             }
         }
@@ -485,23 +512,40 @@ class MessagesViewModel @Inject constructor(
         markThreadRead(detail.thread, fromDetail = true)
     }
 
+    fun markUnread() {
+        val detail = _state.value.detail ?: return
+        markThreadUnread(detail.thread)
+    }
+
     fun markThreadRead(thread: MessageThread, fromDetail: Boolean = false) {
         viewModelScope.launch {
             repository.markRead(thread)
-            _state.update { s ->
-                s.copy(
-                    threads = s.threads.map { t ->
-                        if (t.id == thread.id) t.copy(unread = false) else t
-                    },
-                    detail = s.detail?.let { d ->
-                        if (d.thread.id == thread.id) d.copy(thread = d.thread.copy(unread = false)) else d
-                    },
-                )
-            }
+            applyUnreadLocally(threadId = thread.id, unread = false)
             repository.refreshUnreadBadge()
             if (fromDetail) {
                 openThread(thread.copy(unread = false))
             }
+        }
+    }
+
+    fun markThreadUnread(thread: MessageThread) {
+        viewModelScope.launch {
+            repository.markUnread(thread)
+            applyUnreadLocally(threadId = thread.id, unread = true)
+            repository.refreshUnreadBadge()
+        }
+    }
+
+    private fun applyUnreadLocally(threadId: String, unread: Boolean) {
+        _state.update { s ->
+            s.copy(
+                threads = s.threads.map { t ->
+                    if (t.id == threadId) t.copy(unread = unread) else t
+                },
+                detail = s.detail?.let { d ->
+                    if (d.thread.id == threadId) d.copy(thread = d.thread.copy(unread = unread)) else d
+                },
+            )
         }
     }
 

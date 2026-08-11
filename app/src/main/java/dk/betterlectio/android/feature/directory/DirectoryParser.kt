@@ -104,11 +104,16 @@ object DirectoryParser {
     }
 
     /**
-     * Parse hold/class member list HTML into student entities.
-     * Prefer the Lectio members grid (`data-lectiocontextcard` on cells).
+     * Parse hold/class member list HTML into student/teacher entities.
      *
-     * When [gymId] is set, thumbnails with `pictureid=` are turned into full GetImage
-     * avatar URLs (iOS [DirectoryParser.parseHoldMembers] parity).
+     * With `reporttype=withpics` (extension parity) columns are:
+     * `Foto | [Type] | ID | Fornavn | Efternavn` — context card + photo on Foto;
+     * ID is class code / teacher initials; real names are Fornavn + Efternavn.
+     * Reading the context-card cell text alone yields "2x 02" / initials and
+     * pollutes the offline directory when upserted.
+     *
+     * When [gymId] is set, thumbnails with `pictureid=` become GetImage avatar URLs
+     * (iOS [DirectoryParser.parseHoldMembers] parity).
      */
     fun parseMembers(
         html: String,
@@ -116,18 +121,17 @@ object DirectoryParser {
         gymId: Int? = null,
     ): List<DirectoryEntity> {
         val doc = Jsoup.parse(html)
-        // Prefer the dedicated members panel when present (iOS parity).
-        val panelRows = doc.select(
-            "table#s_m_Content_Content_laerereleverpanel_alm_gv tr, " +
-                "table[id*=laerereleverpanel] tr",
+        val table = doc.selectFirst(
+            "table#s_m_Content_Content_laerereleverpanel_alm_gv, " +
+                "table#m_Content_Content_laerereleverpanel_alm_gv, " +
+                "table[id*=laerereleverpanel]",
         )
-        val fromPanel = panelRows.mapNotNull { row -> parseMemberRow(row, parent, gymId) }
-        if (fromPanel.isNotEmpty()) {
-            return fromPanel.distinctBy { it.id }
+        if (table != null) {
+            val fromPanel = parseMembersTable(table, parent, gymId)
+            if (fromPanel.isNotEmpty()) return fromPanel
         }
 
-        // Fallback: any context-card link/cell that is a student/teacher.
-        // Do not early-return from generic tables — nav chrome sits in those too.
+        // Fallback: context-card links outside the panel (legacy / alt pages).
         return doc.select("[data-lectiocontextcard]")
             .mapNotNull { el ->
                 val id = el.attr("data-lectiocontextcard").trim()
@@ -137,7 +141,9 @@ object DirectoryParser {
                     return@mapNotNull null
                 }
                 val name = el.ownText().ifBlank { el.text() }.trim()
-                if (name.length < 2 || looksLikeNavChrome(name)) return@mapNotNull null
+                if (name.length < 2 || looksLikeNavChrome(name) || looksLikeIdColumnLabel(name)) {
+                    return@mapNotNull null
+                }
                 val pictureId = extractPictureId(el.parent() ?: el)
                 DirectoryEntity(
                     id = id,
@@ -152,7 +158,107 @@ object DirectoryParser {
             .distinctBy { it.id }
     }
 
-    private fun parseMemberRow(
+    private fun parseMembersTable(
+        table: Element,
+        parent: DirectoryEntity,
+        gymId: Int?,
+    ): List<DirectoryEntity> {
+        val rows = table.select("tr")
+        if (rows.isEmpty()) return emptyList()
+
+        // Extension: combined teacher+student pages include a "Type" column.
+        val headerRow = rows.firstOrNull { it.selectFirst("th") != null }
+        val hasTypeColumn = headerRow?.select("th")
+            ?.any { it.text().trim().equals("Type", ignoreCase = true) }
+            ?: false
+        val offset = if (hasTypeColumn) 1 else 0
+        val minCells = if (hasTypeColumn) 5 else 4
+        val dataRows = if (headerRow != null) {
+            rows.filter { it !== headerRow && it.selectFirst("td") != null }
+        } else {
+            rows.filter { it.selectFirst("td") != null }
+        }
+
+        return dataRows.mapNotNull { row ->
+            parseWithPicsMemberRow(row, parent, gymId, offset, minCells)
+                ?: parseLegacyMemberRow(row, parent, gymId)
+        }.distinctBy { it.id }
+    }
+
+    /**
+     * Extension [parseMembersFromDocument]: Foto(+card) | [Type] | ID | Fornavn | Efternavn.
+     */
+    private fun parseWithPicsMemberRow(
+        row: Element,
+        parent: DirectoryEntity,
+        gymId: Int?,
+        offset: Int,
+        minCells: Int,
+    ): DirectoryEntity? {
+        val cells = row.select("td")
+        if (cells.size < minCells) return null
+
+        val fotoCell = cells[0]
+        val id = fotoCell.attr("data-lectiocontextcard").trim()
+            .ifBlank {
+                row.selectFirst("[data-lectiocontextcard]")
+                    ?.attr("data-lectiocontextcard")
+                    ?.trim()
+                    .orEmpty()
+            }
+        if (!isValidPrefixedId(id)) return null
+        val kind = kindForPrefixedId(id) ?: return null
+        if (kind != DirectoryEntityKind.STUDENT && kind != DirectoryEntityKind.TEACHER) return null
+
+        val classCode = cells.getOrNull(1 + offset)
+            ?.selectFirst(".noWrap")
+            ?.text()?.trim()
+            ?.ifBlank { null }
+            ?: cells.getOrNull(1 + offset)?.text()?.trim()?.ifBlank { null }
+
+        val firstName = cells.getOrNull(2 + offset)
+            ?.selectFirst("a")
+            ?.text()?.trim()
+            ?.ifBlank { null }
+            ?: cells.getOrNull(2 + offset)?.text()?.trim()?.ifBlank { null }
+            ?: ""
+
+        val lastName = cells.getOrNull(3 + offset)
+            ?.selectFirst(".noWrap")
+            ?.text()?.trim()
+            ?.ifBlank { null }
+            ?: cells.getOrNull(3 + offset)?.text()?.trim()?.ifBlank { null }
+            ?: ""
+
+        val fullName = listOf(firstName, lastName)
+            .filter { it.isNotBlank() }
+            .joinToString(" ")
+            .trim()
+
+        // Reject rows where we only got the ID column (class code / initials).
+        val name = when {
+            fullName.length >= 2 && !looksLikeIdColumnLabel(fullName) -> cleanStudentName(fullName)
+            else -> return null
+        }
+
+        val pictureId = extractPictureId(row)
+        val subtitle = when (kind) {
+            DirectoryEntityKind.STUDENT -> classCode?.let { studentClassSubtitle(it) } ?: parent.name
+            else -> parent.name
+        }
+        return DirectoryEntity(
+            id = id,
+            name = name,
+            kind = kind,
+            subtitle = subtitle,
+            avatarUrl = pictureId?.let { pid ->
+                gymId?.let { AvatarUrls.fromPictureId(it, pid) }
+            },
+        )
+    }
+
+    /** Older fixtures / pages where the context-card cell holds the display name. */
+    private fun parseLegacyMemberRow(
         row: Element,
         parent: DirectoryEntity,
         gymId: Int?,
@@ -163,7 +269,7 @@ object DirectoryParser {
         val kind = kindForPrefixedId(id) ?: return null
         if (kind != DirectoryEntityKind.STUDENT && kind != DirectoryEntityKind.TEACHER) return null
         val name = card.ownText().ifBlank { card.text() }.trim()
-        if (name.length < 2 || looksLikeNavChrome(name)) return null
+        if (name.length < 2 || looksLikeNavChrome(name) || looksLikeIdColumnLabel(name)) return null
         val pictureId = extractPictureId(row)
         return DirectoryEntity(
             id = id,
@@ -174,6 +280,22 @@ object DirectoryParser {
                 gymId?.let { AvatarUrls.fromPictureId(it, pid) }
             },
         )
+    }
+
+    /**
+     * Members-panel "ID" column: student class seat (`2x 02`) or teacher initials (`JK`).
+     * Must never be used as [DirectoryEntity.name].
+     */
+    fun looksLikeIdColumnLabel(name: String): Boolean {
+        val t = name.trim()
+        if (t.isEmpty()) return true
+        // "2x 02", "3a 15", "1stx 03"
+        if (Regex("""^\d+[A-Za-zÆØÅæøå]+\s+\d+$""").matches(t)) return true
+        // Compact class codes without seat number
+        if (Regex("""^\d+[A-Za-zÆØÅæøå]{1,4}$""").matches(t) && t.length <= 6) return true
+        // Teacher initials (2–4 letters, no spaces)
+        if (Regex("""^[A-ZÆØÅ]{2,4}$""").matches(t)) return true
+        return false
     }
 
     /** Prefer row thumbnail `img[src*=pictureid]`. */
@@ -187,6 +309,7 @@ object DirectoryParser {
     /**
      * Merge two catalog snapshots by entity id (later list wins on id collision).
      * Preserves [DirectoryEntity.avatarUrl] when the incoming row has none.
+     * Never lets a class-code / initials label overwrite a real person name.
      */
     fun mergeCatalog(
         existing: List<DirectoryEntity>,
@@ -196,13 +319,23 @@ object DirectoryParser {
         existing.forEach { map[it.id] = it }
         incoming.forEach { e ->
             val prev = map[e.id]
-            map[e.id] = if (e.avatarUrl.isNullOrBlank() && !prev?.avatarUrl.isNullOrBlank()) {
-                e.copy(avatarUrl = prev!!.avatarUrl)
-            } else {
-                e
-            }
+            map[e.id] = mergeEntity(prev, e)
         }
         return map.values.toList()
+    }
+
+    /** Prefer real names + existing avatars when upserting hold members into the catalog. */
+    fun mergeEntity(existing: DirectoryEntity?, incoming: DirectoryEntity): DirectoryEntity {
+        if (existing == null) return incoming
+        val name = when {
+            looksLikeIdColumnLabel(incoming.name) && !looksLikeIdColumnLabel(existing.name) ->
+                existing.name
+            !looksLikeIdColumnLabel(incoming.name) -> incoming.name
+            else -> existing.name.ifBlank { incoming.name }
+        }
+        val subtitle = incoming.subtitle?.takeIf { it.isNotBlank() } ?: existing.subtitle
+        val avatar = incoming.avatarUrl?.takeIf { it.isNotBlank() } ?: existing.avatarUrl
+        return incoming.copy(name = name, subtitle = subtitle, avatarUrl = avatar)
     }
 
     /** Strip letter prefix from Lectio ids (`HE123` → `123`, `S456` → `456`). */

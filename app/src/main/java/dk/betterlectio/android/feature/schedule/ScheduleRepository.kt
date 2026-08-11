@@ -9,6 +9,9 @@ import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.demo.DemoData
+import dk.betterlectio.android.feature.directory.DirectoryEntity
+import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.directory.DirectoryRepository
 import dk.betterlectio.android.feature.supabase.ScheduleIdentity
 import dk.betterlectio.android.feature.supabase.SupabaseScheduleService
 import kotlinx.coroutines.CoroutineScope
@@ -27,6 +30,7 @@ class ScheduleRepository @Inject constructor(
     private val cache: SimpleCache,
     private val session: SessionController,
     private val supabaseSchedule: SupabaseScheduleService,
+    private val directoryRepo: DirectoryRepository,
 ) {
     private val syncScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     /** Demo/local private events created this session (also used when Lectio POST is unavailable). */
@@ -88,13 +92,10 @@ class ScheduleRepository @Inject constructor(
             return AppResult.Success(DemoData.lessonDetail(event))
         }
 
-        // iOS/Flutter: aktivitetforside2.aspx; keep href when brick already points at a detail page
+        // iOS always fetches aktivitetforside2 — brick href is often aktivitetforside.aspx (no content).
         val absId = event.id.removePrefix("ABS").removePrefix("PRV")
-        val path = event.href
-            ?.removePrefix("https://www.lectio.dk/lectio/${student.gymId}/")
-            ?.removePrefix("/lectio/${student.gymId}/")
-            ?.takeIf { it.isNotBlank() }
-            ?: "aktivitet/aktivitetforside2.aspx?absid=$absId"
+        val path =
+            "aktivitet/aktivitetforside2.aspx?absid=$absId&elevid=${student.studentId}&prevurl=skemany.aspx"
 
         return when (val res = client.get(path, FetchPriority.Important)) {
             is AppResult.Failure -> {
@@ -105,7 +106,9 @@ class ScheduleRepository @Inject constructor(
                     homework = event.homework,
                     contentBlocks = listOfNotNull(
                         event.notes?.let { LessonContentBlock("note", it) },
-                        event.homework?.let { LessonContentBlock("paragraph", "Lektier: $it") },
+                        event.homework?.let {
+                            LessonContentBlock("paragraph", it, isHomework = true)
+                        },
                     ),
                 )
                 // Still best-effort push whatever we have locally
@@ -114,15 +117,32 @@ class ScheduleRepository @Inject constructor(
             }
             is AppResult.Success -> {
                 cache.put("lesson_${event.id}", res.data.body)
-                val detail = LessonDetailParser.parse(res.data.body, event.id, event.title).let { parsed ->
+                var detail = LessonDetailParser.parse(res.data.body, event.id, event.title).let { parsed ->
                     parsed.copy(
                         note = parsed.note ?: event.notes,
                         homework = parsed.homework ?: event.homework,
                     )
                 }
+                detail = attachParticipants(detail)
                 syncLessonContentBestEffort(student.studentId, event, detail)
                 AppResult.Success(detail)
             }
+        }
+    }
+
+    /** Extension: members.aspx via holdelementid — never fail the whole detail if members fail. */
+    private suspend fun attachParticipants(detail: LessonDetail): LessonDetail {
+        val holdId = detail.holdId ?: return detail
+        val hold = DirectoryEntity(
+            id = holdId,
+            name = detail.title,
+            kind = DirectoryEntityKind.HOLD,
+        )
+        return when (val members = directoryRepo.loadMembers(hold)) {
+            is AppResult.Success -> detail.copy(
+                participants = members.data.map { LessonParticipant.fromDirectory(it) },
+            )
+            is AppResult.Failure -> detail
         }
     }
 

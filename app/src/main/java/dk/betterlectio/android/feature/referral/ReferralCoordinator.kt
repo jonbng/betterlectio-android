@@ -76,7 +76,7 @@ class ReferralCoordinator @Inject constructor(
         val previous = store.lastKnownConversions(studentId)
         if (previous >= 0 && stats.conversions > previous) {
             val newest = stats.recentReferrals.firstOrNull()?.name
-            _celebrationName.value = newest ?: "En klassekammerat"
+            _celebrationName.value = newest ?: "En ven"
         }
         store.setLastKnownConversions(studentId, stats.conversions)
         _cachedStats.value = stats

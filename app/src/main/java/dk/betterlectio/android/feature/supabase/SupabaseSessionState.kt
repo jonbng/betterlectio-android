@@ -14,6 +14,8 @@ enum class SupabaseUnavailableReason {
     MISSING_CREDENTIALS,
     AUTHENTICATION_FAILED,
     IDENTITY_MISMATCH,
+    QR_MINT_FAILED,
+    /** @deprecated Cookie handoff removed; kept for binary/test compatibility. */
     COOKIE_PERSISTENCE_FAILED,
     TIMEOUT,
 }

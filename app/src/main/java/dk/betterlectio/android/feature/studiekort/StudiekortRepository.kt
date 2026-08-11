@@ -5,6 +5,7 @@ import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.model.Student
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.feature.directory.AvatarUrls
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -39,7 +40,7 @@ class StudiekortRepository @Inject constructor(
 
         // Constructed fallbacks while scrape may be async
         val photo = student.pictureId?.let {
-            "https://www.lectio.dk/lectio/${student.gymId}/GetImage.aspx?pictureid=$it&fullsize=1"
+            AvatarUrls.fromPictureId(student.gymId, it)
         }
         val t = System.currentTimeMillis()
         val qr =

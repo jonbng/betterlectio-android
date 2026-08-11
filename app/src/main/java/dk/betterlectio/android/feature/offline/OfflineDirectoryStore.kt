@@ -2,6 +2,8 @@ package dk.betterlectio.android.feature.offline
 
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.directory.DirectoryParser
+import dk.betterlectio.android.feature.offline.OfflineDatabase
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -16,12 +18,18 @@ class OfflineDirectoryStore @Inject constructor(
 
     /**
      * Upsert entities without removing other rows (e.g. hold-member bootstrap).
+     * Merges with existing rows so class-code / initials labels never overwrite real names,
+     * and avatar URLs are preserved when the incoming row lacks one.
      */
     suspend fun saveAll(studentId: String, entities: List<DirectoryEntity>) {
         if (entities.isEmpty()) return
+        val existingById = loadAll(studentId).associateBy { it.id }
+        val merged = entities.map { incoming ->
+            DirectoryParser.mergeEntity(existingById[incoming.id], incoming)
+        }
         val now = System.currentTimeMillis()
         dao.upsertAll(
-            entities.map { e ->
+            merged.map { e ->
                 DirectoryEntityRow(
                     compositeKey = "$studentId|${e.id}",
                     studentId = studentId,

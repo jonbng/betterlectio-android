@@ -30,6 +30,13 @@ class DemoMessageState(
         return true
     }
 
+    fun markUnread(id: String): Boolean {
+        val idx = threads.indexOfFirst { it.id == id }
+        if (idx < 0) return false
+        threads[idx] = threads[idx].copy(unread = true)
+        return true
+    }
+
     fun delete(id: String): Boolean = threads.removeAll { it.id == id }
 
     fun toggleFlag(id: String): MessageThread? {

@@ -17,6 +17,7 @@ import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.absence.AbsenceCauses
 import dk.betterlectio.android.feature.absence.AbsenceOverview
 import dk.betterlectio.android.feature.absence.AbsenceRepository
+import dk.betterlectio.android.feature.feedback.FeedbackOpenRequests
 import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
@@ -96,6 +97,8 @@ data class MoreUiState(
     val pinnedIds: Set<String> = emptySet(),
     val roomSchedule: ScheduleWeek? = null,
     val roomEntity: DirectoryEntity? = null,
+    val roomWeekYear: Int = LectioDateUtils.isoWeekYear(),
+    val roomWeek: Int = LectioDateUtils.isoWeek(),
     /** Live room occupancy list (in-use flags). */
     val roomsOccupancy: List<dk.betterlectio.android.feature.directory.RoomParser.RoomWithOccupancy> = emptyList(),
     val card: StudentCard? = null,
@@ -137,6 +140,7 @@ class MoreViewModel @Inject constructor(
     val settings: SettingsStore,
     private val referralCoordinator: ReferralCoordinator,
     private val profilePictureService: SupabaseProfilePictureService,
+    private val feedbackOpenRequests: FeedbackOpenRequests,
 ) : ViewModel() {
 
     private val _state = MutableStateFlow(
@@ -169,6 +173,8 @@ class MoreViewModel @Inject constructor(
     val appearance = settings.appearance.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.appearance.value)
     val language = settings.language.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.language.value)
     val calendarStyle = settings.calendarStyle.stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.calendarStyle.value)
+    val useSubjectColors = settings.useSubjectColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.useSubjectColors.value)
     val notifEvents = settings.notifEvents
     val notifMessages = settings.notifMessages
     val notifAssignments = settings.notifAssignments
@@ -177,6 +183,10 @@ class MoreViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
     val notificationHistory = settings.notificationHistory
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.notificationHistory.value)
+
+    fun openFeedback() {
+        feedbackOpenRequests.requestOpen()
+    }
 
     fun navigate(dest: MoreDestination) {
         _state.update {
@@ -546,10 +556,7 @@ class MoreViewModel @Inject constructor(
         return settings.displayNameForSubject(key, fallback = event.title.ifBlank { key })
     }
 
-    fun accentArgbForEvent(event: ScheduleEvent): Long {
-        val key = event.team.ifBlank { event.title }
-        return settings.colorForSubject(key)
-    }
+    fun accentArgbForEvent(event: ScheduleEvent): Long = settings.accentArgbFor(event)
 
     /**
      * Queue compose recipient and dismiss sheet. Caller navigates to the Messages tab.
@@ -634,10 +641,67 @@ class MoreViewModel @Inject constructor(
     }
 
     fun openRoomSchedule(entity: DirectoryEntity) = viewModelScope.launch {
-        _state.update { it.copy(loading = true, roomEntity = entity, roomSchedule = null) }
-        when (val res = roomScheduleRepo.loadRoomWeek(entity)) {
+        val year = LectioDateUtils.isoWeekYear()
+        val week = LectioDateUtils.isoWeek()
+        _state.update {
+            it.copy(
+                loading = true,
+                roomEntity = entity,
+                roomSchedule = null,
+                roomWeekYear = year,
+                roomWeek = week,
+            )
+        }
+        when (val res = roomScheduleRepo.loadRoomWeek(entity, year, week)) {
             is AppResult.Success -> _state.update {
                 it.copy(loading = false, roomSchedule = res.data)
+            }
+            is AppResult.Failure -> _state.update {
+                it.copy(loading = false, message = res.error.toUiText())
+            }
+        }
+    }
+
+    fun shiftRoomWeek(delta: Int) {
+        val currentStart = LectioDateUtils.weekStart(
+            _state.value.roomWeekYear,
+            _state.value.roomWeek,
+        )
+        loadRoomWeekForDate(currentStart.plusWeeks(delta.toLong()))
+    }
+
+    fun goToRoomToday() {
+        val today = java.time.LocalDate.now()
+        val year = LectioDateUtils.isoWeekYear(today)
+        val week = LectioDateUtils.isoWeek(today)
+        if (year == _state.value.roomWeekYear &&
+            week == _state.value.roomWeek &&
+            _state.value.roomSchedule != null
+        ) {
+            return
+        }
+        loadRoomWeekForDate(today)
+    }
+
+    fun loadRoomWeekForDate(date: java.time.LocalDate) = viewModelScope.launch {
+        val entity = _state.value.roomEntity ?: return@launch
+        val year = LectioDateUtils.isoWeekYear(date)
+        val week = LectioDateUtils.isoWeek(date)
+        if (year == _state.value.roomWeekYear &&
+            week == _state.value.roomWeek &&
+            _state.value.roomSchedule != null
+        ) {
+            return@launch
+        }
+        _state.update { it.copy(loading = true) }
+        when (val res = roomScheduleRepo.loadRoomWeek(entity, year, week)) {
+            is AppResult.Success -> _state.update {
+                it.copy(
+                    loading = false,
+                    roomWeekYear = year,
+                    roomWeek = week,
+                    roomSchedule = res.data,
+                )
             }
             is AppResult.Failure -> _state.update {
                 it.copy(loading = false, message = res.error.toUiText())
@@ -727,6 +791,7 @@ class MoreViewModel @Inject constructor(
     fun setAppearance(mode: AppearanceMode) = settings.setAppearance(mode)
     fun setLanguage(language: AppLanguage) = settings.setLanguage(language)
     fun setCalendarStyle(style: CalendarStyle) = settings.setCalendarStyle(style)
+    fun setUseSubjectColors(v: Boolean) = settings.setUseSubjectColors(v)
     fun setNotifEvents(v: Boolean) = settings.setNotifEvents(v)
     fun setNotifMessages(v: Boolean) = settings.setNotifMessages(v)
     fun setNotifAssignments(v: Boolean) = settings.setNotifAssignments(v)

@@ -1,6 +1,5 @@
 package dk.betterlectio.android.feature.messages
 
-import dk.betterlectio.android.core.result.AppResult
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -10,8 +9,9 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Opportunistic message folder + thread prefetch after auth.
- * iOS parity: MessageListPrefetcher — no permission prompts.
+ * Opportunistic message folder prefetch after auth.
+ * iOS parity: MessageListPrefetcher warms Nyeste + Ulæst lists only — never opens
+ * thread bodies (that would mark them read on Lectio while leaving the badge stale).
  */
 @Singleton
 class MessageListPrefetcher @Inject constructor(
@@ -23,12 +23,7 @@ class MessageListPrefetcher @Inject constructor(
         scope.launch {
             try {
                 repository.loadFolder(MessageFolder.UNREAD, forceRefresh = true)
-                val newest = repository.loadFolder(MessageFolder.NEWEST, forceRefresh = true)
-                if (newest is AppResult.Success) {
-                    newest.data.take(3).forEach { thread ->
-                        repository.loadThread(thread)
-                    }
-                }
+                repository.loadFolder(MessageFolder.NEWEST, forceRefresh = true)
                 Timber.d("Message prefetch completed")
             } catch (t: Throwable) {
                 Timber.w(t, "Message prefetch failed")

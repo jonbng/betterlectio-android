@@ -5,6 +5,8 @@ import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.core.i18n.AppLocale
 import dk.betterlectio.android.core.model.Student
+import dk.betterlectio.android.feature.schedule.EventStatus
+import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.supabase.SupabaseSubjectMapping
 import dk.betterlectio.android.feature.supabase.SupabaseSubjectService
 import kotlinx.coroutines.CoroutineScope
@@ -57,6 +59,10 @@ class SettingsStore @Inject constructor(
     private val _calendarStyle = MutableStateFlow(loadCalendarStyle())
     val calendarStyle: StateFlow<CalendarStyle> = _calendarStyle.asStateFlow()
 
+    /** When true, schedule blocks use per-subject hues; when false, status blue/green/red. */
+    private val _useSubjectColors = MutableStateFlow(prefs.getBoolean(KEY_USE_SUBJECT_COLORS, true))
+    val useSubjectColors: StateFlow<Boolean> = _useSubjectColors.asStateFlow()
+
     private val _notifEvents = MutableStateFlow(prefs.getBoolean("notif_events", true))
     val notifEvents: StateFlow<Boolean> = _notifEvents.asStateFlow()
 
@@ -73,6 +79,10 @@ class SettingsStore @Inject constructor(
     private val _extensionInviteDismissed =
         MutableStateFlow(prefs.getBoolean(KEY_EXTENSION_INVITE_DISMISSED, false))
     val extensionInviteDismissed: StateFlow<Boolean> = _extensionInviteDismissed.asStateFlow()
+
+    private val _onboardingCompleted =
+        MutableStateFlow(prefs.getBoolean(KEY_ONBOARDING_COMPLETED, false))
+    val onboardingCompleted: StateFlow<Boolean> = _onboardingCompleted.asStateFlow()
 
     private val _lessonMappings = MutableStateFlow<Map<String, ResolvedLessonMapping>>(emptyMap())
     val lessonMappings: StateFlow<Map<String, ResolvedLessonMapping>> = _lessonMappings.asStateFlow()
@@ -132,6 +142,11 @@ class SettingsStore @Inject constructor(
         _calendarStyle.value = style
     }
 
+    fun setUseSubjectColors(v: Boolean) {
+        prefs.edit { putBoolean(KEY_USE_SUBJECT_COLORS, v) }
+        _useSubjectColors.value = v
+    }
+
     fun setNotifEvents(v: Boolean) {
         prefs.edit { putBoolean("notif_events", v) }
         _notifEvents.value = v
@@ -173,6 +188,14 @@ class SettingsStore @Inject constructor(
     fun dismissExtensionInvite() {
         prefs.edit { putBoolean(KEY_EXTENSION_INVITE_DISMISSED, true) }
         _extensionInviteDismissed.value = true
+    }
+
+    /** True when the first-login onboarding overlay should be shown. */
+    fun shouldShowOnboarding(): Boolean = !_onboardingCompleted.value
+
+    fun markOnboardingCompleted() {
+        prefs.edit { putBoolean(KEY_ONBOARDING_COMPLETED, true) }
+        _onboardingCompleted.value = true
     }
 
     // ── Lesson mapping scope ──────────────────────────────────────────
@@ -273,6 +296,22 @@ class SettingsStore @Inject constructor(
 
     fun colorForSubject(rawHold: String): Long =
         SupabaseSubjectService.hueToArgb(colorHueForSubject(rawHold))
+
+    /**
+     * Schedule block accent: subject hue when [useSubjectColors] is on,
+     * otherwise status palette (blue / green / red) matching the web extension.
+     */
+    fun accentArgbFor(event: ScheduleEvent): Long {
+        if (!_useSubjectColors.value) {
+            return when (event.status) {
+                EventStatus.NORMAL -> STATUS_NORMAL_ARGB
+                EventStatus.CHANGED -> STATUS_CHANGED_ARGB
+                EventStatus.CANCELLED -> STATUS_CANCELLED_ARGB
+            }
+        }
+        val key = event.team.ifBlank { event.title }
+        return colorForSubject(key)
+    }
 
     fun iconKeyForSubject(rawHold: String): String = SubjectMapper.iconKey(rawHold)
 
@@ -520,7 +559,14 @@ class SettingsStore @Inject constructor(
         private const val KEY_LESSON_CACHE = "lessonMappingCacheV2"
         private const val KEY_EXTENSION_INVITE_LAUNCH_COUNT = "extension_invite_launch_count"
         private const val KEY_EXTENSION_INVITE_DISMISSED = "extension_invite_dismissed"
+        private const val KEY_ONBOARDING_COMPLETED = "onboarding_completed"
+        private const val KEY_USE_SUBJECT_COLORS = "use_subject_colors"
         private const val EXTENSION_INVITE_LAUNCH_THRESHOLD = 4
+
+        /** Status-mode schedule accents (web extension blue / green / red). */
+        private const val STATUS_NORMAL_ARGB = 0xFF3362E1L
+        private const val STATUS_CHANGED_ARGB = 0xFF2E9E5BL
+        private const val STATUS_CANCELLED_ARGB = 0xFFD32F2FL
 
         @Volatile
         private var launchRecordedThisProcess = false

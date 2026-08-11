@@ -180,7 +180,14 @@ class MessageRepository @Inject constructor(
         loadFolder(MessageFolder.UNREAD, forceRefresh = true)
     }
 
-    suspend fun loadThread(thread: MessageThread): AppResult<MessageThreadDetail> {
+    /**
+     * @param forceNetwork Skip HTML cache (e.g. unread open). Cached opens never hit Lectio,
+     * so the server would not mark the thread read — iOS always posts the open/read path.
+     */
+    suspend fun loadThread(
+        thread: MessageThread,
+        forceNetwork: Boolean = false,
+    ): AppResult<MessageThreadDetail> {
         val student = session.currentStudent
             ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
@@ -189,11 +196,16 @@ class MessageRepository @Inject constructor(
         }
 
         val cacheKey = threadCacheKey(student.studentId, thread.normalizedId)
-        cache.get(cacheKey)?.let { cached ->
-            // Drop poisoned cache: older builds stored list HTML after failed open postbacks.
-            if (MessageParser.looksLikeThreadDetail(cached)) {
-                return AppResult.Success(MessageParser.parseThreadDetail(cached, thread))
+        // Unread opens must reach Lectio ($LB2$_MC_$_…) so the thread is marked read.
+        if (!forceNetwork && !thread.unread) {
+            cache.get(cacheKey)?.let { cached ->
+                // Drop poisoned cache: older builds stored list HTML after failed open postbacks.
+                if (MessageParser.looksLikeThreadDetail(cached)) {
+                    return AppResult.Success(MessageParser.parseThreadDetail(cached, thread))
+                }
+                cache.remove(cacheKey)
             }
+        } else {
             cache.remove(cacheKey)
         }
 
@@ -585,14 +597,42 @@ class MessageRepository @Inject constructor(
             _unreadCount.value = demoState.unreadCount()
             return AppResult.Success(Unit)
         }
-        // iOS/Flutter: __Page + READMESSAGE_<normalizedId> + folders
+        // Lectio/extension: __Page + READMESSAGE_<normalizedId> + folders
         postListPageEvent(
             folderId = thread.folderId,
             eventArgument = MessagePostbackFields.readMessageArg(thread.normalizedId),
             fallbackTargets = MessagePostbackFields.markReadTargets,
             threadId = thread.normalizedId,
         )
+        // Drop list HTML that still encodes unread so a later non-force load
+        // cannot resurrect the badge/row styling before Ulæst is refreshed.
+        invalidateListCaches(thread.folderId)
         return AppResult.Success(Unit)
+    }
+
+    suspend fun markUnread(thread: MessageThread): AppResult<Unit> {
+        if (session.currentStudent?.isDemo == true) {
+            demoState.markUnread(thread.id)
+            _unreadCount.value = demoState.unreadCount()
+            return AppResult.Success(Unit)
+        }
+        // Lectio/extension: __Page + UNREADMESSAGE_<normalizedId> + folders
+        postListPageEvent(
+            folderId = thread.folderId,
+            eventArgument = MessagePostbackFields.unreadMessageArg(thread.normalizedId),
+            fallbackTargets = MessagePostbackFields.markUnreadTargets,
+            threadId = thread.normalizedId,
+        )
+        invalidateListCaches(thread.folderId)
+        return AppResult.Success(Unit)
+    }
+
+    private fun invalidateListCaches(folderId: String) {
+        val studentId = session.currentStudent?.studentId ?: return
+        cache.remove(listCacheKey(studentId, folderId))
+        if (folderId != MessageFolder.UNREAD.id) {
+            cache.remove(listCacheKey(studentId, MessageFolder.UNREAD.id))
+        }
     }
 
     suspend fun deleteThread(thread: MessageThread): AppResult<Unit> {

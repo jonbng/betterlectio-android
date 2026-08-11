@@ -17,6 +17,8 @@ import dk.betterlectio.android.feature.live.LiveLessonScheduler
 import dk.betterlectio.android.feature.referral.ReferralCoordinator
 import dk.betterlectio.android.feature.referral.buildReferralUrl
 import dk.betterlectio.android.feature.referral.referralUnlockProgress
+import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
+import dk.betterlectio.android.feature.review.ReviewTrigger
 import dk.betterlectio.android.feature.schedule.LessonDetail
 import dk.betterlectio.android.feature.schedule.PrivateEventDraft
 import dk.betterlectio.android.feature.schedule.PrivateEventIds
@@ -28,7 +30,10 @@ import dk.betterlectio.android.feature.schedule.timeLabel
 import dk.betterlectio.android.feature.settings.CalendarStyle
 import dk.betterlectio.android.feature.settings.SettingsStore
 import dk.betterlectio.android.feature.wear.PhoneWearSchedulePublisher
+import dk.betterlectio.android.feature.widget.ScheduleWidgetProjector
 import dk.betterlectio.android.feature.widget.ScheduleWidgetSnapshot
+import dk.betterlectio.android.feature.widget.WidgetLesson
+import dk.betterlectio.android.feature.widget.WidgetSnapshot
 import dk.betterlectio.android.wear.model.WearSyncStatus
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -78,6 +83,7 @@ class ScheduleViewModel @Inject constructor(
     private val settings: SettingsStore,
     private val session: SessionController,
     private val referralCoordinator: ReferralCoordinator,
+    private val reviewPromptCoordinator: ReviewPromptCoordinator,
     private val wearPublisher: PhoneWearSchedulePublisher,
     @ApplicationContext private val appContext: Context,
 ) : ViewModel() {
@@ -91,6 +97,9 @@ class ScheduleViewModel @Inject constructor(
 
     val calendarStyle: StateFlow<CalendarStyle> = settings.calendarStyle
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.calendarStyle.value)
+
+    val useSubjectColors: StateFlow<Boolean> = settings.useSubjectColors
+        .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.useSubjectColors.value)
 
     val subjectColors: StateFlow<Map<String, Long>> = settings.subjectColors
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.subjectColors.value)
@@ -121,10 +130,7 @@ class ScheduleViewModel @Inject constructor(
         ensureWeekLoaded(today.plusWeeks(1), force = false)
     }
 
-    fun accentArgbFor(event: ScheduleEvent): Long {
-        val key = event.team.ifBlank { event.title }
-        return settings.colorForSubject(key)
-    }
+    fun accentArgbFor(event: ScheduleEvent): Long = settings.accentArgbFor(event)
 
     fun displayTitle(event: ScheduleEvent): String {
         // Prefer team hold code (e.g. "1x MA") so canonical-key resolution works;
@@ -201,7 +207,10 @@ class ScheduleViewModel @Inject constructor(
 
         if (!force && weekCache.containsKey(key)) {
             if (setAsPrimary) {
-                weekCache[key]?.let { mergeWeekIntoState(it, setAsPrimary = true) }
+                weekCache[key]?.let { week ->
+                    mergeWeekIntoState(week, setAsPrimary = true)
+                    publishLiveAndWidget(week)
+                }
             }
             return
         }
@@ -225,6 +234,9 @@ class ScheduleViewModel @Inject constructor(
                 is AppResult.Failure -> {
                     if (res.error is AppError.Unauthorized || res.error is AppError.SessionExpired) {
                         wearPublisher.publishStatus(WearSyncStatus.AUTH_REQUIRED)
+                    }
+                    if (setAsPrimary) {
+                        reviewPromptCoordinator.reportRecentError()
                     }
                     if (setAsPrimary && _state.value.week == null) {
                         _state.update { it.copy(loading = false, error = res.error) }
@@ -279,17 +291,40 @@ class ScheduleViewModel @Inject constructor(
     }
 
     private fun publishLiveAndWidget(week: ScheduleWeek) {
-        val todayEvents = week.days.find { it.date == LocalDate.now() }?.events.orEmpty()
+        val today = LocalDate.now()
+        val todayEvents = week.days.find { it.date == today }?.events.orEmpty()
         val now = LocalDateTime.now()
         liveLessonNotifier.update(todayEvents, now)
         liveLessonScheduler.scheduleBoundaries(todayEvents, now)
+        val zone = java.time.ZoneId.systemDefault()
         ScheduleWidgetSnapshot.write(
             appContext,
-            ScheduleWidgetSnapshot.defaultDayLabel(appContext, LocalDate.now()),
-            todayEvents.map { e ->
-                "${e.timeLabel(appContext)} ${displayTitle(e)}" +
-                    (e.room?.let { " · $it" } ?: "")
-            },
+            WidgetSnapshot(
+                date = today.toString(),
+                dayLabel = ScheduleWidgetSnapshot.defaultDayLabel(today),
+                lessons = todayEvents.map { e ->
+                    val range = e.timeLabel(appContext)
+                    val startLabel = when {
+                        e.isAllDay -> appContext.getString(R.string.event_all_day)
+                        else -> ScheduleWidgetProjector.startLabelFromEpoch(
+                            ScheduleWidgetSnapshot.epochMilli(e.start, zone),
+                            zone,
+                        ) ?: range.take(5)
+                    }
+                    WidgetLesson(
+                        id = e.id,
+                        title = displayTitle(e),
+                        startLabel = startLabel,
+                        timeRange = range,
+                        room = e.room,
+                        status = e.status.name,
+                        accentArgb = accentArgbFor(e),
+                        startEpochMilli = ScheduleWidgetSnapshot.epochMilli(e.start, zone),
+                        endEpochMilli = ScheduleWidgetSnapshot.epochMilli(e.end, zone),
+                        isAllDay = e.isAllDay,
+                    )
+                },
+            ),
         )
     }
 
@@ -421,6 +456,9 @@ class ScheduleViewModel @Inject constructor(
                             ),
                         )
                     }
+                    if (!isEdit) {
+                        reviewPromptCoordinator.maybePrompt(ReviewTrigger.PrivateEventCreated)
+                    }
                     // Invalidate cache for the week and reload
                     weekCache.clear()
                     refresh(force = true)
@@ -460,6 +498,9 @@ class ScheduleViewModel @Inject constructor(
         val student = session.currentStudent ?: return
         viewModelScope.launch {
             referralCoordinator.maybeShowNudge(student)
+            if (!referralCoordinator.nudgeVisible.value) {
+                reviewPromptCoordinator.maybePrompt(ReviewTrigger.ScheduleLoaded)
+            }
         }
     }
 

@@ -94,6 +94,7 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
         const val MAX_ERRORS_PER_PROCESS = 5
         val ALLOWED_POSTHOG_EVENTS = setOf(
             "login_completed",
+            "login_started",
             "login_with_password_completed",
             "demo_entered",
             "logged_out",
@@ -105,8 +106,13 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
             "private_event_deleted",
             "absence_cause_updated",
             "referral share",
+            "review_prompt_shown",
+            "review_prompt_positive",
+            "review_prompt_negative",
+            "review_prompt_dismissed",
+            "review_play_flow_requested",
         )
-        val DEDUPED_POSTHOG_EVENTS = setOf("login_failed", "session_expired")
+        val DEDUPED_POSTHOG_EVENTS = setOf("login_failed", "lectio session lost")
         val SAMPLED_POSTHOG_EVENTS = setOf(
             "lesson_detail_viewed",
             "assignment_detail_viewed",

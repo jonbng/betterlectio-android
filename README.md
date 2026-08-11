@@ -77,7 +77,7 @@ Defaults match iOS `Info.plist` (public project URL + publishable key). Core Lec
 | Capability | Implementation |
 |------------|----------------|
 | School list | `schools` table via PostgREST |
-| Auth | Edge Function `token-for-auth` → magic-link OTP; cookie rotation synced to encrypted store |
+| Auth | Edge Function `lectio-auth` (QR mint → magic-link OTP); Lectio cookies stay on device |
 | Homework done | RPCs + LWW merge (`clientUpdatedAt`); only numeric Lectio abs ids sync |
 | Schedule | Best-effort week sync → `lessons` / `student_lessons` / `week_sync` |
 | Lesson content | Best-effort `lessons.content` after detail open |

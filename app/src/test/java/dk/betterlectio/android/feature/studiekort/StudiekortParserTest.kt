@@ -21,9 +21,26 @@ class StudiekortParserTest {
         assertEquals("3.x", parsed.classLabel)
         assertNotNull(parsed.photoUrl)
         assertTrue(parsed.photoUrl!!.contains("pictureid=99887"))
+        assertTrue(parsed.photoUrl!!.contains("fullsize=1"))
         assertNotNull(parsed.qrUrl)
         assertTrue(parsed.qrUrl!!.contains("studiekortqr"))
         assertEquals("99887", parsed.pictureId)
+    }
+
+    @Test
+    fun parse_upgrades_thumbnail_photo_to_fullsize() {
+        val html = """
+            <html><body>
+            <img id="s_m_Content_Content_StudPic"
+                 src="/lectio/517/GetImage.aspx?pictureid=99887" alt="foto"/>
+            </body></html>
+        """.trimIndent()
+        val parsed = StudiekortParser.parse(html, gymId = 517, studentId = "12345")
+        assertEquals("99887", parsed.pictureId)
+        assertEquals(
+            "https://www.lectio.dk/lectio/517/GetImage.aspx?pictureid=99887&fullsize=1",
+            parsed.photoUrl,
+        )
     }
 
     @Test

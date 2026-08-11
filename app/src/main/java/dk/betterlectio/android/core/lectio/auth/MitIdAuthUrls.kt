@@ -34,12 +34,12 @@ object MitIdAuthUrls {
     /**
      * MitID app-switch deep link that must leave the WebView and open the MitID app
      * (or a chooser). Flutter: `https://appswitch.mitid.dk/` + AndroidIntent ACTION_VIEW.
+     *
+     * Real devices send both `…mitid.dk/?ticket=…` and `…mitid.dk/launch?…`.
      */
     fun isMitIdAppSwitchUrl(url: String): Boolean {
         val lower = url.lowercase()
-        if (lower.startsWith("https://appswitch.mitid.dk/") ||
-            lower.startsWith("http://appswitch.mitid.dk/")
-        ) {
+        if (APP_SWITCH_HOST_REGEX.containsMatchIn(lower)) {
             return true
         }
         if (lower.startsWith("mitid://") || lower.startsWith("mitiddk://")) {
@@ -68,4 +68,7 @@ object MitIdAuthUrls {
         return Regex("""[?&]laererid=(\d+)""", RegexOption.IGNORE_CASE).find(url)
             ?.groupValues?.getOrNull(1)
     }
+
+    private val APP_SWITCH_HOST_REGEX =
+        Regex("""^https?://appswitch\.mitid\.dk(?:[/?#]|$)""")
 }

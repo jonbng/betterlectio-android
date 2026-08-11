@@ -281,8 +281,10 @@ object MessagePostbackFields {
         return !looksLikeComposeForm(html)
     }
 
-    /** Prefer page event args (iOS/Flutter); button names are SmartPostback fallbacks only. */
+    /** Prefer page event args (iOS/Flutter/extension); button names are SmartPostback fallbacks only. */
     fun readMessageArg(normalizedId: String) = "READMESSAGE_$normalizedId"
+    /** Lectio list icon for read rows: `__doPostBack('__Page','UNREADMESSAGE_<id>')`. */
+    fun unreadMessageArg(normalizedId: String) = "UNREADMESSAGE_$normalizedId"
     fun flagMessageArg(normalizedId: String) = "FLAGMESSAGE_$normalizedId"
     fun hideMessageArg(normalizedId: String) = "HIDEMESSAGE_$normalizedId"
 
@@ -304,6 +306,12 @@ object MessagePostbackFields {
         "s\$m\$Content\$Content\$MarkAsReadBtn",
         "s\$m\$Content\$Content\$MarkReadBtn",
         "m\$Content\$Content\$MarkAsReadBtn",
+    )
+
+    val markUnreadTargets = listOf(
+        "s\$m\$Content\$Content\$MarkAsUnreadBtn",
+        "s\$m\$Content\$Content\$MarkUnreadBtn",
+        "m\$Content\$Content\$MarkAsUnreadBtn",
     )
 
     val flagTargets = listOf(

@@ -16,6 +16,12 @@
     <string name="login_mitid_app_chooser">Choose app</string>
     <string name="login_mitid_app_missing">Could not open the MitID app. Install MitID from the Play Store and try again.</string>
     <string name="login_demo">Try demo</string>
+    <string name="login_resume_title">Sign in again</string>
+    <string name="login_resume_subtitle">Continue with MitID at your school.</string>
+    <string name="login_resume_session_expired_title">Your session has expired</string>
+    <string name="login_resume_session_expired_subtitle">Sign in with MitID to continue.</string>
+    <string name="login_resume_cta">Sign in again — %1$s</string>
+    <string name="login_choose_other_school">Choose another school</string>
     <string name="settings_sync_subjects">Sync subject colors (Supabase)</string>
 
     <string name="placeholder_coming_soon">Coming soon — under construction.</string>
@@ -86,6 +92,7 @@
     <string name="absence_stat_current">To date</string>
     <string name="absence_chart_modules">Module absence</string>
     <string name="more_catalog">Catalog</string>
+    <string name="catalog_students">Students</string>
     <string name="catalog_teachers">Teachers</string>
     <string name="catalog_classes">Classes</string>
     <string name="catalog_holds">Teams</string>
@@ -156,9 +163,11 @@
 
     <string name="message_mark_unread">Mark as unread</string>
     <string name="message_swipe_read">Read</string>
+    <string name="message_swipe_unread">Unread</string>
     <string name="message_swipe_delete">Delete</string>
     <string name="message_deleted_snackbar">Message deleted</string>
     <string name="message_marked_read_snackbar">Marked as read</string>
+    <string name="message_marked_unread_snackbar">Marked as unread</string>
     <string name="action_undo">Undo</string>
     <string name="message_section_today">Today</string>
     <string name="message_section_yesterday">Yesterday</string>
@@ -245,17 +254,18 @@
     <string name="more_settings">Settings</string>
     <string name="more_referral">Inviter venner</string>
     <string name="more_browser_extension">Browser extension</string>
+    <string name="more_feedback">Give feedback</string>
 
     <!-- Referral UX stays Danish regardless of app language. -->
     <string name="referral_subtitle_progress">%1$d/%2$d · Unlock profile picture</string>
     <string name="referral_subtitle_unlocked">Profile picture unlocked</string>
     <string name="referral_unlock_title">Unlock profile picture</string>
     <string name="referral_unlock_done_title">Profile picture unlocked</string>
-    <string name="referral_unlock_body">Invite %1$d more classmate(s) to unlock your own profile picture.</string>
+    <string name="referral_unlock_body">Invite %1$d more friend(s) to unlock your own profile picture.</string>
     <string name="referral_unlock_done_body">You can now choose your own profile picture. It appears after approval.</string>
     <string name="referral_teaser_title">Your own profile picture</string>
-    <string name="referral_teaser_body">Invite %1$d classmates to unlock it.</string>
-    <string name="referral_share_cta">Del med din klasse</string>
+    <string name="referral_teaser_body">Invite %1$d friends to unlock it.</string>
+    <string name="referral_share_cta">Del med dine venner</string>
     <string name="referral_share_chooser">Del BetterLectio</string>
     <string name="referral_share_text">Prøv BetterLectio. Lectio der faktisk virker på mobilen.\n%1$s</string>
     <string name="referral_copy_link">Kopiér link</string>
@@ -264,13 +274,13 @@
     <string name="referral_stat_clicks">Klik</string>
     <string name="referral_recent_title">Senest inviterede</string>
     <string name="referral_anonymous">Anonym</string>
-    <string name="referral_nudge_title">Del med din klasse</string>
+    <string name="referral_nudge_title">Del med dine venner</string>
     <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link, og invitationen knyttes automatisk.</string>
     <string name="referral_nudge_share">Del nu</string>
     <string name="profile_picture_edit">Change profile picture</string>
     <string name="profile_picture_title">Profile picture</string>
     <string name="profile_picture_unlocked">Unlocked with referrals</string>
-    <string name="profile_picture_locked">%1$d of %2$d invites. Invite classmates to unlock it.</string>
+    <string name="profile_picture_locked">%1$d of %2$d invites. Invite friends to unlock it.</string>
     <string name="profile_picture_choose">Choose picture</string>
     <string name="profile_picture_choose_another">Choose another</string>
     <string name="profile_picture_submit">Send for approval</string>
@@ -288,7 +298,7 @@
     <string name="profile_picture_invalid_file">Choose a JPEG, PNG, or WebP image no larger than 5 MB.</string>
     <string name="profile_picture_load_failed">Could not load profile-picture status.</string>
     <string name="profile_picture_upload_failed">Could not send the picture. Try again.</string>
-    <string name="profile_picture_not_unlocked">Invite three classmates to unlock this feature.</string>
+    <string name="profile_picture_not_unlocked">Invite three friends to unlock this feature.</string>
     <string name="profile_picture_pending_exists">You already have a picture waiting for approval.</string>
     <string name="profile_picture_cooldown_active">It has not been three months since your last change.</string>
     <string name="referral_nudge_dismiss">Ikke nu</string>
@@ -299,6 +309,12 @@
     <string name="extension_invite_got_it">Got it</string>
     <string name="extension_invite_copy_link">Copy link</string>
     <string name="extension_invite_copied">Copied</string>
+
+    <string name="review_prompt_title">Do you like BetterLectio?</string>
+    <string name="review_prompt_body">It only takes a moment — and it helps us make the app better for you and your classmates.</string>
+    <string name="review_prompt_positive">Yes, it\'s good</string>
+    <string name="review_prompt_negative">Could be better</string>
+    <string name="review_prompt_dismiss">Not now</string>
 
     <string name="settings_appearance">Appearance</string>
     <string name="settings_appearance_system">System</string>
@@ -314,6 +330,8 @@
     <string name="settings_calendar_timeline_hint">Time grid like Google Calendar (recommended)</string>
     <string name="settings_calendar_list">List</string>
     <string name="settings_calendar_list_hint">Flat rows for the day\'s lessons</string>
+    <string name="settings_use_subject_colors">Subject colors</string>
+    <string name="settings_use_subject_colors_hint">Show unique colors for each subject. When off, blue for normal, green for changed, and red for cancelled lessons</string>
     <string name="settings_subject_colors">Subjects</string>
     <string name="settings_subject_colors_hint">Tap a subject to change its name and color. Synced via Supabase.</string>
     <string name="settings_subject_color">Color</string>
@@ -350,7 +368,11 @@
     <string name="private_event_deleted">Private event deleted</string>
 
     <string name="lesson_content">Content</string>
+    <string name="lesson_other_content">Other content</string>
     <string name="lesson_participants">Participants</string>
+    <string name="lesson_participants_teachers">Teachers</string>
+    <string name="lesson_participants_students">Students</string>
+    <string name="lesson_empty">No content</string>
     <string name="lesson_resources">Resources</string>
 
     <string name="grades_notes">Notes</string>
@@ -371,7 +393,6 @@
     <string name="directory_person_schedule_empty">No lessons this week</string>
     <string name="directory_person_kind_student">Student</string>
     <string name="directory_person_kind_teacher">Teacher</string>
-    <string name="student_profile_no_betterlectio">This student doesn\'t have BetterLectio yet.</string>
     <string name="student_profile_birthday_cd">Birthday</string>
     <string name="student_profile_instagram_cd">Instagram</string>
     <string name="student_profile_week_prev_cd">Previous week</string>
@@ -379,6 +400,8 @@
     <string name="student_profile_bl_badge">BL</string>
     <string name="student_profile_photo_cd">Photo of %1$s</string>
     <string name="student_profile_photo_preview_cd">Photo preview</string>
+    <string name="student_profile_expand_cd">Show profile</string>
+    <string name="student_profile_collapse_cd">Hide profile</string>
 
     <string name="message_flag">Flag</string>
     <string name="message_unflag">Remove flag</string>
@@ -396,6 +419,11 @@
     <string name="widget_schedule_description">Shows today\'s lessons from BetterLectio</string>
     <string name="widget_open_app_hint">Open the app to refresh the schedule</string>
     <string name="widget_day_title">Schedule · %1$s</string>
+    <string name="widget_now">Now</string>
+    <string name="widget_next">Next</string>
+    <string name="widget_free_day">No lessons today</string>
+    <string name="widget_day_done">Done for today</string>
+    <string name="widget_more">+%1$d more</string>
 
     <string name="cd_prev_week">Previous week</string>
     <string name="cd_next_week">Next week</string>
@@ -475,6 +503,8 @@
     <string name="update_play_core_unavailable">Play Core unavailable: %1$s</string>
 
     <!-- Shake-to-feedback -->
+    <string name="feedback_prompt_action">Give feedback</string>
+    <string name="feedback_prompt_dismiss">Dismiss</string>
     <string name="feedback_title">Feedback</string>
     <string name="feedback_subtitle">Describe the problem or your idea. We read everything.</string>
     <string name="feedback_category_label">Category</string>
@@ -501,4 +531,33 @@
     <string name="feedback_done">Close</string>
     <string name="feedback_error_title">Couldn\'t send</string>
     <string name="feedback_error_body">Check your connection and try again.</string>
+
+    <!-- First-login onboarding -->
+    <string name="onboarding_welcome_title">Welcome to BetterLectio</string>
+    <string name="onboarding_welcome_body">A fresh look for Lectio: cleaner, faster, and easier to use.</string>
+    <string name="onboarding_welcome_supporting">Let\'s take a quick tour.</string>
+    <string name="onboarding_colors_title">Subject colors</string>
+    <string name="onboarding_colors_body">Give each subject its own color in the schedule so they are easier to tell apart.</string>
+    <string name="onboarding_colors_with">With colors</string>
+    <string name="onboarding_colors_without">Without colors</string>
+    <string name="onboarding_colors_hint">You can customize colors per subject later under More.</string>
+    <string name="onboarding_preview_math">Math</string>
+    <string name="onboarding_preview_danish">Danish</string>
+    <string name="onboarding_preview_english">English</string>
+    <string name="onboarding_preview_history">History</string>
+    <string name="onboarding_preview_physics">Physics</string>
+    <string name="onboarding_hobby_title">One last thing</string>
+    <string name="onboarding_hobby_body">BetterLectio is a hobby project still in development, and your feedback makes a huge difference.</string>
+    <string name="onboarding_practice_shake_body">Found a bug or have an idea? Shake your phone, and a button will appear.</string>
+    <string name="onboarding_practice_chip_title">Tap the button</string>
+    <string name="onboarding_practice_chip_body">Tap \"Give feedback\" to confirm. That\'s how you\'ll send feedback later too.</string>
+    <string name="onboarding_practice_success_title">Nice!</string>
+    <string name="onboarding_practice_success_body">Shake, tap the button, and send. You can do it again anytime.</string>
+    <string name="onboarding_shake_hint">Shake your phone now</string>
+    <string name="onboarding_shake_to_continue">Shake to continue</string>
+    <string name="onboarding_tap_chip_to_continue">Tap Give feedback</string>
+    <string name="onboarding_back">Back</string>
+    <string name="onboarding_next">Next</string>
+    <string name="onboarding_start">Get started</string>
+    <string name="onboarding_skip_shake">Continue without practicing</string>
 </resources>

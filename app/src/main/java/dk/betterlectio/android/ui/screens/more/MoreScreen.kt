@@ -59,6 +59,7 @@ import androidx.compose.material.icons.filled.Share
 import androidx.compose.material.icons.filled.SystemUpdate
 import androidx.compose.material.icons.filled.Warning
 import androidx.compose.material.icons.filled.Widgets
+import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
@@ -167,6 +168,7 @@ fun MoreScreen(
     val appearance by viewModel.appearance.collectAsStateWithLifecycle()
     val language by viewModel.language.collectAsStateWithLifecycle()
     val calendarStyle by viewModel.calendarStyle.collectAsStateWithLifecycle()
+    val useSubjectColors by viewModel.useSubjectColors.collectAsStateWithLifecycle()
     val notifEvents by viewModel.notifEvents.collectAsStateWithLifecycle()
     val notifMessages by viewModel.notifMessages.collectAsStateWithLifecycle()
     val notifAssignments by viewModel.notifAssignments.collectAsStateWithLifecycle()
@@ -289,6 +291,7 @@ fun MoreScreen(
                 onOpenCatalogKind = viewModel::openDirectoryKind,
                 onOpenExtensionInvite = { showExtensionInvite = true },
                 onEditProfilePicture = { showProfilePictureEditor = true },
+                onOpenFeedback = viewModel::openFeedback,
                 onLogout = viewModel::logout,
             )
             MoreDestination.GRADES -> {
@@ -380,54 +383,21 @@ fun MoreScreen(
                         }
                     }
                     state.roomEntity != null -> {
-                        if (state.loading) LoadingBox()
-                        else {
-                            val week = state.roomSchedule
-                            LazyColumn(
-                                state = listState,
-                                contentPadding = PaddingValues(16.dp),
-                                verticalArrangement = Arrangement.spacedBy(8.dp),
-                            ) {
-                                item {
-                                    Text(
-                                        stringResource(R.string.room_schedule) +
-                                            if (week != null) " · uge ${week.week}" else "",
-                                        style = MaterialTheme.typography.titleMedium,
-                                        fontWeight = FontWeight.SemiBold,
-                                    )
-                                }
-                                if (week == null || week.days.all { it.events.isEmpty() }) {
-                                    item {
-                                        Text(
-                                            stringResource(R.string.room_schedule_empty),
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                        )
-                                    }
-                                } else {
-                                    week.days.forEach { day ->
-                                        if (day.events.isEmpty()) return@forEach
-                                        item(key = "day-${day.date}") {
-                                            Text(
-                                                day.date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
-                                                    " ${day.date.dayOfMonth}/${day.date.monthValue}",
-                                                style = MaterialTheme.typography.titleSmall,
-                                                fontWeight = FontWeight.SemiBold,
-                                                color = MaterialTheme.colorScheme.primary,
-                                                modifier = Modifier.padding(top = 8.dp),
-                                            )
-                                        }
-                                        items(day.events, key = { it.id }) { ev ->
-                                            AppListRow {
-                                                AppListPrimary(ev.title, emphasized = true)
-                                                AppListSecondary(ev.timeLabelText())
-                                                ev.teacher?.let { AppListMeta(it) }
-                                            }
-                                            AppListDivider()
-                                        }
-                                    }
-                                }
-                            }
-                        }
+                        PersonSchedulePane(
+                            loading = state.loading,
+                            week = state.roomSchedule,
+                            weekNumber = state.roomWeek,
+                            weekYear = state.roomWeekYear,
+                            defaultCalendarStyle = calendarStyle,
+                            displayTitle = viewModel::displayTitleForEvent,
+                            accentFor = { Color(viewModel.accentArgbForEvent(it)) },
+                            onPrevWeek = { viewModel.shiftRoomWeek(-1) },
+                            onNextWeek = { viewModel.shiftRoomWeek(1) },
+                            onGoToToday = viewModel::goToRoomToday,
+                            onLoadWeekForDate = viewModel::loadRoomWeekForDate,
+                            subtitle = state.roomEntity!!.subtitle,
+                            modifier = Modifier.fillMaxSize(),
+                        )
                     }
                     state.directoryParent != null -> {
                         if (state.loading) LoadingBox()
@@ -897,6 +867,23 @@ fun MoreScreen(
                         AppListPrimary(title, emphasized = calendarStyle == style)
                         AppListSecondary(hint, maxLines = 2)
                     }
+                    AppListDivider()
+                }
+
+                item {
+                    ListItem(
+                        headlineContent = { Text(stringResource(R.string.settings_use_subject_colors)) },
+                        supportingContent = {
+                            Text(stringResource(R.string.settings_use_subject_colors_hint))
+                        },
+                        trailingContent = {
+                            Switch(
+                                checked = useSubjectColors,
+                                onCheckedChange = viewModel::setUseSubjectColors,
+                            )
+                        },
+                        colors = ListItemDefaults.colors(containerColor = MaterialTheme.colorScheme.surface),
+                    )
                     AppListDivider()
                 }
 
@@ -1991,16 +1978,16 @@ private fun StudiekortFront(
                 )
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
             // Lectio school photos are portrait; use ~3:4 so faces aren't cropped square.
-            val photoShape = RoundedCornerShape(18.dp)
-            val photoInnerShape = RoundedCornerShape(15.dp)
+            val photoShape = RoundedCornerShape(20.dp)
+            val photoInnerShape = RoundedCornerShape(17.dp)
             Box(
                 contentAlignment = Alignment.Center,
                 modifier = Modifier
-                    .width(156.dp)
-                    .height(208.dp)
+                    .width(200.dp)
+                    .height(266.dp)
                     .clip(photoShape)
                     .background(scheme.onPrimary.copy(alpha = 0.12f))
                     .border(
@@ -2039,7 +2026,7 @@ private fun StudiekortFront(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(12.dp))
 
             Text(
                 displayName,
@@ -2052,7 +2039,7 @@ private fun StudiekortFront(
             )
 
             card.student.classLabel?.takeIf { it.isNotBlank() }?.let { label ->
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(8.dp))
                 Surface(
                     shape = RoundedCornerShape(999.dp),
                     color = scheme.onPrimary.copy(alpha = 0.16f),
@@ -2093,7 +2080,7 @@ private fun StudiekortFront(
                 }
             }
 
-            Spacer(Modifier.height(18.dp))
+            Spacer(Modifier.height(14.dp))
 
             Row(
                 verticalAlignment = Alignment.CenterVertically,
@@ -2227,6 +2214,7 @@ private fun MoreRoot(
     onOpenCatalogKind: (DirectoryEntityKind) -> Unit,
     onOpenExtensionInvite: () -> Unit,
     onEditProfilePicture: () -> Unit,
+    onOpenFeedback: () -> Unit,
     onLogout: () -> Unit,
 ) {
     val unlock = referralUnlockProgress(referralConversions ?: 0)
@@ -2358,6 +2346,13 @@ private fun MoreRoot(
                 icon = Icons.Default.Extension,
                 title = stringResource(R.string.more_browser_extension),
                 onClick = onOpenExtensionInvite,
+            )
+        }
+        item {
+            MoreLink(
+                icon = Icons.Outlined.Feedback,
+                title = stringResource(R.string.more_feedback),
+                onClick = onOpenFeedback,
             )
         }
         item {
@@ -2957,6 +2952,13 @@ private fun CatalogGrid(onOpenCatalogKind: (DirectoryEntityKind) -> Unit) {
             .padding(12.dp),
         verticalArrangement = Arrangement.spacedBy(10.dp),
     ) {
+        CatalogTile(
+            icon = Icons.Default.People,
+            title = stringResource(R.string.catalog_students),
+            onClick = { onOpenCatalogKind(DirectoryEntityKind.STUDENT) },
+            modifier = Modifier.fillMaxWidth(),
+            featured = true,
+        )
         for (row in tiles.chunked(2)) {
             Row(
                 Modifier.fillMaxWidth(),
@@ -2970,7 +2972,6 @@ private fun CatalogGrid(onOpenCatalogKind: (DirectoryEntityKind) -> Unit) {
                         modifier = Modifier.weight(1f),
                     )
                 }
-                if (row.size == 1) Spacer(Modifier.weight(1f))
             }
         }
     }
@@ -2982,6 +2983,7 @@ private fun CatalogTile(
     title: String,
     onClick: () -> Unit,
     modifier: Modifier = Modifier,
+    featured: Boolean = false,
 ) {
     Surface(
         modifier = modifier
@@ -2990,12 +2992,32 @@ private fun CatalogTile(
         color = MaterialTheme.colorScheme.surface,
         tonalElevation = 0.dp,
     ) {
-        Column(
-            Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
-            verticalArrangement = Arrangement.spacedBy(10.dp),
-        ) {
-            Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
-            Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+        if (featured) {
+            Row(
+                Modifier.padding(horizontal = 16.dp, vertical = 18.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.spacedBy(14.dp),
+            ) {
+                Icon(
+                    icon,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(28.dp),
+                )
+                Text(
+                    title,
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                )
+            }
+        } else {
+            Column(
+                Modifier.padding(horizontal = 14.dp, vertical = 16.dp),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary)
+                Text(title, style = MaterialTheme.typography.titleSmall, fontWeight = FontWeight.SemiBold)
+            }
         }
     }
 }

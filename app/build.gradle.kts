@@ -45,8 +45,8 @@ android {
         applicationId = "dk.betterlectio.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 10
-        versionName = "1.0.1"
+        versionCode = 11
+        versionName = "1.0.2"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 
@@ -168,6 +168,7 @@ dependencies {
     implementation(libs.okhttp.logging)
     implementation(libs.jsoup)
     implementation(libs.timber)
+    implementation(libs.zxing.core)
 
     implementation(libs.androidx.datastore.preferences)
     implementation(libs.androidx.security.crypto)
@@ -193,6 +194,8 @@ dependencies {
     // Play In-App Updates (probe; graceful if unused)
     implementation(libs.play.app.update)
     implementation(libs.play.app.update.ktx)
+    implementation(libs.play.review)
+    implementation(libs.play.review.ktx)
 
     // Play Install Referrer (classmate referral attribution)
     implementation(libs.play.install.referrer)

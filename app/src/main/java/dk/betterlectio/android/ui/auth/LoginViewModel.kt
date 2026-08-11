@@ -5,6 +5,8 @@ import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.core.lectio.auth.AuthSessionInstaller
+import dk.betterlectio.android.core.lectio.session.LastSchoolHint
+import dk.betterlectio.android.core.lectio.session.LastSchoolStore
 import dk.betterlectio.android.core.model.School
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
@@ -28,15 +30,26 @@ data class LoginUiState(
     val error: AppError? = null,
     /** Non-null when appswitch Intent could not open MitID (e.g. app not installed). */
     val mitIdAppSwitchError: String? = null,
-)
+    /** Persisted last school for one-tap MitID after logout / session expiry. */
+    val lastSchool: LastSchoolHint? = null,
+    /**
+     * When [lastSchool] is set, resume mode shows the one-tap CTA.
+     * True after the user chooses “Vælg anden skole”.
+     */
+    val choosingOtherSchool: Boolean = false,
+) {
+    val showResume: Boolean
+        get() = lastSchool != null && !choosingOtherSchool
+}
 
 @HiltViewModel
 class LoginViewModel @Inject constructor(
     private val schoolRepository: SchoolRepository,
     private val authSessionInstaller: AuthSessionInstaller,
+    private val lastSchoolStore: LastSchoolStore,
 ) : ViewModel() {
 
-    private val _state = MutableStateFlow(LoginUiState())
+    private val _state = MutableStateFlow(LoginUiState(lastSchool = lastSchoolStore.load()))
     val state: StateFlow<LoginUiState> = _state.asStateFlow()
 
     /** Session install in flight — separate from [LoginUiState.loggingIn] UI flag. */
@@ -80,16 +93,61 @@ class LoginViewModel @Inject constructor(
         if (school.isDemo) {
             enterDemo()
         } else {
-            startMitId()
+            startMitId(source = "school_picker")
         }
     }
 
-    fun startMitId() {
+    /** One-tap MitID for the persisted last school. */
+    fun resumeLastSchool() {
+        val hint = _state.value.lastSchool ?: return
+        _state.update {
+            it.copy(
+                selected = hint.toSchool(),
+                choosingOtherSchool = false,
+                error = null,
+            )
+        }
+        startMitId(source = "last_school_resume")
+    }
+
+    fun chooseOtherSchool() {
+        _state.update {
+            it.copy(
+                choosingOtherSchool = true,
+                selected = null,
+                query = "",
+                filtered = filter(it.schools, ""),
+                error = null,
+            )
+        }
+    }
+
+    fun backToResume() {
+        if (_state.value.lastSchool == null) return
+        _state.update {
+            it.copy(
+                choosingOtherSchool = false,
+                selected = null,
+                query = "",
+                filtered = filter(it.schools, ""),
+                error = null,
+            )
+        }
+    }
+
+    fun startMitId(source: String = "retry") {
         if (_state.value.selected == null) return
         if (_state.value.selected?.isDemo == true) {
             enterDemo()
             return
         }
+        PostHog.capture(
+            event = "login_started",
+            properties = mapOf(
+                "source" to source,
+                "login_method" to "mitid",
+            ),
+        )
         sessionInstallInFlight.set(false)
         _state.update {
             it.copy(
@@ -146,8 +204,16 @@ class LoginViewModel @Inject constructor(
                     callbackUrl = callbackUrl,
                 )
             ) {
-                is AppResult.Success -> _state.update {
-                    it.copy(loggingIn = false, showWebView = false)
+                is AppResult.Success -> {
+                    LastSchoolHint.fromSchool(school)?.let { lastSchoolStore.save(it) }
+                    _state.update {
+                        it.copy(
+                            loggingIn = false,
+                            showWebView = false,
+                            lastSchool = lastSchoolStore.load(),
+                            choosingOtherSchool = false,
+                        )
+                    }
                 }
                 is AppResult.Failure -> {
                     sessionInstallInFlight.set(false)

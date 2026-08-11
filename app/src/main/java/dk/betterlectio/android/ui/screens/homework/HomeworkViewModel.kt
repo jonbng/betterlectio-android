@@ -9,6 +9,8 @@ import dk.betterlectio.android.feature.homework.HomeworkDayGroup
 import dk.betterlectio.android.feature.homework.HomeworkItem
 import dk.betterlectio.android.feature.homework.HomeworkRepository
 import dk.betterlectio.android.feature.homework.groupedByDate
+import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
+import dk.betterlectio.android.feature.review.ReviewTrigger
 import dk.betterlectio.android.feature.settings.SettingsStore
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
@@ -31,6 +33,7 @@ data class HomeworkUiState(
 class HomeworkViewModel @Inject constructor(
     private val repository: HomeworkRepository,
     private val settings: SettingsStore,
+    private val reviewPromptCoordinator: ReviewPromptCoordinator,
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeworkUiState())
     val state: StateFlow<HomeworkUiState> = _state.asStateFlow()
@@ -56,14 +59,21 @@ class HomeworkViewModel @Inject constructor(
                         groups = res.data.groupedByDate(),
                     )
                 }
-                is AppResult.Failure -> _state.update { it.copy(loading = false, error = res.error) }
+                is AppResult.Failure -> {
+                    reviewPromptCoordinator.reportRecentError()
+                    _state.update { it.copy(loading = false, error = res.error) }
+                }
             }
         }
     }
 
     fun toggleDone(id: String) {
         val entry = _state.value.items.firstOrNull { it.id == id }
+        val wasDone = entry?.done ?: repository.isDone(id)
         repository.toggleDone(id, entry)
+        if (!wasDone) {
+            reviewPromptCoordinator.maybePrompt(ReviewTrigger.HomeworkDone)
+        }
         refresh()
     }
 

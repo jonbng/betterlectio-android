@@ -1,5 +1,6 @@
 package dk.betterlectio.android.feature.studiekort
 
+import dk.betterlectio.android.feature.directory.AvatarUrls
 import org.jsoup.Jsoup
 
 /**
@@ -77,9 +78,10 @@ object StudiekortParser {
             qrUrl =
                 "https://www.lectio.dk/lectio/$gymId/GetImage.aspx?studentid=$studentId&type=studiekortqr&time=$t"
         }
-        if (photoUrl == null && pictureId != null) {
-            photoUrl =
-                "https://www.lectio.dk/lectio/$gymId/GetImage.aspx?pictureid=$pictureId&fullsize=1"
+        // Lectio studiekort/elevforside often embeds a thumbnail GetImage URL without
+        // fullsize=1 — always prefer the high-res variant when we have a picture id.
+        if (pictureId != null) {
+            photoUrl = AvatarUrls.fromPictureId(gymId, pictureId)
         }
 
         return ParsedCard(name, classLabel, schoolName, photoUrl, qrUrl, pictureId, birthday)

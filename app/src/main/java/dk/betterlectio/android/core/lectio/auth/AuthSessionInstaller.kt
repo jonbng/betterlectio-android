@@ -10,6 +10,8 @@ import dk.betterlectio.android.core.lectio.model.LectioRequest
 import dk.betterlectio.android.core.lectio.scrape.LectioUrls
 import dk.betterlectio.android.core.lectio.scrape.StudentIdentityParser
 import dk.betterlectio.android.core.lectio.session.CredentialStore
+import dk.betterlectio.android.core.lectio.session.LastSchoolReason
+import dk.betterlectio.android.core.lectio.session.LastSchoolStore
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.lectio.session.SessionExternalWiper
 import dk.betterlectio.android.core.model.School
@@ -44,6 +46,7 @@ class AuthSessionInstaller @Inject constructor(
     private val sessionController: SessionController,
     private val webViewCookieExtractor: WebViewCookieExtractor,
     private val sessionExternalWiper: SessionExternalWiper,
+    private val lastSchoolStore: LastSchoolStore,
     private val supabaseAuth: SupabaseAuthService,
     private val settingsStore: SettingsStore,
     private val directorySync: DirectorySyncService,
@@ -346,12 +349,47 @@ class AuthSessionInstaller @Inject constructor(
      * so the next MitID login does not inherit a stale UniLogin session.
      */
     fun logout() {
+        val student = sessionController.currentStudent
+        if (student == null || student.isDemo) {
+            // Already signed out (e.g. session-lost handler) — still wipe residual jars.
+            sessionController.clearSession()
+            bgScope.launch {
+                runCatching { sessionExternalWiper.wipeExternalAuthState() }
+            }
+            return
+        }
+        lastSchoolStore.remember(student, LastSchoolReason.LOGGED_OUT)
         PostHog.capture(event = "logged_out")
         PostHog.reset()
         sessionController.clearSession()
         bgScope.launch {
             runCatching { sessionExternalWiper.wipeExternalAuthState() }
                 .onFailure { Timber.w(it, "External wipe on logout failed") }
+        }
+    }
+
+    /**
+     * Unexpected Lectio session death (extension parity: `lectio session lost`).
+     * No-op if already signed out so cold-start + HTTP expiry do not double-fire.
+     */
+    private fun forceLogoutSessionLost(detectionSource: String) {
+        val student = sessionController.currentStudent ?: return
+        if (student.isDemo) return
+        lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
+        PostHog.capture(
+            event = "lectio session lost",
+            properties = mapOf(
+                "school_id" to student.gymId.toString(),
+                "school_name" to (student.schoolName ?: ""),
+                "detection_source" to detectionSource,
+                "platform" to "android",
+            ),
+        )
+        PostHog.reset()
+        sessionController.clearSession()
+        bgScope.launch {
+            runCatching { sessionExternalWiper.wipeExternalAuthState() }
+                .onFailure { Timber.w(it, "External wipe after session lost failed") }
         }
     }
 
@@ -385,8 +423,9 @@ class AuthSessionInstaller @Inject constructor(
             when (val probe = coldStartValidate(student)) {
                 ColdStartResult.Dead -> {
                     Timber.w("Cold-start validation: session dead — logging out")
-                    // Engine may already have emitted sessionExpired; ensure UI clears.
-                    logout()
+                    // Engine may already have emitted sessionExpired → lectio session lost.
+                    // Only wipe + analytics if we are still authenticated.
+                    forceLogoutSessionLost(detectionSource = "cold_start_validation")
                     return@launch
                 }
                 is ColdStartResult.Deferred -> {

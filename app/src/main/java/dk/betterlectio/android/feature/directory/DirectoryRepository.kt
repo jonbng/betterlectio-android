@@ -63,6 +63,7 @@ class DirectoryRepository @Inject constructor(
             // Drop legacy HTML scrapes (nav chrome, fake item-* ids) still in Room.
             .filter { DirectoryParser.isValidPrefixedId(it.id) }
             .filter { !DirectoryParser.looksLikeNavChrome(it.name) }
+            .filter { !DirectoryParser.looksLikeIdColumnLabel(it.name) }
             .filter {
                 q.isEmpty() ||
                     it.name.lowercase().contains(q) ||
@@ -87,13 +88,17 @@ class DirectoryRepository @Inject constructor(
         val holdElementId = DirectoryParser.numericId(entity.id)
         val path = when (entity.kind) {
             DirectoryEntityKind.CLASS, DirectoryEntityKind.HOLD, DirectoryEntityKind.GROUP ->
-                "subnav/members.aspx?holdelementid=$holdElementId"
+                // Extension ActivityClassModal: showteachers + showstudents + withpics
+                "subnav/members.aspx?holdelementid=$holdElementId&showteachers=1&showstudents=1&reporttype=withpics"
             else -> "FindSkemaBew.aspx?type=elev&nosubnav=1&relatedto=$holdElementId"
         }
 
         val membersCacheKey = "dir_members_${student.gymId}_${entity.id}"
         cache.get(membersCacheKey)?.let { html ->
-            val parsed = DirectoryParser.parseMembers(html, entity, gymId = student.gymId)
+            val parsed = enrichMembersFromCatalog(
+                student.studentId,
+                DirectoryParser.parseMembers(html, entity, gymId = student.gymId),
+            )
             if (parsed.isNotEmpty()) {
                 rememberMemberAvatars(student.studentId, parsed)
                 return AppResult.Success(parsed)
@@ -103,10 +108,13 @@ class DirectoryRepository @Inject constructor(
         return when (val res = client.get(path)) {
             is AppResult.Failure -> when (val alt = client.get("ElevKlasseListe.aspx")) {
                 is AppResult.Success -> {
-                    val members = DirectoryParser.parseMembers(
-                        alt.data.body,
-                        entity,
-                        gymId = student.gymId,
+                    val members = enrichMembersFromCatalog(
+                        student.studentId,
+                        DirectoryParser.parseMembers(
+                            alt.data.body,
+                            entity,
+                            gymId = student.gymId,
+                        ),
                     )
                     rememberMemberAvatars(student.studentId, members)
                     AppResult.Success(members)
@@ -115,10 +123,13 @@ class DirectoryRepository @Inject constructor(
             }
             is AppResult.Success -> {
                 cache.put(membersCacheKey, res.data.body)
-                val members = DirectoryParser.parseMembers(
-                    res.data.body,
-                    entity,
-                    gymId = student.gymId,
+                val members = enrichMembersFromCatalog(
+                    student.studentId,
+                    DirectoryParser.parseMembers(
+                        res.data.body,
+                        entity,
+                        gymId = student.gymId,
+                    ),
                 )
                 if (members.isNotEmpty()) {
                     offline.saveAll(student.studentId, members)
@@ -127,6 +138,16 @@ class DirectoryRepository @Inject constructor(
                 AppResult.Success(members)
             }
         }
+    }
+
+    private suspend fun enrichMembersFromCatalog(
+        studentId: String,
+        members: List<DirectoryEntity>,
+    ): List<DirectoryEntity> {
+        if (members.isEmpty()) return members
+        val catalog = offline.loadAll(studentId).associateBy { it.id }
+        if (catalog.isEmpty()) return members
+        return members.map { m -> DirectoryParser.mergeEntity(catalog[m.id], m) }
     }
 
     private suspend fun rememberMemberAvatars(studentId: String, members: List<DirectoryEntity>) {
@@ -142,5 +163,6 @@ class DirectoryRepository @Inject constructor(
         return offline.loadAll(student.studentId)
             .filter { DirectoryParser.isValidPrefixedId(it.id) }
             .filter { !DirectoryParser.looksLikeNavChrome(it.name) }
+            .filter { !DirectoryParser.looksLikeIdColumnLabel(it.name) }
     }
 }

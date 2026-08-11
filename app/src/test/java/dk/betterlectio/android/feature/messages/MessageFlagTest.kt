@@ -49,4 +49,13 @@ class MessageFlagTest {
         assertTrue(state.delete(id))
         assertEquals(null, state.find(id))
     }
+
+    @Test
+    fun markUnread_then_loadDetail_keeps_unread_true() {
+        val state = DemoMessageState()
+        val id = DemoData.messages.first { !it.unread }.id
+        assertTrue(state.markUnread(id))
+        assertTrue(state.find(id)!!.unread)
+        assertTrue(state.loadDetail(id).thread.unread)
+    }
 }
