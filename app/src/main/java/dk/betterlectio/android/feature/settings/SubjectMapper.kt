@@ -30,11 +30,15 @@ object SubjectMapper {
     private val locale = Locale.forLanguageTag("da-DK")
 
     // Class-code regex constants ported from `lib/class-name.ts`.
+    // Covers `1x`, `2hf`, `2zq`, `1.4`, `L2d`, `S2x`, `IB1`, `10.st.kl.2`,
+    // hyphenated `3hx-u`, and named classes like `BShannon` / `Epsilon`.
     private const val CLASS_LETTER = "A-Za-zÆØÅæøå"
-    private val classSuffix = "(?:[${CLASS_LETTER}0-9]{1,2}|\\.[${CLASS_LETTER}0-9]+)"
+    private const val CLASS_SEPARATOR = "[._/-]"
+    private val classSuffix = "(?:[${CLASS_LETTER}0-9]{1,2}|$CLASS_SEPARATOR[${CLASS_LETTER}0-9]+)"
     private val classCodeBody = "(?:[${CLASS_LETTER}]+\\d+|\\d+)"
+    private val namedClass = "[${CLASS_LETTER}]+"
     private val classCode =
-        "(?:[${CLASS_LETTER}]+\\d+(?:$classSuffix)*|$classCodeBody(?:$classSuffix)+)"
+        "(?:[${CLASS_LETTER}]+\\d+(?:$classSuffix)*|$classCodeBody(?:$classSuffix)+|$namedClass)"
     private val classPrefixPattern = Regex("^$classCode$", RegexOption.IGNORE_CASE)
 
     private val ignoredHoldPatterns: List<Regex> = listOf(
@@ -88,9 +92,8 @@ object SubjectMapper {
         "ge" to meta("Geografi", "globe", 95, "ge", "geo", "geografi"),
         "hi" to meta("Historie", "history", 24, "hi", "his", "historie"),
         "id" to meta("Idræt", "sport", 188, "id", "idræt", "idraet"),
-        "if" to meta("Idéhistorie", "history", 300, "if", "idehistorie", "idéhistorie", "ide-historie"),
-        "ih" to meta("Idéhistorie", "history", 300, "ih"),
-        "it" to meta("Informatik", "computer", 248, "it", "informatik"),
+        "ih" to meta("Idéhistorie", "history", 300, "ih", "idehistorie", "idéhistorie", "ide-historie"),
+        "it" to meta("Informatik", "computer", 248, "it", "if", "informatik"),
         "inf" to meta("Informatik", "computer", 248, "inf"),
         "ke" to meta("Kemi", "science", 138, "ke", "kem", "kemi"),
         "kit" to meta("Kommunikation/IT", "chat", 305, "kit", "kommunikation/it", "kommunikation it"),

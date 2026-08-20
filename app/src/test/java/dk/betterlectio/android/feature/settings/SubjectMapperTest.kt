@@ -39,11 +39,26 @@ class SubjectMapperTest {
     }
 
     @Test
-    fun canonicalKey_classPrefixWithSubject() {
-        assertEquals("en", SubjectMapper.canonicalKey("1x En B"))
-        assertEquals("bi", SubjectMapper.canonicalKey("2a Biologi A"))
-        assertEquals("da", SubjectMapper.canonicalKey("1x DA"))
-        assertEquals("fy", SubjectMapper.canonicalKey("fy"))
+    fun canonicalKey_namedAndHyphenatedClassPrefixes() {
+        assertEquals("da", SubjectMapper.canonicalKey("BShannon DA"))
+        assertEquals("pu", SubjectMapper.canonicalKey("BShannon PU"))
+        assertEquals("ma", SubjectMapper.canonicalKey("BHamilton MA"))
+        assertEquals("da", SubjectMapper.canonicalKey("Epsilon DA"))
+        assertEquals("da", SubjectMapper.canonicalKey("3hx-u DA"))
+        assertEquals("en", SubjectMapper.canonicalKey("IB1 En B"))
+    }
+
+    @Test
+    fun canonicalKey_informatikNotIdehistorie() {
+        assertEquals("it", SubjectMapper.canonicalKey("1x IF"))
+        assertEquals("it", SubjectMapper.canonicalKey("IF"))
+        assertEquals("Informatik", SubjectMapper.displayName("1x IF"))
+        assertEquals("it", SubjectMapper.canonicalKey("1x IT"))
+        assertEquals("it", SubjectMapper.canonicalKey("IT"))
+        assertEquals("Informatik", SubjectMapper.displayName("1x IT"))
+        assertEquals("ih", SubjectMapper.canonicalKey("1x IH"))
+        assertEquals("ih", SubjectMapper.canonicalKey("Idéhistorie"))
+        assertEquals("Idéhistorie", SubjectMapper.displayName("IH"))
     }
 
     @Test

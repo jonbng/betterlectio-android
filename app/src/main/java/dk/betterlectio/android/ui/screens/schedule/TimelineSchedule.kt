@@ -42,6 +42,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.Dp
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import androidx.compose.ui.zIndex
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.schedule.EventStatus
@@ -58,12 +59,17 @@ private const val REFERENCE_HOUR = 8
 private val MinCardHeight = 30.dp
 private val TimeGutter = 52.dp
 
-private data class EventLayout(
+internal data class EventLayout(
     val event: ScheduleEvent,
     val column: Int,
     val totalColumns: Int,
     val startMin: Int,
     val endMin: Int,
+)
+
+internal data class CardPlacement(
+    val xFraction: Float,
+    val widthFraction: Float,
 )
 
 /**
@@ -126,98 +132,104 @@ fun TimelineDayView(
                     .height(totalHeight + 80.dp)
                     .padding(top = 8.dp),
             ) {
-                val maxHour = dayStartHour + (spanMinutes / 60) + 1
-                for (hour in dayStartHour..maxHour) {
-                    val yMin = (hour - dayStartHour) * 60
-                    if (yMin < 0 || yMin > spanMinutes + 60) continue
-                    Row(
-                        Modifier
-                            .offset(y = minuteHeight * yMin - 7.dp)
-                            .fillMaxWidth()
-                            .height(14.dp),
-                        verticalAlignment = Alignment.CenterVertically,
-                    ) {
-                        Text(
-                            text = "%d:00".format(hour),
-                            modifier = Modifier
-                                .width(TimeGutter)
-                                .padding(end = 6.dp),
-                            style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
-                            fontWeight = FontWeight.Medium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
-                            textAlign = TextAlign.End,
-                        )
-                        Box(
+                BoxWithConstraints(Modifier.fillMaxSize()) {
+                    val laneWidth = maxWidth - TimeGutter
+                    val maxHour = dayStartHour + (spanMinutes / 60) + 1
+                    for (hour in dayStartHour..maxHour) {
+                        val yMin = (hour - dayStartHour) * 60
+                        if (yMin < 0 || yMin > spanMinutes + 60) continue
+                        Row(
                             Modifier
-                                .weight(1f)
-                                .height(1.dp)
-                                .background(
-                                    MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
-                                ),
-                        )
+                                .zIndex(0f)
+                                .offset(y = minuteHeight * yMin - 7.dp)
+                                .fillMaxWidth()
+                                .height(14.dp),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            Text(
+                                text = "%d:00".format(hour),
+                                modifier = Modifier
+                                    .width(TimeGutter)
+                                    .padding(end = 6.dp),
+                                style = MaterialTheme.typography.labelSmall.copy(fontSize = 11.sp),
+                                fontWeight = FontWeight.Medium,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.8f),
+                                textAlign = TextAlign.End,
+                            )
+                            Box(
+                                Modifier
+                                    .weight(1f)
+                                    .height(1.dp)
+                                    .background(
+                                        MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.4f),
+                                    ),
+                            )
+                        }
                     }
-                }
 
-                layouts.forEach { layout ->
-                    val event = layout.event
-                    val top = minuteHeight * layout.startMin
-                    val h = (minuteHeight * (layout.endMin - layout.startMin)).coerceAtLeast(MinCardHeight)
-                    val widthFraction = 1f / layout.totalColumns
-                    val xFraction = layout.column.toFloat() / layout.totalColumns
-                    val accent = accentFor(event)
-                    val cancelled = event.status == EventStatus.CANCELLED
-
-                    BoxWithConstraints(
-                        Modifier
-                            .fillMaxWidth()
-                            .padding(start = TimeGutter),
-                    ) {
-                        val contentW = maxWidth * widthFraction
-                        val x = maxWidth * xFraction
+                    // Cancelled leftovers paint first so live/changed cards stay opaque,
+                    // rounded, and above the hour grid.
+                    val painted = layouts.sortedBy { layout ->
+                        if (layout.event.status == EventStatus.CANCELLED) 0 else 1
+                    }
+                    painted.forEach { layout ->
+                        val event = layout.event
+                        val top = minuteHeight * layout.startMin
+                        val h = (minuteHeight * (layout.endMin - layout.startMin))
+                            .coerceAtLeast(MinCardHeight)
+                        val placement = overlapPlacement(layout, layouts)
+                        val cancelled = event.status == EventStatus.CANCELLED
                         ModernScheduleCard(
                             title = displayTitle(event),
                             room = event.room,
                             teacher = event.teacher,
                             teacherId = event.teacherId,
                             status = event.status,
-                            accent = accent,
+                            accent = accentFor(event),
                             neutralBlend = neutralBlend,
                             dark = dark,
                             showTeacherAvatar = true,
+                            onClick = { onEventClick(event) },
                             modifier = Modifier
-                                .offset(x = x + 2.dp, y = top)
-                                .width(contentW - 4.dp)
-                                .height(h)
-                                .clickable { onEventClick(event) }
-                                .alpha(if (cancelled) 0.5f else 1f),
+                                .zIndex(if (cancelled) 1f else 2f)
+                                .offset(
+                                    x = TimeGutter + laneWidth * placement.xFraction + 2.dp,
+                                    y = top,
+                                )
+                                .width(
+                                    (laneWidth * placement.widthFraction - 4.dp)
+                                        .coerceAtLeast(24.dp),
+                                )
+                                .height(h),
                         )
                     }
-                }
 
-                if (showNow) {
-                    val nowMin = (now.hour * 60 + now.minute) - dayStartHour * 60
-                    if (nowMin in 0 until spanMinutes) {
-                        val y = minuteHeight * nowMin
-                        Row(
-                            Modifier
-                                .offset(y = y - 3.dp)
-                                .fillMaxWidth()
-                                .padding(start = TimeGutter - 6.dp)
-                                .height(6.dp),
-                            verticalAlignment = Alignment.CenterVertically,
-                        ) {
-                            Box(
+                    if (showNow) {
+                        val nowMin = (now.hour * 60 + now.minute) - dayStartHour * 60
+                        if (nowMin in 0 until spanMinutes) {
+                            val y = minuteHeight * nowMin
+                            Row(
                                 Modifier
-                                    .size(6.dp)
-                                    .clip(CircleShape)
-                                    .background(Color(0xFFE53935)),
-                            )
-                            Box(
-                                Modifier
-                                    .weight(1f)
-                                    .height(1.5.dp)
-                                    .background(Color(0xFFE53935)),
-                            )
+                                    .zIndex(3f)
+                                    .offset(y = y - 3.dp)
+                                    .fillMaxWidth()
+                                    .padding(start = TimeGutter - 6.dp)
+                                    .height(6.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Box(
+                                    Modifier
+                                        .size(6.dp)
+                                        .clip(CircleShape)
+                                        .background(Color(0xFFE53935)),
+                                )
+                                Box(
+                                    Modifier
+                                        .weight(1f)
+                                        .height(1.5.dp)
+                                        .background(Color(0xFFE53935)),
+                                )
+                            }
                         }
                     }
                 }
@@ -291,17 +303,24 @@ private fun ModernScheduleCard(
     accent: Color,
     neutralBlend: Color,
     dark: Boolean,
+    onClick: () -> Unit,
     showTeacherAvatar: Boolean = false,
     teacherId: String? = null,
     modifier: Modifier = Modifier,
 ) {
+    val cancelled = status == EventStatus.CANCELLED
     val bg = when (status) {
         EventStatus.CANCELLED -> if (dark) Color(0xFF3A3A3C) else Color(0xFFF2F2F7)
-        else -> accent.blend(neutralBlend, if (dark) 0.60f else 0.85f)
+        else -> accent.blend(neutralBlend, if (dark) 0.52f else 0.82f)
     }
     val shape = RoundedCornerShape(15.dp)
 
-    Box(modifier.clip(shape).background(bg)) {
+    Box(
+        modifier
+            .clip(shape)
+            .background(bg)
+            .clickable(onClick = onClick),
+    ) {
         Column(
             Modifier
                 .fillMaxSize()
@@ -317,14 +336,12 @@ private fun ModernScheduleCard(
                     modifier = Modifier.weight(1f),
                     style = MaterialTheme.typography.bodyMedium,
                     fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.6f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (cancelled) 0.5f else 0.92f,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (status == EventStatus.CANCELLED) {
-                        TextDecoration.LineThrough
-                    } else {
-                        null
-                    },
+                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
                 )
                 if (showTeacherAvatar && !teacher.isNullOrBlank()) {
                     PersonAvatar(
@@ -351,9 +368,12 @@ private fun ModernScheduleCard(
                     meta,
                     style = MaterialTheme.typography.labelMedium,
                     fontWeight = FontWeight.Light,
-                    color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.5f),
+                    color = MaterialTheme.colorScheme.onSurface.copy(
+                        alpha = if (cancelled) 0.4f else 0.62f,
+                    ),
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
                 )
             }
             Spacer(Modifier.weight(1f, fill = true))
@@ -405,7 +425,7 @@ fun EmptyDayState(modifier: Modifier = Modifier) {
     }
 }
 
-private fun calculateOverlapLayouts(
+internal fun calculateOverlapLayouts(
     timed: List<ScheduleEvent>,
     date: LocalDate,
     dayStartHour: Int,
@@ -450,6 +470,51 @@ private fun calculateOverlapLayouts(
             .maxOfOrNull { it.column } ?: 0
         a.copy(totalColumns = maxCol + 1)
     }
+}
+
+/**
+ * Place overlapping cards. When a cancelled leftover shares a slot with a
+ * live/changed lesson, keep the leftover visible as a narrow trailing strip
+ * instead of a 50/50 split that mutes the real module.
+ */
+internal fun overlapPlacement(
+    layout: EventLayout,
+    layouts: List<EventLayout>,
+): CardPlacement {
+    val cluster = layouts.filter { other ->
+        other.startMin < layout.endMin && layout.startMin < other.endMin
+    }
+    val live = cluster
+        .filter { it.event.status != EventStatus.CANCELLED }
+        .sortedWith(compareBy<EventLayout> { it.column }.thenBy { it.event.id })
+    val cancelled = cluster
+        .filter { it.event.status == EventStatus.CANCELLED }
+        .sortedWith(compareBy<EventLayout> { it.column }.thenBy { it.event.id })
+
+    if (live.isNotEmpty() && cancelled.isNotEmpty()) {
+        val liveShare = 0.70f
+        val cancelledShare = 0.30f
+        if (layout.event.status == EventStatus.CANCELLED) {
+            val index = cancelled.indexOfFirst { it.event.id == layout.event.id }.coerceAtLeast(0)
+            val count = cancelled.size
+            return CardPlacement(
+                xFraction = liveShare + cancelledShare * index / count,
+                widthFraction = cancelledShare / count,
+            )
+        }
+        val index = live.indexOfFirst { it.event.id == layout.event.id }.coerceAtLeast(0)
+        val count = live.size
+        return CardPlacement(
+            xFraction = liveShare * index / count,
+            widthFraction = liveShare / count,
+        )
+    }
+
+    val columns = layout.totalColumns.coerceAtLeast(1)
+    return CardPlacement(
+        xFraction = layout.column.toFloat() / columns,
+        widthFraction = 1f / columns,
+    )
 }
 
 /** Blend this color toward [other] by [fraction] (0 = self, 1 = other). */
