@@ -31,7 +31,8 @@ object SubjectMapper {
 
     // Class-code regex constants ported from `lib/class-name.ts`.
     // Covers `1x`, `2hf`, `2zq`, `1.4`, `L2d`, `S2x`, `IB1`, `10.st.kl.2`,
-    // hyphenated `3hx-u`, and named classes like `BShannon` / `Epsilon`.
+    // hyphenated `3hx-u`, slash-suffixed vocational classes like `buEUX2601/b`,
+    // and named classes like `BShannon` / `Epsilon`.
     private const val CLASS_LETTER = "A-Za-zÆØÅæøå"
     private const val CLASS_SEPARATOR = "[._/-]"
     private val classSuffix = "(?:[${CLASS_LETTER}0-9]{1,2}|$CLASS_SEPARATOR[${CLASS_LETTER}0-9]+)"
@@ -62,7 +63,7 @@ object SubjectMapper {
         Regex("\\bai-udvalg\\b", RegexOption.IGNORE_CASE),
     )
 
-    private val stripLevelSuffix = Regex("-[a-zæøå]+$", RegexOption.IGNORE_CASE)
+    private val stripLevelSuffix = Regex("(?:-[a-zæøå]+|/[a-zæøå0-9])$", RegexOption.IGNORE_CASE)
     private val edgeNonAlnum = Regex("(^[^\\p{L}\\p{N}]+|[^\\p{L}\\p{N}]+$)")
     private val multiSpace = Regex("\\s+")
 

@@ -46,6 +46,10 @@ class SubjectMapperTest {
         assertEquals("da", SubjectMapper.canonicalKey("Epsilon DA"))
         assertEquals("da", SubjectMapper.canonicalKey("3hx-u DA"))
         assertEquals("en", SubjectMapper.canonicalKey("IB1 En B"))
+        assertEquals("da", SubjectMapper.canonicalKey("buEUX2601/b DA"))
+        assertEquals("ma", SubjectMapper.canonicalKey("buEUX2601/b MA"))
+        assertEquals("da", SubjectMapper.canonicalKey("buEUX2601/b da/b"))
+        assertEquals("ma", SubjectMapper.canonicalKey("toEUD2502/a MA"))
     }
 
     @Test
