@@ -96,23 +96,23 @@ class AvatarRepository @Inject constructor(
         teacherNumericId: String? = null,
         knownUrl: String? = null,
     ): String? {
-        peekUrl(entityId, name, teacherNumericId, knownUrl)?.let { return it }
-
         val student = session.currentStudent ?: return null
+        val initialCached = peekUrl(entityId, name, teacherNumericId, knownUrl)
         if (student.isDemo) {
-            return resolveDemo(entityId, name, teacherNumericId)
+            return initialCached ?: resolveDemo(entityId, name, teacherNumericId)
         }
 
         ensureNameIndex(student.studentId)
-
-        // Re-check after index warm (offline rows may have avatarUrl).
-        peekUrl(entityId, name, teacherNumericId, knownUrl)?.let { return it }
 
         val resolvedEntityId = entityId
             ?: teacherNumericId?.let { "T$it" }
             ?: name?.let { nameIndex[normalizeName(it)] }
 
-        if (resolvedEntityId == null) return null
+        val cached = initialCached ?: peekUrl(entityId, name, teacherNumericId, knownUrl)
+        if (resolvedEntityId == null) return cached
+        if (cached != null && !offline.isAvatarStale(student.studentId, resolvedEntityId)) {
+            return cached
+        }
 
         val entityKind = kind
             ?: when {
@@ -125,13 +125,17 @@ class AvatarRepository @Inject constructor(
             return null
         }
 
-        return fetchAndCache(
+        val refreshed = fetchAndCache(
             entityId = resolvedEntityId,
             kind = entityKind,
             gymId = student.gymId,
             studentId = student.studentId,
             personName = name,
         )
+        if (refreshed != null) return refreshed
+        // A successful empty response is authoritative; a transient request
+        // failure leaves the previous cached portrait available.
+        return if (memory[resolvedEntityId] == NONE) null else cached
     }
 
     /**
@@ -231,10 +235,6 @@ class AvatarRepository @Inject constructor(
         studentId: String,
         personName: String?,
     ): String? {
-        memory[entityId]?.let { cached ->
-            return cached.takeIf { it != NONE }
-        }
-
         // Deduplicate: one app-scoped job per entity. Composition may cancel while
         // awaiting, but the scrape continues so the next bind can reuse the result.
         val existing = inflight[entityId]
@@ -264,10 +264,6 @@ class AvatarRepository @Inject constructor(
         studentId: String,
         personName: String?,
     ): String? {
-        memory[entityId]?.let { cached ->
-            return cached.takeIf { it != NONE }
-        }
-
         val numericId = DirectoryParser.numericId(entityId)
         if (numericId.isBlank()) {
             memory[entityId] = NONE
@@ -290,6 +286,7 @@ class AvatarRepository @Inject constructor(
                     ?: parsePictureIdFallback(res.data.body)
                 if (pictureId.isNullOrBlank()) {
                     memory[entityId] = NONE
+                    offline.updateAvatarObservation(studentId, entityId, null)
                     Timber.d("No picture id for %s (%s)", entityId, personName)
                     return null
                 }

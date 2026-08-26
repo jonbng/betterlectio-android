@@ -6,6 +6,7 @@ import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.core.cache.CacheFreshness
 import dk.betterlectio.android.feature.assignments.AssignmentDetail
 import dk.betterlectio.android.feature.assignments.AssignmentFilter
 import dk.betterlectio.android.feature.assignments.AssignmentItem
@@ -16,6 +17,7 @@ import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import javax.inject.Inject
 
 data class AssignmentsUiState(
@@ -33,15 +35,43 @@ class AssignmentsViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(AssignmentsUiState())
     val state: StateFlow<AssignmentsUiState> = _state.asStateFlow()
+    private var refreshJob: Job? = null
 
     init {
-        refresh()
+        refreshIfStale()
     }
 
     fun refresh(force: Boolean = false) {
-        viewModelScope.launch {
+        if (!force) {
+            refreshIfStale()
+            return
+        }
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val res = repository.load(force)) {
+            applyResult(repository.load(force))
+        }
+    }
+
+    fun onVisible() = refreshIfStale()
+
+    private fun refreshIfStale() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            val freshness = repository.cacheFreshness()
+            _state.update { it.copy(loading = true, error = null) }
+            if (freshness != CacheFreshness.MISSING) {
+                applyResult(repository.load(forceRefresh = false))
+            }
+            if (freshness != CacheFreshness.FRESH) {
+                _state.update { it.copy(loading = true) }
+                applyResult(repository.load(forceRefresh = true))
+            }
+        }
+    }
+
+    private fun applyResult(res: AppResult<List<AssignmentItem>>) {
+        when (res) {
                 is AppResult.Success -> {
                     val f = _state.value.filter
                     _state.update {
@@ -53,7 +83,6 @@ class AssignmentsViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Failure -> _state.update { it.copy(loading = false, error = res.error) }
-            }
         }
     }
 

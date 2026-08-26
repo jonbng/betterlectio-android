@@ -1,6 +1,9 @@
 package dk.betterlectio.android.feature.auth
 
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.model.School
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.demo.DemoData
@@ -32,8 +35,10 @@ class SchoolRepository @Inject constructor(
                 }
             }
             if (!forceRefresh) {
-                cache.get(CACHE_KEY)?.let { html ->
-                    val parsed = parseSchools(html)
+                cache.getWithMeta(CACHE_KEY)
+                    ?.takeIf { it.freshness(CachePolicy.DIRECTORY) == CacheFreshness.FRESH }
+                    ?.let { cached ->
+                    val parsed = parseSchools(cached.value)
                     if (parsed.isNotEmpty()) return@withContext AppResult.Success(parsed)
                 }
             }

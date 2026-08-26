@@ -1,6 +1,8 @@
 package dk.betterlectio.android.feature.schedule
 
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.model.FetchPriority
 import dk.betterlectio.android.core.lectio.scrape.SmartPostback
@@ -82,6 +84,15 @@ class ScheduleRepository @Inject constructor(
                 AppResult.Success(weekData)
             }
         }
+    }
+
+    fun weekCacheFreshness(year: Int, week: Int): CacheFreshness {
+        val student = session.currentStudent ?: return CacheFreshness.MISSING
+        if (student.isDemo) return CacheFreshness.FRESH
+        return cache.freshness(
+            "schedule_${student.studentId}_${year}_$week",
+            CachePolicy.MAIN_DATA,
+        )
     }
 
     suspend fun loadLessonDetail(event: ScheduleEvent): AppResult<LessonDetail> {

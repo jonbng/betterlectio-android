@@ -51,10 +51,13 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.i18n.asString
-import dk.betterlectio.android.feature.live.LiveLessonBoundary
+import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
+import dk.betterlectio.android.feature.live.LiveLessonBoundary
 import dk.betterlectio.android.feature.schedule.EventStatus
 import dk.betterlectio.android.feature.schedule.LessonParticipant
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
@@ -86,7 +89,9 @@ import java.util.Locale
 fun ScheduleScreen(
     viewModel: ScheduleViewModel = hiltViewModel(),
     scrollToTopToken: Int = 0,
+    onOpenPerson: ((DirectoryEntity) -> Unit)? = null,
 ) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onVisible() }
     val state by viewModel.state.collectAsStateWithLifecycle()
     val calendarStyle by viewModel.calendarStyle.collectAsStateWithLifecycle()
     // Subscribe so bricks recompose when Supabase lesson mappings / color mode change.
@@ -376,7 +381,24 @@ fun ScheduleScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(bottom = 4.dp),
                                     )
-                                    teachers.forEach { p -> LessonParticipantRow(p) }
+                                    teachers.forEach { participant ->
+                                        LessonParticipantRow(
+                                            participant = participant,
+                                            onClick = onOpenPerson?.let { openPerson ->
+                                                {
+                                                    viewModel.selectEvent(null)
+                                                    openPerson(
+                                                        DirectoryEntity(
+                                                            id = participant.id,
+                                                            name = participant.name,
+                                                            kind = DirectoryEntityKind.TEACHER,
+                                                            avatarUrl = participant.avatarUrl,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
                                 if (students.isNotEmpty()) {
                                     if (teachers.isNotEmpty()) Spacer(Modifier.height(8.dp))
@@ -386,7 +408,24 @@ fun ScheduleScreen(
                                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                                         modifier = Modifier.padding(bottom = 4.dp),
                                     )
-                                    students.forEach { p -> LessonParticipantRow(p) }
+                                    students.forEach { participant ->
+                                        LessonParticipantRow(
+                                            participant = participant,
+                                            onClick = onOpenPerson?.let { openPerson ->
+                                                {
+                                                    viewModel.selectEvent(null)
+                                                    openPerson(
+                                                        DirectoryEntity(
+                                                            id = participant.id,
+                                                            name = participant.name,
+                                                            kind = DirectoryEntityKind.STUDENT,
+                                                            avatarUrl = participant.avatarUrl,
+                                                        ),
+                                                    )
+                                                }
+                                            },
+                                        )
+                                    }
                                 }
                                 otherParticipants.forEach { p -> LessonParticipantRow(p) }
                             }
@@ -662,8 +701,12 @@ private fun LiveLessonHeader(header: LiveHeaderUi?) {
 }
 
 @Composable
-private fun LessonParticipantRow(participant: LessonParticipant) {
+private fun LessonParticipantRow(
+    participant: LessonParticipant,
+    onClick: (() -> Unit)? = null,
+) {
     AppListRow(
+        onClick = onClick,
         leading = {
             PersonAvatar(
                 name = participant.name,

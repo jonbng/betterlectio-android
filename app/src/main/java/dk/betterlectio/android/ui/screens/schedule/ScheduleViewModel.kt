@@ -11,6 +11,7 @@ import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.core.cache.CacheFreshness
 import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.live.LiveLessonNotifier
 import dk.betterlectio.android.feature.live.LiveLessonScheduler
@@ -114,6 +115,7 @@ class ScheduleViewModel @Inject constructor(
     /** Weeks currently in memory: key = "year-week". */
     private val weekCache = ConcurrentHashMap<String, ScheduleWeek>()
     private val loadingWeeks = ConcurrentHashMap.newKeySet<String>()
+    private val pendingNetworkRefresh = ConcurrentHashMap.newKeySet<String>()
 
     init {
         val today = LocalDate.now()
@@ -161,6 +163,20 @@ class ScheduleViewModel @Inject constructor(
         ensureWeekLoaded(date.plusWeeks(1), force = force)
     }
 
+    fun onVisible() {
+        val date = _state.value.selectedDate
+        val y = LectioDateUtils.isoWeekYear(date)
+        val w = LectioDateUtils.isoWeek(date)
+        val key = weekKey(y, w)
+        val freshness = repository.weekCacheFreshness(y, w)
+
+        // Re-read disk even when this ViewModel has an in-memory week: WorkManager may
+        // have written a newer schedule while this tab was stopped.
+        weekCache.remove(key)
+        if (freshness == CacheFreshness.STALE) pendingNetworkRefresh.add(key)
+        ensureWeekLoaded(date, force = false, setAsPrimary = true)
+    }
+
     fun prevWeek() = shiftWeek(-1)
     fun nextWeek() = shiftWeek(1)
 
@@ -189,7 +205,11 @@ class ScheduleViewModel @Inject constructor(
         weekCache[weekKey(y, w)]?.let { week ->
             _state.update { it.copy(week = week, loading = false, error = null) }
         }
-        ensureWeekLoaded(date, force = false, setAsPrimary = true)
+        ensureWeekLoaded(
+            date,
+            force = repository.weekCacheFreshness(y, w) == CacheFreshness.STALE,
+            setAsPrimary = true,
+        )
         ensureWeekLoaded(date.minusWeeks(1), force = false)
         ensureWeekLoaded(date.plusWeeks(1), force = false)
     }
@@ -214,8 +234,10 @@ class ScheduleViewModel @Inject constructor(
             }
             return
         }
-        if (!force && !loadingWeeks.add(key)) return
-        if (force) loadingWeeks.add(key)
+        if (!loadingWeeks.add(key)) {
+            if (force) pendingNetworkRefresh.add(key)
+            return
+        }
 
         viewModelScope.launch {
             if (setAsPrimary) {
@@ -246,6 +268,9 @@ class ScheduleViewModel @Inject constructor(
                 }
             }
             loadingWeeks.remove(key)
+            if (pendingNetworkRefresh.remove(key)) {
+                ensureWeekLoaded(date, force = true, setAsPrimary = setAsPrimary)
+            }
         }
     }
 

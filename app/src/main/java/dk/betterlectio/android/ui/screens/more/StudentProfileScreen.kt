@@ -393,16 +393,18 @@ private fun StudentProfileHero(
             AvatarRepositoryEntryPoint::class.java,
         ).avatarRepository()
     }
-    val preferredUrl = profile?.pictureUrl(entity.avatarUrl)
-    var resolvedUrl by remember(entity.id, preferredUrl) {
+    val customUrl = profile?.customPfpUrl?.trim()?.takeIf { it.isNotEmpty() }
+    val initialLectioUrl = avatarRepo.peekUrl(
+        entityId = entity.id,
+        name = entity.name,
+        knownUrl = entity.avatarUrl,
+    ) ?: entity.avatarUrl
+    var lectioUrl by remember(entity.id, entity.avatarUrl) {
+        mutableStateOf(initialLectioUrl)
+    }
+    var resolvedUrl by remember(entity.id, customUrl, initialLectioUrl) {
         mutableStateOf(
-            preferredUrl
-                ?: avatarRepo.peekUrl(
-                    entityId = entity.id,
-                    name = entity.name,
-                    knownUrl = entity.avatarUrl,
-                )
-                ?: entity.avatarUrl,
+            customUrl ?: initialLectioUrl,
         )
     }
     var showPhotoPreview by remember { mutableStateOf(false) }
@@ -421,18 +423,15 @@ private fun StudentProfileHero(
         if (hasRichProfile && !userCollapsed) expanded = true
     }
 
-    LaunchedEffect(entity.id, preferredUrl, entity.avatarUrl) {
-        if (!preferredUrl.isNullOrBlank()) {
-            resolvedUrl = preferredUrl
-            return@LaunchedEffect
-        }
+    LaunchedEffect(entity.id, customUrl, entity.avatarUrl) {
         val resolved = avatarRepo.resolveUrl(
             entityId = entity.id,
             name = entity.name,
             kind = entity.kind,
-            knownUrl = entity.avatarUrl ?: resolvedUrl,
+            knownUrl = entity.avatarUrl ?: lectioUrl,
         )
-        if (!resolved.isNullOrBlank()) resolvedUrl = resolved
+        lectioUrl = resolved
+        if (customUrl == null) resolvedUrl = resolved
     }
 
     val openPreview = {
@@ -479,6 +478,7 @@ private fun StudentProfileHero(
                     hasBetterLectio = hasBetterLectio,
                     profile = profile,
                     resolvedUrl = resolvedUrl,
+                    fallbackUrl = lectioUrl,
                     pinned = pinned,
                     onWriteMessage = onWriteMessage,
                     onTogglePin = onTogglePin,
@@ -488,6 +488,7 @@ private fun StudentProfileHero(
                         expanded = false
                     },
                     onPhotoClick = openPreview,
+                    onPhotoUrlChanged = { resolvedUrl = it },
                 )
             } else {
                 CollapsedStudentProfile(
@@ -495,6 +496,7 @@ private fun StudentProfileHero(
                     classLabel = classLabel,
                     hasBetterLectio = hasBetterLectio,
                     resolvedUrl = resolvedUrl,
+                    fallbackUrl = lectioUrl,
                     pinned = pinned,
                     onWriteMessage = onWriteMessage,
                     onTogglePin = onTogglePin,
@@ -503,6 +505,7 @@ private fun StudentProfileHero(
                         expanded = true
                     },
                     onPhotoClick = openPreview,
+                    onPhotoUrlChanged = { resolvedUrl = it },
                 )
             }
         }
@@ -526,11 +529,13 @@ private fun CollapsedStudentProfile(
     classLabel: String?,
     hasBetterLectio: Boolean,
     resolvedUrl: String?,
+    fallbackUrl: String?,
     pinned: Boolean,
     onWriteMessage: () -> Unit,
     onTogglePin: () -> Unit,
     onExpand: () -> Unit,
     onPhotoClick: () -> Unit,
+    onPhotoUrlChanged: (String) -> Unit,
 ) {
     Row(
         modifier = Modifier
@@ -542,12 +547,14 @@ private fun CollapsedStudentProfile(
     ) {
         StudentPortrait(
             url = resolvedUrl,
+            fallbackUrl = fallbackUrl,
             displayName = displayName,
             hasBetterLectio = hasBetterLectio,
             width = 36.dp,
             height = 48.dp,
             corner = 10.dp,
             onClick = onPhotoClick,
+            onUrlChanged = onPhotoUrlChanged,
         )
         Column(modifier = Modifier.weight(1f)) {
             Text(
@@ -617,12 +624,14 @@ private fun ExpandedStudentProfile(
     hasBetterLectio: Boolean,
     profile: StudentProfile?,
     resolvedUrl: String?,
+    fallbackUrl: String?,
     pinned: Boolean,
     onWriteMessage: () -> Unit,
     onTogglePin: () -> Unit,
     onViewClass: () -> Unit,
     onCollapse: () -> Unit,
     onPhotoClick: () -> Unit,
+    onPhotoUrlChanged: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val bio = profile?.description?.takeIf { it.isNotBlank() }.takeIf { hasBetterLectio }
@@ -642,12 +651,14 @@ private fun ExpandedStudentProfile(
         ) {
             StudentPortrait(
                 url = resolvedUrl,
+                fallbackUrl = fallbackUrl,
                 displayName = displayName,
                 hasBetterLectio = hasBetterLectio,
                 width = 52.dp,
                 height = 68.dp,
                 corner = 12.dp,
                 onClick = onPhotoClick,
+                onUrlChanged = onPhotoUrlChanged,
             )
 
             Column(
@@ -780,15 +791,18 @@ private fun ExpandedStudentProfile(
 @Composable
 private fun StudentPortrait(
     url: String?,
+    fallbackUrl: String?,
     displayName: String,
     hasBetterLectio: Boolean,
     width: Dp,
     height: Dp,
     corner: Dp,
     onClick: () -> Unit,
+    onUrlChanged: (String) -> Unit,
 ) {
     val context = LocalContext.current
     val shape = RoundedCornerShape(corner)
+    var activeUrl by remember(url, fallbackUrl) { mutableStateOf(url) }
     Box(
         modifier = Modifier
             .size(width = width, height = height)
@@ -803,13 +817,13 @@ private fun StudentPortrait(
                 shape = shape,
             )
             .background(MaterialTheme.colorScheme.surfaceVariant)
-            .clickable(enabled = !url.isNullOrBlank(), onClick = onClick),
+            .clickable(enabled = !activeUrl.isNullOrBlank(), onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        if (!url.isNullOrBlank()) {
+        if (!activeUrl.isNullOrBlank()) {
             SubcomposeAsyncImage(
                 model = ImageRequest.Builder(context)
-                    .data(url)
+                    .data(activeUrl)
                     .crossfade(true)
                     .build(),
                 contentDescription = stringResource(
@@ -828,6 +842,12 @@ private fun StudentPortrait(
                     )
                 },
                 error = {
+                    LaunchedEffect(activeUrl, fallbackUrl) {
+                        if (!fallbackUrl.isNullOrBlank() && fallbackUrl != activeUrl) {
+                            activeUrl = fallbackUrl
+                            onUrlChanged(fallbackUrl)
+                        }
+                    }
                     InitialsAvatar(
                         label = displayName,
                         modifier = Modifier.fillMaxSize(),

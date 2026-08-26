@@ -1,6 +1,9 @@
 package dk.betterlectio.android.feature.directory
 
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.model.FetchPriority
 import dk.betterlectio.android.core.lectio.session.SessionController
@@ -37,7 +40,7 @@ class DirectorySyncService @Inject constructor(
      * Fetch the full school directory and persist offline.
      * Safe to call multiple times; concurrent calls serialize.
      */
-    suspend fun syncFullCatalog(): AppResult<Int> = mutex.withLock {
+    suspend fun syncFullCatalog(forceRefresh: Boolean = false): AppResult<Int> = mutex.withLock {
         val student = session.currentStudent
             ?: return AppResult.Failure(AppError.Unauthorized)
 
@@ -49,6 +52,18 @@ class DirectorySyncService @Inject constructor(
 
         val gymId = student.gymId
         val cacheKey = dropdownCacheKey(gymId)
+
+        if (!forceRefresh) {
+            val cached = cache.getWithMeta(cacheKey)
+            if (cached?.freshness(CachePolicy.DIRECTORY) == CacheFreshness.FRESH) {
+                val parsed = DirectoryParser.parseDropdownJson(cached.value)
+                if (parsed.isNotEmpty()) {
+                    offline.replaceAll(student.studentId, parsed)
+                    lastSyncEpochMs = cached.updatedAtMs
+                    return AppResult.Success(parsed.size)
+                }
+            }
+        }
 
         // Prefer a fresh network fetch; fall back to cached JSON if Lectio is down.
         val entities = when (val remote = fetchDropdownCatalog(gymId, cacheKey)) {

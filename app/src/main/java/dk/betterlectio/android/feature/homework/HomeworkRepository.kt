@@ -4,6 +4,9 @@ import android.content.Context
 import androidx.core.content.edit
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.core.cache.EntityOfflineStore
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.cache.SimpleCache
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.session.SessionController
@@ -53,8 +56,9 @@ class HomeworkRepository @Inject constructor(
         val student = session.currentStudent
             ?: return AppResult.Failure(AppError.Unauthorized)
 
-        // Best-effort remote statuses with LWW merge (never blocks offline)
-        if (supabaseManager.isConfigured && !student.isDemo) {
+        // Best-effort remote statuses with LWW merge (never blocks offline). Keep this on
+        // actual refreshes so opening a still-fresh cache does not perform hidden network I/O.
+        if (forceRefresh && supabaseManager.isConfigured && !student.isDemo) {
             val remote = supabaseHomework.fetchStatuses(student.gymId, student.studentId)
             mergeRemoteStatuses(student.studentId, remote)
         }
@@ -99,7 +103,22 @@ class HomeworkRepository @Inject constructor(
         }
     }
 
-    suspend fun loadDetail(item: HomeworkItem): AppResult<HomeworkItem> {
+    fun cacheFreshness(): CacheFreshness {
+        val student = session.currentStudent ?: return CacheFreshness.MISSING
+        if (student.isDemo) return CacheFreshness.FRESH
+        val key = "homework_${student.studentId}"
+        val freshness = cache.freshness(key, CachePolicy.MAIN_DATA)
+        return if (freshness == CacheFreshness.MISSING && offline.get(key) != null) {
+            CacheFreshness.STALE
+        } else {
+            freshness
+        }
+    }
+
+    suspend fun loadDetail(
+        item: HomeworkItem,
+        forceRefresh: Boolean = false,
+    ): AppResult<HomeworkItem> {
         val student = session.currentStudent
             ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
@@ -115,11 +134,14 @@ class HomeworkRepository @Inject constructor(
             .removePrefix("https://www.lectio.dk/lectio/${student.gymId}/")
             .removePrefix("/")
         val cacheKey = "homework_detail_${item.id}"
-        cache.get(cacheKey)?.let {
-            return AppResult.Success(HomeworkDetailLoader.mergeDetail(item, it))
+        val cached = cache.getWithMeta(cacheKey)
+        if (!forceRefresh && cached?.freshness(CachePolicy.MUTABLE_DETAIL) == CacheFreshness.FRESH) {
+            return AppResult.Success(HomeworkDetailLoader.mergeDetail(item, cached.value))
         }
         return when (val res = client.get(path)) {
-            is AppResult.Failure -> AppResult.Success(item)
+            is AppResult.Failure -> AppResult.Success(
+                cached?.let { HomeworkDetailLoader.mergeDetail(item, it.value) } ?: item,
+            )
             is AppResult.Success -> {
                 cache.put(cacheKey, res.data.body)
                 offline.put(cacheKey, res.data.body)

@@ -5,6 +5,7 @@ import androidx.lifecycle.viewModelScope
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.core.cache.CacheFreshness
 import dk.betterlectio.android.feature.homework.HomeworkDayGroup
 import dk.betterlectio.android.feature.homework.HomeworkItem
 import dk.betterlectio.android.feature.homework.HomeworkRepository
@@ -19,6 +20,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.Job
 import javax.inject.Inject
 
 data class HomeworkUiState(
@@ -37,6 +39,7 @@ class HomeworkViewModel @Inject constructor(
 ) : ViewModel() {
     private val _state = MutableStateFlow(HomeworkUiState())
     val state: StateFlow<HomeworkUiState> = _state.asStateFlow()
+    private var refreshJob: Job? = null
 
     val lessonMappings = settings.lessonMappings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
@@ -45,13 +48,40 @@ class HomeworkViewModel @Inject constructor(
         settings.displayNameForSubject(team, fallback = team)
 
     init {
-        refresh()
+        refreshIfStale()
     }
 
     fun refresh(force: Boolean = false) {
-        viewModelScope.launch {
+        if (!force) {
+            refreshIfStale()
+            return
+        }
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val res = repository.load(force)) {
+            applyResult(repository.load(force), reportFailure = true)
+        }
+    }
+
+    fun onVisible() = refreshIfStale()
+
+    private fun refreshIfStale() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            val freshness = repository.cacheFreshness()
+            _state.update { it.copy(loading = true, error = null) }
+            if (freshness != CacheFreshness.MISSING) {
+                applyResult(repository.load(forceRefresh = false), reportFailure = false)
+            }
+            if (freshness != CacheFreshness.FRESH) {
+                _state.update { it.copy(loading = true) }
+                applyResult(repository.load(forceRefresh = true), reportFailure = true)
+            }
+        }
+    }
+
+    private fun applyResult(res: AppResult<List<HomeworkItem>>, reportFailure: Boolean) {
+        when (res) {
                 is AppResult.Success -> _state.update {
                     it.copy(
                         loading = false,
@@ -60,10 +90,9 @@ class HomeworkViewModel @Inject constructor(
                     )
                 }
                 is AppResult.Failure -> {
-                    reviewPromptCoordinator.reportRecentError()
+                    if (reportFailure) reviewPromptCoordinator.reportRecentError()
                     _state.update { it.copy(loading = false, error = res.error) }
                 }
-            }
         }
     }
 

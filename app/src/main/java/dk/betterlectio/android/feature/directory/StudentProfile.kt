@@ -34,8 +34,8 @@ data class StudentProfile(
     fun pictureUrl(fallback: String?): String? {
         val custom = customPfpUrl?.trim().orEmpty()
         if (custom.isNotEmpty()) return custom
-        val lectio = lectioPfpUrl?.trim().orEmpty()
-        if (lectio.isNotEmpty()) return lectio
+        // Ordinary school portraits stay on Lectio and use the authenticated
+        // avatar loader. lectioPfpUrl is retained only for wire compatibility.
         return fallback?.takeIf { it.isNotBlank() }
     }
 

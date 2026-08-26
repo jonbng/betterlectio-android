@@ -10,4 +10,5 @@ data class DirectoryEntity(
     val kind: DirectoryEntityKind,
     val subtitle: String? = null,
     val avatarUrl: String? = null,
+    val avatarUpdatedAt: Long? = null,
 )

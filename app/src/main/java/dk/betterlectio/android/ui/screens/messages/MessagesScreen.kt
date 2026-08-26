@@ -94,6 +94,8 @@ import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.compose.LifecycleEventEffect
 import androidx.navigation.NavType
 import androidx.navigation.compose.NavHost
 import androidx.navigation.compose.composable
@@ -147,6 +149,7 @@ fun MessagesScreen(
     viewModel: MessagesViewModel = hiltViewModel(),
     scrollToTopToken: Int = 0,
 ) {
+    LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onVisible() }
     val navController = rememberNavController()
     val state by viewModel.state.collectAsStateWithLifecycle()
 

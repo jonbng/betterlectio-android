@@ -56,6 +56,15 @@ class StudentProfileTest {
     }
 
     @Test
+    fun pictureUrl_ignoresDeprecatedLectioMirror() {
+        val profile = StudentProfile(
+            id = "1",
+            lectioPfpUrl = "https://cdn/lectio.jpg",
+        )
+        assertEquals("https://lectio/fallback.jpg", profile.pictureUrl("https://lectio/fallback.jpg"))
+    }
+
+    @Test
     fun formattedBirthday_respectsToggle() {
         val hidden = StudentProfile(
             id = "1",

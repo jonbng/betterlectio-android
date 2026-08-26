@@ -5,6 +5,9 @@ import android.net.Uri
 import android.provider.OpenableColumns
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.model.FetchPriority
 import dk.betterlectio.android.core.lectio.scrape.SmartPostback
@@ -110,6 +113,13 @@ class MessageRepository @Inject constructor(
         }
     }
 
+    fun folderCacheFreshness(folder: MessageFolder = MessageFolder.NEWEST): CacheFreshness {
+        val student = session.currentStudent ?: return CacheFreshness.MISSING
+        if (student.isDemo) return CacheFreshness.FRESH
+        val key = listCacheKey(student.studentId, folder.id)
+        return cache.freshness(key, CachePolicy.MAIN_DATA)
+    }
+
     /**
      * iOS [LectioHTTPClient+Messages.fetchMessages]: empty EVENTARGUMENT folder switch.
      */
@@ -196,12 +206,13 @@ class MessageRepository @Inject constructor(
         }
 
         val cacheKey = threadCacheKey(student.studentId, thread.normalizedId)
+        val cached = cache.getWithMeta(cacheKey)
         // Unread opens must reach Lectio ($LB2$_MC_$_…) so the thread is marked read.
         if (!forceNetwork && !thread.unread) {
-            cache.get(cacheKey)?.let { cached ->
+            cached?.takeIf { it.freshness(CachePolicy.MUTABLE_DETAIL) == CacheFreshness.FRESH }?.let {
                 // Drop poisoned cache: older builds stored list HTML after failed open postbacks.
-                if (MessageParser.looksLikeThreadDetail(cached)) {
-                    return AppResult.Success(MessageParser.parseThreadDetail(cached, thread))
+                if (MessageParser.looksLikeThreadDetail(it.value)) {
+                    return AppResult.Success(MessageParser.parseThreadDetail(it.value, thread))
                 }
                 cache.remove(cacheKey)
             }
@@ -226,7 +237,12 @@ class MessageRepository @Inject constructor(
                 priority = FetchPriority.Important,
             )
         ) {
-            is AppResult.Failure -> res
+            is AppResult.Failure -> {
+                val fallback = cached?.value
+                    ?.takeIf(MessageParser::looksLikeThreadDetail)
+                    ?.let { MessageParser.parseThreadDetail(it, thread) }
+                if (fallback != null) AppResult.Success(fallback) else res
+            }
             is AppResult.Success -> {
                 val html = res.data
                 if (!MessageParser.looksLikeThreadDetail(html)) {

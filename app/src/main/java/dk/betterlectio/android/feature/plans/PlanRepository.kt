@@ -4,6 +4,9 @@ import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
@@ -48,11 +51,14 @@ class PlanRepository @Inject constructor(
         }
         val path = if (href.startsWith("http")) href else href.removePrefix("/")
         val key = "plan_${student.studentId}_${href.hashCode()}"
-        cache.get(key)?.let {
-            return AppResult.Success(plan.copy(detailHtml = extractBody(it)))
+        val cached = cache.getWithMeta(key)
+        if (cached?.freshness(CachePolicy.STUDY_PLAN_DETAIL) == CacheFreshness.FRESH) {
+            return AppResult.Success(plan.copy(detailHtml = extractBody(cached.value)))
         }
         return when (val res = client.get(path)) {
-            is AppResult.Failure -> AppResult.Success(plan)
+            is AppResult.Failure -> AppResult.Success(
+                cached?.let { plan.copy(detailHtml = extractBody(it.value)) } ?: plan,
+            )
             is AppResult.Success -> {
                 cache.put(key, res.data.body)
                 AppResult.Success(plan.copy(detailHtml = extractBody(res.data.body)))

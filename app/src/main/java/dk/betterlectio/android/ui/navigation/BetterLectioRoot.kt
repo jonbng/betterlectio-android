@@ -44,6 +44,7 @@ import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dk.betterlectio.android.core.lectio.session.AuthState
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.feedback.ShakeInteractionGate
 import dk.betterlectio.android.feature.messages.MessageRepository
 import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
@@ -138,6 +139,7 @@ private fun AuthenticatedShell() {
     var homeworkScroll by remember { mutableIntStateOf(0) }
     var assignmentsScroll by remember { mutableIntStateOf(0) }
     var moreScroll by remember { mutableIntStateOf(0) }
+    var personRequest by remember { mutableStateOf<DirectoryEntity?>(null) }
 
     // Zero content insets: child screens own status-bar handling via their TopAppBars.
     // Without this, the outer Scaffold (no topBar) pads the NavHost for the status bar,
@@ -233,7 +235,19 @@ private fun AuthenticatedShell() {
             popExitTransition = { fadeOut(animationSpec = tween(140)) },
         ) {
             composable(AppDestination.Schedule.route) {
-                ScheduleScreen(scrollToTopToken = scheduleScroll)
+                ScheduleScreen(
+                    scrollToTopToken = scheduleScroll,
+                    onOpenPerson = { person ->
+                        personRequest = person
+                        navController.navigate(AppDestination.More.route) {
+                            popUpTo(navController.graph.findStartDestination().id) {
+                                saveState = true
+                            }
+                            launchSingleTop = true
+                            restoreState = true
+                        }
+                    },
+                )
             }
             composable(AppDestination.Messages.route) {
                 MessagesScreen(scrollToTopToken = messagesScroll)
@@ -247,6 +261,8 @@ private fun AuthenticatedShell() {
             composable(AppDestination.More.route) {
                 MoreScreen(
                     scrollToTopToken = moreScroll,
+                    personToOpen = personRequest,
+                    onPersonOpened = { personRequest = null },
                     onComposeToPerson = {
                         // PendingComposeRecipient is already offered by MoreViewModel;
                         // switch tab so MessagesViewModel can open compose.

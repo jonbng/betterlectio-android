@@ -1,6 +1,9 @@
 package dk.betterlectio.android.feature.assignments
 
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
@@ -36,7 +39,16 @@ class AssignmentRepository @Inject constructor(
         }
     }
 
-    suspend fun loadDetail(item: AssignmentItem): AppResult<AssignmentDetail> {
+    fun cacheFreshness(): CacheFreshness {
+        val student = session.currentStudent ?: return CacheFreshness.MISSING
+        if (student.isDemo) return CacheFreshness.FRESH
+        return cache.freshness("assignments_${student.studentId}", CachePolicy.MAIN_DATA)
+    }
+
+    suspend fun loadDetail(
+        item: AssignmentItem,
+        forceRefresh: Boolean = false,
+    ): AppResult<AssignmentDetail> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
             return AppResult.Success(
@@ -51,12 +63,14 @@ class AssignmentRepository @Inject constructor(
         }
         val path = "ElevAflevering.aspx?elevid=${student.studentId}&exerciseid=${item.id}"
         val cacheKey = "assignment_detail_${student.studentId}_${item.id}"
-        cache.get(cacheKey)?.let {
-            return AppResult.Success(AssignmentParser.parseDetail(it, item))
+        val cached = cache.getWithMeta(cacheKey)
+        if (!forceRefresh && cached?.freshness(CachePolicy.MUTABLE_DETAIL) == CacheFreshness.FRESH) {
+            return AppResult.Success(AssignmentParser.parseDetail(cached.value, item))
         }
         return when (val res = client.get(path)) {
             is AppResult.Failure -> AppResult.Success(
-                AssignmentDetail(item = item, description = item.note),
+                cached?.let { AssignmentParser.parseDetail(it.value, item) }
+                    ?: AssignmentDetail(item = item, description = item.note),
             )
             is AppResult.Success -> {
                 cache.put(cacheKey, res.data.body)

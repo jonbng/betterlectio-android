@@ -1,6 +1,9 @@
 package dk.betterlectio.android.feature.directory
 
 import dk.betterlectio.android.core.cache.SimpleCache
+import dk.betterlectio.android.core.cache.CacheFreshness
+import dk.betterlectio.android.core.cache.CachePolicy
+import dk.betterlectio.android.core.cache.freshness
 import dk.betterlectio.android.core.lectio.LectioClient
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
@@ -28,6 +31,14 @@ class DirectoryRepository @Inject constructor(
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
         if (student.isDemo) {
             return AppResult.Success(filterParsed(DemoData.directory, query, kind))
+        }
+
+        val catalogFreshness = cache.freshness(
+            DirectorySyncService.dropdownCacheKey(student.gymId),
+            CachePolicy.DIRECTORY,
+        )
+        if (catalogFreshness != CacheFreshness.FRESH) {
+            syncService.syncFullCatalog()
         }
 
         var catalog = offline.loadAll(student.studentId)
@@ -94,7 +105,9 @@ class DirectoryRepository @Inject constructor(
         }
 
         val membersCacheKey = "dir_members_${student.gymId}_${entity.id}"
-        cache.get(membersCacheKey)?.let { html ->
+        val cached = cache.getWithMeta(membersCacheKey)
+        if (cached?.freshness(CachePolicy.DIRECTORY) == CacheFreshness.FRESH) {
+            val html = cached.value
             val parsed = enrichMembersFromCatalog(
                 student.studentId,
                 DirectoryParser.parseMembers(html, entity, gymId = student.gymId),
@@ -119,7 +132,15 @@ class DirectoryRepository @Inject constructor(
                     rememberMemberAvatars(student.studentId, members)
                     AppResult.Success(members)
                 }
-                is AppResult.Failure -> res
+                is AppResult.Failure -> {
+                    val fallback = cached?.value?.let {
+                        enrichMembersFromCatalog(
+                            student.studentId,
+                            DirectoryParser.parseMembers(it, entity, gymId = student.gymId),
+                        )
+                    }.orEmpty()
+                    if (fallback.isNotEmpty()) AppResult.Success(fallback) else res
+                }
             }
             is AppResult.Success -> {
                 cache.put(membersCacheKey, res.data.body)

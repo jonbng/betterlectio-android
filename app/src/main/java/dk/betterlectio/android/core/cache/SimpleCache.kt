@@ -3,6 +3,7 @@ package dk.betterlectio.android.core.cache
 import android.content.Context
 import dagger.hilt.android.qualifiers.ApplicationContext
 import java.io.File
+import java.time.Duration
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -31,6 +32,12 @@ class SimpleCache @Inject constructor(
         return CachedValue(f.readText(), f.lastModified())
     }
 
+    fun freshness(
+        key: String,
+        maxAge: Duration,
+        nowMs: Long = System.currentTimeMillis(),
+    ): CacheFreshness = getWithMeta(key)?.freshness(maxAge, nowMs) ?: CacheFreshness.MISSING
+
     fun remove(key: String) {
         safeFile(key).delete()
     }
@@ -46,3 +53,28 @@ class SimpleCache @Inject constructor(
 }
 
 data class CachedValue(val value: String, val updatedAtMs: Long)
+
+enum class CacheFreshness {
+    FRESH,
+    STALE,
+    MISSING,
+}
+
+fun CachedValue.freshness(
+    maxAge: Duration,
+    nowMs: Long = System.currentTimeMillis(),
+): CacheFreshness {
+    val ageMs = nowMs - updatedAtMs
+    return if (updatedAtMs > 0L && ageMs >= 0L && ageMs < maxAge.toMillis()) {
+        CacheFreshness.FRESH
+    } else {
+        CacheFreshness.STALE
+    }
+}
+
+object CachePolicy {
+    val MAIN_DATA: Duration = Duration.ofMinutes(5)
+    val MUTABLE_DETAIL: Duration = Duration.ofMinutes(5)
+    val STUDY_PLAN_DETAIL: Duration = Duration.ofHours(1)
+    val DIRECTORY: Duration = Duration.ofHours(24)
+}

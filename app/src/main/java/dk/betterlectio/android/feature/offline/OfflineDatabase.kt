@@ -18,6 +18,7 @@ data class DirectoryEntityRow(
     val kind: String,
     val subtitle: String?,
     val avatarUrl: String?,
+    val avatarUpdatedAt: Long?,
     val updatedAt: Long,
 )
 
@@ -69,7 +70,7 @@ interface MessageOfflineDao {
 
 @Database(
     entities = [DirectoryEntityRow::class, MessageThreadRow::class],
-    version = 1,
+    version = 2,
     exportSchema = false,
 )
 abstract class OfflineDatabase : RoomDatabase() {

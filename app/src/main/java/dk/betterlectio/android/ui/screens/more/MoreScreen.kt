@@ -162,6 +162,8 @@ import java.util.Locale
 fun MoreScreen(
     viewModel: MoreViewModel = hiltViewModel(),
     scrollToTopToken: Int = 0,
+    personToOpen: DirectoryEntity? = null,
+    onPersonOpened: () -> Unit = {},
     onComposeToPerson: ((MessageRecipient) -> Unit)? = null,
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
@@ -229,10 +231,21 @@ fun MoreScreen(
     // Reselecting the More tab (or switching back to it after a sub-page visit)
     // always returns to the top-level menu and scrolls it into view.
     LaunchedEffect(scrollToTopToken) {
-        if (scrollToTopToken > 0) {
+        if (scrollToTopToken > 0 && personToOpen == null) {
             viewModel.popToRoot()
             listState.animateScrollToItem(0)
         }
+    }
+
+    LaunchedEffect(personToOpen) {
+        val person = personToOpen ?: return@LaunchedEffect
+        viewModel.navigate(MoreDestination.DIRECTORY)
+        if (person.kind == DirectoryEntityKind.STUDENT) {
+            viewModel.openStudentProfile(person)
+        } else {
+            viewModel.openPersonSchedule(person)
+        }
+        onPersonOpened()
     }
 
     Scaffold(

@@ -38,6 +38,11 @@ class OfflineDirectoryStore @Inject constructor(
                     kind = e.kind.name,
                     subtitle = e.subtitle,
                     avatarUrl = e.avatarUrl,
+                    avatarUpdatedAt = when {
+                        e.avatarUrl.isNullOrBlank() -> existingById[e.id]?.avatarUpdatedAt
+                        e.avatarUrl != existingById[e.id]?.avatarUrl -> now
+                        else -> existingById[e.id]?.avatarUpdatedAt ?: now
+                    },
                     updatedAt = now,
                 )
             },
@@ -50,12 +55,11 @@ class OfflineDirectoryStore @Inject constructor(
      * Preserves previously resolved [DirectoryEntity.avatarUrl] values by entity id.
      */
     suspend fun replaceAll(studentId: String, entities: List<DirectoryEntity>) {
-        val previousAvatars = loadAll(studentId)
-            .mapNotNull { e -> e.avatarUrl?.takeIf { it.isNotBlank() }?.let { e.id to it } }
-            .toMap()
+        val previousAvatars = loadAll(studentId).associateBy { it.id }
         val merged = entities.map { e ->
-            if (e.avatarUrl.isNullOrBlank() && previousAvatars.containsKey(e.id)) {
-                e.copy(avatarUrl = previousAvatars[e.id])
+            val previous = previousAvatars[e.id]
+            if (e.avatarUrl.isNullOrBlank() && !previous?.avatarUrl.isNullOrBlank()) {
+                e.copy(avatarUrl = previous?.avatarUrl, avatarUpdatedAt = previous?.avatarUpdatedAt)
             } else {
                 e
             }
@@ -70,13 +74,23 @@ class OfflineDirectoryStore @Inject constructor(
      */
     suspend fun updateAvatarUrl(studentId: String, entityId: String, avatarUrl: String) {
         if (avatarUrl.isBlank()) return
+        updateAvatarObservation(studentId, entityId, avatarUrl)
+    }
+
+    /**
+     * Persist the result of a successful Lectio avatar check.
+     * A null URL is authoritative (the person currently has no portrait), while
+     * transient request failures must not call this method.
+     */
+    suspend fun updateAvatarObservation(studentId: String, entityId: String, avatarUrl: String?) {
         val existing = dao.loadAll(studentId).firstOrNull { it.entityId == entityId } ?: return
-        if (existing.avatarUrl == avatarUrl) return
+        val now = System.currentTimeMillis()
         dao.upsertAll(
             listOf(
                 existing.copy(
-                    avatarUrl = avatarUrl,
-                    updatedAt = System.currentTimeMillis(),
+                    avatarUrl = avatarUrl?.takeIf { it.isNotBlank() },
+                    avatarUpdatedAt = now,
+                    updatedAt = now,
                 ),
             ),
         )
@@ -89,5 +103,16 @@ class OfflineDirectoryStore @Inject constructor(
             .getOrDefault(DirectoryEntityKind.OTHER),
         subtitle = subtitle,
         avatarUrl = avatarUrl,
+        avatarUpdatedAt = avatarUpdatedAt,
     )
+
+    suspend fun isAvatarStale(studentId: String, entityId: String, now: Long = System.currentTimeMillis()): Boolean {
+        val entity = loadAll(studentId).firstOrNull { it.id == entityId } ?: return true
+        val observedAt = entity.avatarUpdatedAt ?: return true
+        return now - observedAt >= AVATAR_REFRESH_MS
+    }
+
+    private companion object {
+        const val AVATAR_REFRESH_MS = 24 * 60 * 60 * 1000L
+    }
 }

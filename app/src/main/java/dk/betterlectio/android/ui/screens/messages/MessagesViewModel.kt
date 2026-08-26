@@ -10,6 +10,7 @@ import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.i18n.toUiText
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.core.cache.CacheFreshness
 import dk.betterlectio.android.feature.messages.ComposeAttachment
 import dk.betterlectio.android.feature.messages.ComposeMessageDraft
 import dk.betterlectio.android.feature.messages.MessageFolder
@@ -26,6 +27,7 @@ import dk.betterlectio.android.feature.messages.PendingComposeRecipient
 import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
 import dk.betterlectio.android.feature.review.ReviewTrigger
 import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -75,9 +77,10 @@ class MessagesViewModel @Inject constructor(
     private val _state = MutableStateFlow(MessagesUiState())
     val state: StateFlow<MessagesUiState> = _state.asStateFlow()
     val unreadCount = repository.unreadCount
+    private var refreshJob: Job? = null
 
     init {
-        refresh()
+        refreshIfStale()
         viewModelScope.launch {
             pendingCompose.pending.collect { offered ->
                 if (offered == null) return@collect
@@ -88,23 +91,59 @@ class MessagesViewModel @Inject constructor(
     }
 
     fun refresh(force: Boolean = false) {
-        viewModelScope.launch {
+        if (!force) {
+            refreshIfStale()
+            return
+        }
+        refreshJob?.cancel()
+        refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            when (val res = repository.loadFolder(_state.value.selectedFolder, force)) {
+            applyFolderResult(repository.loadFolder(_state.value.selectedFolder, forceRefresh = true))
+            refreshUnreadIfNeeded(force = true)
+        }
+    }
+
+    fun onVisible() = refreshIfStale()
+
+    private fun refreshIfStale() {
+        if (refreshJob?.isActive == true) return
+        refreshJob = viewModelScope.launch {
+            val folder = _state.value.selectedFolder
+            val freshness = repository.folderCacheFreshness(folder)
+            _state.update { it.copy(loading = true, error = null) }
+            if (freshness != CacheFreshness.MISSING) {
+                applyFolderResult(repository.loadFolder(folder, forceRefresh = false))
+            }
+            if (freshness != CacheFreshness.FRESH) {
+                _state.update { it.copy(loading = true) }
+                applyFolderResult(repository.loadFolder(folder, forceRefresh = true))
+            }
+            refreshUnreadIfNeeded(force = false)
+        }
+    }
+
+    private fun applyFolderResult(res: AppResult<List<MessageThread>>) {
+        when (res) {
                 is AppResult.Success -> _state.update {
                     it.copy(loading = false, threads = res.data)
                 }
                 is AppResult.Failure -> _state.update {
                     it.copy(loading = false, error = res.error)
                 }
-            }
+        }
+    }
+
+    private suspend fun refreshUnreadIfNeeded(force: Boolean) {
+        if (_state.value.selectedFolder.id == MessageFolder.UNREAD.id) return
+        if (force || repository.folderCacheFreshness(MessageFolder.UNREAD) != CacheFreshness.FRESH) {
             repository.refreshUnreadBadge()
         }
     }
 
     fun selectFolder(folder: MessageFolder) {
+        refreshJob?.cancel()
         _state.update { it.copy(selectedFolder = folder) }
-        refresh(true)
+        refreshIfStale()
     }
 
     fun openThread(thread: MessageThread) {
