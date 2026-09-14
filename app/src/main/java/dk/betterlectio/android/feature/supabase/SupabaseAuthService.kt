@@ -48,6 +48,7 @@ class SupabaseAuthService @Inject constructor(
         credentials: LectioCredentials,
         expectedStudentId: String,
         gymId: Int,
+        platform: String = "android",
     ): SupabaseSessionState {
         val client = manager.client ?: run {
             Timber.w("SupabaseAuth: client not configured — skipping")
@@ -79,7 +80,7 @@ class SupabaseAuthService @Inject constructor(
                                 userId = qr.userId,
                                 schoolId = gymId.toString(),
                                 client = ClientMetadata(
-                                    platform = "android",
+                                    platform = platform,
                                     appVersion = BuildConfig.VERSION_NAME,
                                     appBuild = BuildConfig.VERSION_CODE.toString(),
                                 ),
@@ -177,8 +178,9 @@ class SupabaseAuthService @Inject constructor(
         credentials: LectioCredentials,
         studentId: String,
         gymId: Int,
+        platform: String = "android",
     ): SupabaseSessionState {
-        val result = authenticateWithLectio(credentials, studentId, gymId)
+        val result = authenticateWithLectio(credentials, studentId, gymId, platform)
         manager.completeSessionBootstrap(result)
         return result
     }

@@ -1,6 +1,7 @@
 package dk.betterlectio.android.feature.review
 
 import com.posthog.PostHog
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.feature.feedback.FeedbackOpenRequests
 import dk.betterlectio.android.feature.referral.ReferralCoordinator
@@ -50,6 +51,7 @@ class ReviewPromptCoordinator @Inject constructor(
      * Records a launch for the 8-opens / 14-days gate.
      */
     fun onAuthenticatedLaunch() {
+        if (BuildConfig.ADMIN_BUILD) return
         if (!launchRecordedThisProcess.compareAndSet(false, true)) return
         sessionStartedAt = Instant.now()
         store.recordLaunch()
@@ -67,6 +69,7 @@ class ReviewPromptCoordinator @Inject constructor(
      * After a happy moment — delays briefly, re-checks gates, then may show the soft sheet.
      */
     fun maybePrompt(trigger: ReviewTrigger) {
+        if (BuildConfig.ADMIN_BUILD) return
         val student = session.currentStudent ?: return
         if (student.isDemo) return
         if (_softPromptVisible.value) return

@@ -1,4 +1,5 @@
 import java.io.FileInputStream
+import java.net.URI
 import java.util.Properties
 
 plugins {
@@ -26,6 +27,43 @@ val localProperties = Properties().apply {
         load(FileInputStream(localPropertiesFile))
     }
 }
+val adminBuildRequested = gradle.startParameter.taskNames.any { taskName ->
+    taskName.substringAfterLast(':').contains("admin", ignoreCase = true)
+}
+val adminEnvironmentFile = rootProject.file("../admin/.env.local")
+val adminEnvironment = mutableMapOf<String, String>()
+if (adminBuildRequested) {
+    if (!adminEnvironmentFile.isFile) {
+        throw GradleException("Admin builds require ../admin/.env.local")
+    }
+    adminEnvironmentFile.forEachLine { rawLine ->
+        val line = rawLine.trim().removePrefix("export ")
+        if (line.isNotEmpty() && !line.startsWith("#") && '=' in line) {
+            val key = line.substringBefore('=').trim()
+            val value = line.substringAfter('=').trim().removeSurrounding("\"").removeSurrounding("'")
+            if (key == "ADMIN_MOBILE_TOKEN" || key == "ADMIN_MOBILE_API_ORIGIN") {
+                adminEnvironment[key] = value
+            }
+        }
+    }
+    val token = adminEnvironment["ADMIN_MOBILE_TOKEN"].orEmpty()
+    val origin = adminEnvironment["ADMIN_MOBILE_API_ORIGIN"].orEmpty()
+    if (token.length < 32) {
+        throw GradleException("ADMIN_MOBILE_TOKEN must be at least 32 characters")
+    }
+    val parsedOrigin = runCatching { URI(origin) }.getOrNull()
+    if (parsedOrigin?.scheme != "https" ||
+        parsedOrigin.host.isNullOrBlank() ||
+        !parsedOrigin.rawPath.isNullOrEmpty() ||
+        parsedOrigin.rawQuery != null ||
+        parsedOrigin.rawFragment != null ||
+        parsedOrigin.userInfo != null
+    ) {
+        throw GradleException("ADMIN_MOBILE_API_ORIGIN must be an HTTPS origin without a trailing slash")
+    }
+}
+fun buildConfigString(value: String): String =
+    "\"${value.replace("\\", "\\\\").replace("\"", "\\\"")}\""
 val hasReleaseKeystore =
     keystorePropertiesFile.exists() &&
         keystoreProperties["storeFile"] != null &&
@@ -77,6 +115,10 @@ android {
             ?: "https://eu.i.posthog.com"
         buildConfigField("String", "POSTHOG_API_KEY", "\"${posthogApiKey.replace("\"", "\\\"")}\"")
         buildConfigField("String", "POSTHOG_HOST", "\"${posthogHost.replace("\"", "\\\"")}\"")
+        // Empty in every ordinary artifact. The admin build type overrides these values.
+        buildConfigField("boolean", "ADMIN_BUILD", "false")
+        buildConfigField("String", "ADMIN_MOBILE_TOKEN", "\"\"")
+        buildConfigField("String", "ADMIN_MOBILE_API_ORIGIN", "\"\"")
     }
 
     signingConfigs {
@@ -107,6 +149,26 @@ android {
             proguardFiles(
                 getDefaultProguardFile("proguard-android-optimize.txt"),
                 "proguard-rules.pro",
+            )
+        }
+        create("admin") {
+            initWith(getByName("debug"))
+            applicationIdSuffix = ".admin"
+            versionNameSuffix = "-admin"
+            isDebuggable = true
+            signingConfig = signingConfigs.getByName("debug")
+            matchingFallbacks += listOf("debug")
+            buildConfigField("boolean", "ADMIN_BUILD", "true")
+            buildConfigField("String", "POSTHOG_API_KEY", "\"\"")
+            buildConfigField(
+                "String",
+                "ADMIN_MOBILE_TOKEN",
+                buildConfigString(adminEnvironment["ADMIN_MOBILE_TOKEN"].orEmpty()),
+            )
+            buildConfigField(
+                "String",
+                "ADMIN_MOBILE_API_ORIGIN",
+                buildConfigString(adminEnvironment["ADMIN_MOBILE_API_ORIGIN"].orEmpty()),
             )
         }
     }

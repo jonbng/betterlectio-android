@@ -86,6 +86,8 @@ class AuthSessionInstaller @Inject constructor(
         credentials: LectioCredentials,
         school: School,
         callbackUrl: String? = null,
+        expectedStudentId: String? = null,
+        authPlatform: String = "android",
     ): AppResult<Student> {
         var latestCreds = credentials.seededIsLoggedIn()
         val skemaUrl = LectioUrls.buildUrl(school.id, "SkemaNy.aspx")
@@ -118,6 +120,8 @@ class AuthSessionInstaller @Inject constructor(
                             pictureId = fromCallbackHtml.pictureId,
                             school = school,
                             credentials = latestCreds,
+                            expectedStudentId = expectedStudentId,
+                            authPlatform = authPlatform,
                         )
                     }
                 }
@@ -222,6 +226,8 @@ class AuthSessionInstaller @Inject constructor(
                 pictureId = identity.pictureId,
                 school = school,
                 credentials = latestCreds,
+                expectedStudentId = expectedStudentId,
+                authPlatform = authPlatform,
             )
         } catch (e: LectioError) {
             Timber.w(e, "Login validation failed")
@@ -238,7 +244,15 @@ class AuthSessionInstaller @Inject constructor(
         pictureId: String?,
         school: School,
         credentials: LectioCredentials,
+        expectedStudentId: String?,
+        authPlatform: String,
     ): AppResult<Student> {
+        if (expectedStudentId != null && personId != expectedStudentId) {
+            Timber.e("Login identity mismatch expected=%s actual=%s", expectedStudentId, personId)
+            return AppResult.Failure(
+                dk.betterlectio.android.core.result.AppError.Unauthorized,
+            )
+        }
         val forsideUrl = LectioUrls.forsideUrl(school.id)
         val student = Student(
             studentId = personId,
@@ -265,23 +279,25 @@ class AuthSessionInstaller @Inject constructor(
         credentialStore.saveCredentials(finalCreds, personId)
         sessionController.installSession(student, finalCreds)
 
-        PostHog.identify(
-            distinctId = personId,
-            userProperties = mapOf(
-                "gym_id" to school.id,
-                "school_name" to school.name,
-            ),
-        )
-        PostHog.capture(
-            event = "login_completed",
-            properties = mapOf("login_method" to "mitid"),
-        )
+        if (!BuildConfig.ADMIN_BUILD) {
+            PostHog.identify(
+                distinctId = personId,
+                userProperties = mapOf(
+                    "gym_id" to school.id,
+                    "school_name" to school.name,
+                ),
+            )
+            PostHog.capture(
+                event = "login_completed",
+                properties = mapOf("login_method" to "mitid"),
+            )
+        }
 
         bgScope.launch {
-            supabaseAuth.authenticateAndMarkReady(finalCreds, personId, school.id)
+            supabaseAuth.authenticateAndMarkReady(finalCreds, personId, school.id, authPlatform)
             settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
-            referralCoordinator.tryFinalizeAfterAuth(student)
+            if (!BuildConfig.ADMIN_BUILD) referralCoordinator.tryFinalizeAfterAuth(student)
             schedulePostLoginSync()
         }
 
@@ -442,7 +458,7 @@ class AuthSessionInstaller @Inject constructor(
             supabaseAuth.ensureSessionIfNeeded(student)
             settingsStore.activateScope(student.studentId, student.gymId.toString())
             settingsStore.syncSubjectsFromSupabase(student)
-            referralCoordinator.tryFinalizeAfterAuth(student)
+            if (!BuildConfig.ADMIN_BUILD) referralCoordinator.tryFinalizeAfterAuth(student)
             schedulePostLoginSync()
         }
     }

@@ -31,7 +31,7 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
         // Plant trees on the first opportunity after injection — see plantLogging().
         // restore() is called from MainActivity to ensure injection is ready.
 
-        if (BuildConfig.POSTHOG_API_KEY.isNotBlank()) {
+        if (!BuildConfig.ADMIN_BUILD && BuildConfig.POSTHOG_API_KEY.isNotBlank()) {
             val posthogConfig = PostHogAndroidConfig(
                 apiKey = BuildConfig.POSTHOG_API_KEY,
                 host = BuildConfig.POSTHOG_HOST,
@@ -61,7 +61,7 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
                 }
             }
             PostHogAndroid.setup(this, posthogConfig)
-        } else if (BuildConfig.DEBUG) {
+        } else if (!BuildConfig.ADMIN_BUILD && BuildConfig.DEBUG) {
             Timber.w(
                 "PostHog disabled: POSTHOG_API_KEY empty. " +
                     "Set posthog.apiKey in local.properties or POSTHOG_API_KEY env.",

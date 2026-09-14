@@ -73,7 +73,7 @@ class MainActivity : AppCompatActivity() {
         when (val state = sessionController.authState.value) {
             is AuthState.Authenticated -> {
                 // Re-identify the user so all events in this session are linked to their profile.
-                if (!state.student.isDemo) {
+                if (!BuildConfig.ADMIN_BUILD && !state.student.isDemo) {
                     PostHog.identify(
                         distinctId = state.student.studentId,
                         userProperties = mapOf("gym_id" to state.student.gymId),
@@ -88,14 +88,15 @@ class MainActivity : AppCompatActivity() {
             }
             AuthState.Loading -> Unit
         }
-        NotificationDiffWorker.enqueue(applicationContext)
+        if (!BuildConfig.ADMIN_BUILD) NotificationDiffWorker.enqueue(applicationContext)
         enableEdgeToEdge()
         setContent {
             val appearance by settingsStore.appearance.collectAsStateWithLifecycle()
             val authState by sessionController.authState.collectAsStateWithLifecycle()
             LaunchedEffect(authState) {
                 when {
-                    authState is AuthState.Authenticated &&
+                    !BuildConfig.ADMIN_BUILD &&
+                        authState is AuthState.Authenticated &&
                         Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU &&
                         ContextCompat.checkSelfPermission(
                             this@MainActivity,

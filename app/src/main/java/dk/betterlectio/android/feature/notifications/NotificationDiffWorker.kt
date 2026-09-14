@@ -16,6 +16,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.R
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppResult
@@ -52,6 +53,7 @@ class NotificationDiffWorker(
     }
 
     override suspend fun doWork(): Result {
+        if (BuildConfig.ADMIN_BUILD) return Result.success()
         val deps = EntryPointAccessors.fromApplication(
             applicationContext,
             Deps::class.java,
@@ -202,6 +204,7 @@ class NotificationDiffWorker(
         private const val WORK_NAME = "bl_notif_poll"
 
         fun enqueue(context: Context) {
+            if (BuildConfig.ADMIN_BUILD) return
             val req = PeriodicWorkRequestBuilder<NotificationDiffWorker>(15, TimeUnit.MINUTES).build()
             WorkManager.getInstance(context).enqueueUniquePeriodicWork(
                 WORK_NAME,

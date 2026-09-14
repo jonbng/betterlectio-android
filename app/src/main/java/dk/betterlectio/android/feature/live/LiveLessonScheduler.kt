@@ -10,6 +10,7 @@ import androidx.work.OneTimeWorkRequestBuilder
 import androidx.work.WorkManager
 import androidx.work.workDataOf
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import timber.log.Timber
 import java.time.LocalDateTime
@@ -29,6 +30,7 @@ class LiveLessonScheduler @Inject constructor(
         events: List<ScheduleEvent>,
         now: LocalDateTime = LocalDateTime.now(),
     ) {
+        if (BuildConfig.ADMIN_BUILD) return
         val next = LiveLessonBoundary.nextRefreshBoundary(events, now) ?: run {
             cancel()
             return

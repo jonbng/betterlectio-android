@@ -7,6 +7,7 @@ import dagger.hilt.EntryPoint
 import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.core.util.LectioDateUtils
 import dk.betterlectio.android.feature.schedule.ScheduleRepository
@@ -19,6 +20,7 @@ class LiveLessonRefreshWorker(
 ) : CoroutineWorker(context, params) {
 
     override suspend fun doWork(): Result {
+        if (BuildConfig.ADMIN_BUILD) return Result.success()
         val entry = EntryPointAccessors.fromApplication(
             applicationContext,
             LiveLessonEntryPoint::class.java,

@@ -43,13 +43,14 @@ import dagger.hilt.InstallIn
 import dagger.hilt.android.EntryPointAccessors
 import dagger.hilt.components.SingletonComponent
 import dk.betterlectio.android.core.lectio.session.AuthState
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.feedback.ShakeInteractionGate
 import dk.betterlectio.android.feature.messages.MessageRepository
 import dk.betterlectio.android.feature.review.ReviewPromptCoordinator
 import dk.betterlectio.android.feature.settings.SettingsStore
-import dk.betterlectio.android.ui.auth.LoginScreen
+import dk.betterlectio.android.ui.auth.VariantLoginScreen
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
 import dk.betterlectio.android.ui.onboarding.OnboardingOverlay
@@ -81,7 +82,7 @@ fun BetterLectioRoot(
     ) { state ->
         when (state) {
             AuthState.Loading -> LoadingBox()
-            AuthState.Unauthenticated -> LoginScreen()
+            AuthState.Unauthenticated -> VariantLoginScreen()
             is AuthState.Authenticated -> AuthenticatedShell()
         }
     }
@@ -107,7 +108,9 @@ private fun AuthenticatedShell() {
     val unreadCount by messageRepository.unreadCount.collectAsStateWithLifecycle()
     val reviewPromptVisible by reviewPromptCoordinator.softPromptVisible.collectAsStateWithLifecycle()
 
-    var showOnboarding by remember { mutableStateOf(settingsStore.shouldShowOnboarding()) }
+    var showOnboarding by remember {
+        mutableStateOf(!BuildConfig.ADMIN_BUILD && settingsStore.shouldShowOnboarding())
+    }
     var showExtensionInvite by remember { mutableStateOf(false) }
 
     LaunchedEffect(showOnboarding) {
@@ -117,6 +120,7 @@ private fun AuthenticatedShell() {
     // Defer launch bookkeeping + extension invite until onboarding is done
     // so they never stack over the first-run gate.
     LaunchedEffect(showOnboarding) {
+        if (BuildConfig.ADMIN_BUILD) return@LaunchedEffect
         if (showOnboarding) return@LaunchedEffect
         reviewPromptCoordinator.onAuthenticatedLaunch()
         if (settingsStore.recordAuthenticatedLaunch()) {
@@ -299,7 +303,7 @@ private fun AuthenticatedShell() {
         )
     }
 
-    if (reviewPromptVisible && !showExtensionInvite && !showOnboarding) {
+    if (!BuildConfig.ADMIN_BUILD && reviewPromptVisible && !showExtensionInvite && !showOnboarding) {
         ReviewPromptSheet(
             onPositive = { activity -> reviewPromptCoordinator.onPositive(activity) },
             onNegative = { reviewPromptCoordinator.onNegative() },

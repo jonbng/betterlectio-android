@@ -10,6 +10,7 @@ import android.os.Build
 import androidx.annotation.RequiresApi
 import androidx.core.app.NotificationCompat
 import dagger.hilt.android.qualifiers.ApplicationContext
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.MainActivity
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
@@ -32,7 +33,7 @@ class LiveLessonNotifier @Inject constructor(
     private val notifId = 42
 
     init {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+        if (!BuildConfig.ADMIN_BUILD && Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             nm.createNotificationChannel(
                 NotificationChannel(
                     CHANNEL,
@@ -44,6 +45,7 @@ class LiveLessonNotifier @Inject constructor(
     }
 
     fun update(events: List<ScheduleEvent>, now: LocalDateTime = LocalDateTime.now()) {
+        if (BuildConfig.ADMIN_BUILD) return
         val projection = LiveLessonBoundary.project(events, now)
         if (projection == null || !nm.areNotificationsEnabled()) {
             nm.cancel(notifId)

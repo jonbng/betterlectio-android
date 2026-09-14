@@ -1,6 +1,7 @@
 package dk.betterlectio.android.feature.referral
 
 import com.posthog.PostHog
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.model.Student
 import dk.betterlectio.android.feature.supabase.SupabaseReferralService
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -32,6 +33,7 @@ class ReferralCoordinator @Inject constructor(
      * Call after Supabase session is ready (login or cold start). At-most-once per student.
      */
     suspend fun tryFinalizeAfterAuth(student: Student) {
+        if (BuildConfig.ADMIN_BUILD) return
         if (student.isDemo) return
         if (store.wasFinalizeAttempted(student.studentId)) return
 
@@ -72,6 +74,7 @@ class ReferralCoordinator @Inject constructor(
     }
 
     suspend fun refreshStats(studentId: String): ReferralStats? {
+        if (BuildConfig.ADMIN_BUILD) return null
         val stats = referralService.getStats(studentId) ?: return _cachedStats.value
         val previous = store.lastKnownConversions(studentId)
         if (previous >= 0 && stats.conversions > previous) {
@@ -91,6 +94,7 @@ class ReferralCoordinator @Inject constructor(
      * After first successful skema load — show soft nudge once if under unlock threshold.
      */
     suspend fun maybeShowNudge(student: Student) {
+        if (BuildConfig.ADMIN_BUILD) return
         if (student.isDemo) return
         if (store.wasNudgeShown(student.studentId)) return
         val stats = refreshStats(student.studentId) ?: return
