@@ -1,6 +1,7 @@
 package dk.betterlectio.android.core.lectio.auth
 
 import com.posthog.PostHog
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.lectio.http.LectioHttpEngine
 import dk.betterlectio.android.core.lectio.model.FetchPriority
@@ -280,13 +281,7 @@ class AuthSessionInstaller @Inject constructor(
         sessionController.installSession(student, finalCreds)
 
         if (!BuildConfig.ADMIN_BUILD) {
-            PostHog.identify(
-                distinctId = personId,
-                userProperties = mapOf(
-                    "gym_id" to school.id,
-                    "school_name" to school.name,
-                ),
-            )
+            AppAnalytics.identify(student)
             PostHog.capture(
                 event = "login_completed",
                 properties = mapOf("login_method" to "mitid"),

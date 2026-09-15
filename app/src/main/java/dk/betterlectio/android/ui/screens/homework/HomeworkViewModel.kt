@@ -1,7 +1,10 @@
 package dk.betterlectio.android.ui.screens.homework
 
+import android.os.SystemClock
+
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
@@ -58,8 +61,9 @@ class HomeworkViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
+            val analyticsStartedAt = SystemClock.elapsedRealtime()
             _state.update { it.copy(loading = true, error = null) }
-            applyResult(repository.load(force), reportFailure = true)
+            applyResult(repository.load(force), reportFailure = true, analyticsStartedAt = analyticsStartedAt)
         }
     }
 
@@ -75,21 +79,37 @@ class HomeworkViewModel @Inject constructor(
             }
             if (freshness != CacheFreshness.FRESH) {
                 _state.update { it.copy(loading = true) }
-                applyResult(repository.load(forceRefresh = true), reportFailure = true)
+                val analyticsStartedAt = SystemClock.elapsedRealtime()
+                applyResult(repository.load(forceRefresh = true), reportFailure = true, analyticsStartedAt = analyticsStartedAt)
             }
         }
     }
 
-    private fun applyResult(res: AppResult<List<HomeworkItem>>, reportFailure: Boolean) {
+    private fun applyResult(
+        res: AppResult<List<HomeworkItem>>,
+        reportFailure: Boolean,
+        analyticsStartedAt: Long? = null,
+    ) {
         when (res) {
-                is AppResult.Success -> _state.update {
+                is AppResult.Success -> {
+                    analyticsStartedAt?.let { AppAnalytics.captureLoad("homework", "success", it) }
+                    _state.update {
                     it.copy(
                         loading = false,
                         items = res.data,
                         groups = res.data.groupedByDate(),
                     )
+                    }
                 }
                 is AppResult.Failure -> {
+                    analyticsStartedAt?.let {
+                        AppAnalytics.captureLoad(
+                            "homework",
+                            "failure",
+                            it,
+                            mapOf("error_type" to (res.error::class.simpleName ?: "unknown")),
+                        )
+                    }
                     if (reportFailure) reviewPromptCoordinator.reportRecentError()
                     _state.update { it.copy(loading = false, error = res.error) }
                 }

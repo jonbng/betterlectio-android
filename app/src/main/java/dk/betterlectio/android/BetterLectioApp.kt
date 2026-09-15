@@ -47,7 +47,7 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
                 preloadFeatureFlags = false
                 sendFeatureFlagEvent = false
                 setDefaultPersonProperties = false
-                personProfiles = PersonProfiles.NEVER
+                personProfiles = PersonProfiles.IDENTIFIED_ONLY
                 debug = BuildConfig.DEBUG
                 errorTrackingConfig.autoCapture = true
                 addBeforeSend { event ->
@@ -61,6 +61,7 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
                 }
             }
             PostHogAndroid.setup(this, posthogConfig)
+            dk.betterlectio.android.core.analytics.AppAnalytics.configure(this)
         } else if (!BuildConfig.ADMIN_BUILD && BuildConfig.DEBUG) {
             Timber.w(
                 "PostHog disabled: POSTHOG_API_KEY empty. " +
@@ -91,8 +92,11 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
     }
 
     private companion object {
-        const val MAX_ERRORS_PER_PROCESS = 5
+        const val MAX_ERRORS_PER_PROCESS = 20
         val ALLOWED_POSTHOG_EVENTS = setOf(
+            "app_active",
+            "app_load_completed",
+            "load_completed",
             "login_completed",
             "login_started",
             "login_with_password_completed",

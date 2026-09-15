@@ -1,6 +1,8 @@
-# PostHog setup report (superseded by minimal mode)
+# PostHog setup report (low-volume observability mode)
 
-PostHog is initialized in `BetterLectioApp.onCreate()`, with product analytics limited to authentication outcomes, feedback, message/private-event creation, absence-cause updates, and referral shares. Feature-view events use a stable 10% user cohort; login failures and expired sessions emit at most once per app process. Lifecycle, deep-link, screen, replay, survey, feature-flag, and person-profile capture remain disabled. Automatic exceptions are retained, deduplicated, and capped at five per app process; every other event is dropped before it reaches the queue.
+PostHog is initialized in `BetterLectioApp.onCreate()` in explicit, low-volume mode. The app emits one `app_active` event per 30-minute inactivity-defined session, one `app_load_completed` startup timing per process, all observed failures, and successful `load_completed` timings for a stable 10% device cohort. Automatic screen, replay, click, deep-link, survey, and feature-flag capture remain disabled. Automatic exceptions are retained, signature-deduplicated, and capped at twenty distinct errors per process.
+
+Authenticated people use the cross-platform `lectio:<studentId>` distinct ID and carry `platform`, `last_platform`, `app_version`, and `app_build`. A one-time alias joins the previous raw mobile ID to the canonical person. `PersonProfiles.IDENTIFIED_ONLY` avoids anonymous profiles.
 
 ## Historical event callsites (dropped unless allowlisted above)
 

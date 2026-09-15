@@ -1,8 +1,11 @@
 package dk.betterlectio.android.ui.screens.messages
 
+import android.os.SystemClock
+
 import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.R
@@ -97,8 +100,9 @@ class MessagesViewModel @Inject constructor(
         }
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
+            val analyticsStartedAt = SystemClock.elapsedRealtime()
             _state.update { it.copy(loading = true, error = null) }
-            applyFolderResult(repository.loadFolder(_state.value.selectedFolder, forceRefresh = true))
+            applyFolderResult(repository.loadFolder(_state.value.selectedFolder, forceRefresh = true), analyticsStartedAt)
             refreshUnreadIfNeeded(force = true)
         }
     }
@@ -116,19 +120,33 @@ class MessagesViewModel @Inject constructor(
             }
             if (freshness != CacheFreshness.FRESH) {
                 _state.update { it.copy(loading = true) }
-                applyFolderResult(repository.loadFolder(folder, forceRefresh = true))
+                val analyticsStartedAt = SystemClock.elapsedRealtime()
+                applyFolderResult(repository.loadFolder(folder, forceRefresh = true), analyticsStartedAt)
             }
             refreshUnreadIfNeeded(force = false)
         }
     }
 
-    private fun applyFolderResult(res: AppResult<List<MessageThread>>) {
+    private fun applyFolderResult(res: AppResult<List<MessageThread>>, analyticsStartedAt: Long? = null) {
         when (res) {
-                is AppResult.Success -> _state.update {
+                is AppResult.Success -> {
+                    analyticsStartedAt?.let { AppAnalytics.captureLoad("messages", "success", it) }
+                    _state.update {
                     it.copy(loading = false, threads = res.data)
+                    }
                 }
-                is AppResult.Failure -> _state.update {
+                is AppResult.Failure -> {
+                    analyticsStartedAt?.let {
+                        AppAnalytics.captureLoad(
+                            "messages",
+                            "failure",
+                            it,
+                            mapOf("error_type" to (res.error::class.simpleName ?: "unknown")),
+                        )
+                    }
+                    _state.update {
                     it.copy(loading = false, error = res.error)
+                    }
                 }
         }
     }

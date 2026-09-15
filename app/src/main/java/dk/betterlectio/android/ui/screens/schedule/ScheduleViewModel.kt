@@ -1,12 +1,14 @@
 package dk.betterlectio.android.ui.screens.schedule
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.R
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.core.result.AppError
@@ -240,11 +242,13 @@ class ScheduleViewModel @Inject constructor(
         }
 
         viewModelScope.launch {
+            val analyticsStartedAt = SystemClock.elapsedRealtime()
             if (setAsPrimary) {
                 _state.update { it.copy(loading = true, error = null) }
             }
             when (val res = repository.loadWeek(y, w, force)) {
                 is AppResult.Success -> {
+                    AppAnalytics.captureLoad("schedule", "success", analyticsStartedAt)
                     weekCache[key] = res.data
                     mergeWeekIntoState(res.data, setAsPrimary = setAsPrimary)
                     wearPublisher.publishWeeks(weekCache.values)
@@ -254,6 +258,12 @@ class ScheduleViewModel @Inject constructor(
                     }
                 }
                 is AppResult.Failure -> {
+                    AppAnalytics.captureLoad(
+                        "schedule",
+                        "failure",
+                        analyticsStartedAt,
+                        mapOf("error_type" to (res.error::class.simpleName ?: "unknown")),
+                    )
                     if (res.error is AppError.Unauthorized || res.error is AppError.SessionExpired) {
                         wearPublisher.publishStatus(WearSyncStatus.AUTH_REQUIRED)
                     }

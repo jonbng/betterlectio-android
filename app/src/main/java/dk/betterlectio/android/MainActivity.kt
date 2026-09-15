@@ -5,6 +5,7 @@ import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
+import android.os.SystemClock
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
@@ -20,9 +21,9 @@ import androidx.compose.ui.Modifier
 import androidx.core.content.ContextCompat
 import androidx.core.splashscreen.SplashScreen.Companion.installSplashScreen
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
-import com.posthog.PostHog
 import dagger.hilt.android.AndroidEntryPoint
 import dk.betterlectio.android.core.lectio.auth.AuthSessionInstaller
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.lectio.session.AuthState
 import dk.betterlectio.android.core.lectio.session.SessionController
 import dk.betterlectio.android.feature.live.LiveLessonNotifier
@@ -42,6 +43,7 @@ import javax.inject.Inject
  */
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
+    private val processUiStartedAt = SystemClock.elapsedRealtime()
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* A denied permission leaves notifications disabled; the app continues normally. */ }
@@ -74,10 +76,7 @@ class MainActivity : AppCompatActivity() {
             is AuthState.Authenticated -> {
                 // Re-identify the user so all events in this session are linked to their profile.
                 if (!BuildConfig.ADMIN_BUILD && !state.student.isDemo) {
-                    PostHog.identify(
-                        distinctId = state.student.studentId,
-                        userProperties = mapOf("gym_id" to state.student.gymId),
-                    )
+                    AppAnalytics.identify(state.student)
                 }
                 // iOS cold-start order: validate Lectio → Supabase → directory (sequential).
                 authSessionInstaller.onColdStart(state.student)
@@ -94,6 +93,10 @@ class MainActivity : AppCompatActivity() {
             val appearance by settingsStore.appearance.collectAsStateWithLifecycle()
             val authState by sessionController.authState.collectAsStateWithLifecycle()
             LaunchedEffect(authState) {
+                (authState as? AuthState.Authenticated)?.student?.let { student ->
+                    AppAnalytics.captureActive(student)
+                    AppAnalytics.captureStartupCompleted(student, processUiStartedAt)
+                }
                 when {
                     !BuildConfig.ADMIN_BUILD &&
                         authState is AuthState.Authenticated &&
@@ -141,6 +144,13 @@ class MainActivity : AppCompatActivity() {
                     }
                 }
             }
+        }
+    }
+
+    override fun onResume() {
+        super.onResume()
+        (sessionController.authState.value as? AuthState.Authenticated)?.student?.let {
+            AppAnalytics.captureActive(it)
         }
     }
 }
