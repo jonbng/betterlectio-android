@@ -9,6 +9,7 @@ import com.posthog.android.PostHogAndroid
 import com.posthog.android.PostHogAndroidConfig
 import dagger.hilt.android.HiltAndroidApp
 import dk.betterlectio.android.core.lectio.session.SessionController
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.feature.feedback.FeedbackLogBuffer
 import timber.log.Timber
 import javax.inject.Inject
@@ -94,14 +95,16 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
     private companion object {
         const val MAX_ERRORS_PER_PROCESS = 20
         val ALLOWED_POSTHOG_EVENTS = setOf(
+            "\$identify",
+            "\$create_alias",
+            "\$set",
             "app_active",
             "app_load_completed",
             "load_completed",
-            "login_completed",
-            "login_started",
-            "login_with_password_completed",
+            AppAnalytics.Event.AUTH_LOGIN_COMPLETED,
+            AppAnalytics.Event.AUTH_LOGIN_STARTED,
             "demo_entered",
-            "logged_out",
+            AppAnalytics.Event.AUTH_LOGGED_OUT,
             "feedback_submitted",
             "message_reply_sent",
             "message_composed_sent",
@@ -109,14 +112,17 @@ class BetterLectioApp : Application(), SingletonImageLoader.Factory {
             "private_event_updated",
             "private_event_deleted",
             "absence_cause_updated",
-            "referral share",
+            AppAnalytics.Event.REFERRAL_SHARED,
             "review_prompt_shown",
             "review_prompt_positive",
             "review_prompt_negative",
             "review_prompt_dismissed",
             "review_play_flow_requested",
         )
-        val DEDUPED_POSTHOG_EVENTS = setOf("login_failed", "lectio session lost")
+        val DEDUPED_POSTHOG_EVENTS = setOf(
+            AppAnalytics.Event.AUTH_LOGIN_FAILED,
+            AppAnalytics.Event.AUTH_SESSION_LOST,
+        )
         val SAMPLED_POSTHOG_EVENTS = setOf(
             "lesson_detail_viewed",
             "assignment_detail_viewed",

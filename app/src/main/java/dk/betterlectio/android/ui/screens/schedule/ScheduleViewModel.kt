@@ -551,7 +551,7 @@ class ScheduleViewModel @Inject constructor(
 
     fun onReferralNudgeShared() {
         PostHog.capture(
-            event = "referral share",
+            event = AppAnalytics.Event.REFERRAL_SHARED,
             properties = mapOf("method" to "nudge_sheet", "platform" to "android"),
         )
         dismissReferralNudge()

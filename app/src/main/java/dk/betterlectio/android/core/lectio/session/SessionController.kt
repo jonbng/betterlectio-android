@@ -1,6 +1,7 @@
 package dk.betterlectio.android.core.lectio.session
 
 import com.posthog.PostHog
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.cache.OfflineDataCleaner
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
 import dk.betterlectio.android.core.model.Student
@@ -70,9 +71,9 @@ class SessionController @Inject constructor(
         }
         Timber.w("Session expired — full wipe (store + WebView + Supabase)")
         student?.let { lastSchoolStore.remember(it, LastSchoolReason.SESSION_EXPIRED) }
-        // Match extension event name: `lectio session lost` (unexpected session death).
+        // Canonical unexpected-session-death signal shared by every platform.
         PostHog.capture(
-            event = "lectio session lost",
+            event = AppAnalytics.Event.AUTH_SESSION_LOST,
             properties = buildMap {
                 student?.gymId?.let { put("school_id", it.toString()) }
                 student?.schoolName?.takeIf { it.isNotBlank() }?.let { put("school_name", it) }
@@ -80,7 +81,7 @@ class SessionController @Inject constructor(
                 put("platform", "android")
             },
         )
-        PostHog.reset()
+        AppAnalytics.reset()
         clearSession(keepStudentProfile = false)
         ioScope.launch {
             runCatching { externalWiper.wipeExternalAuthState() }
@@ -102,7 +103,7 @@ class SessionController @Inject constructor(
         if (creds == null || creds.autologinkey.isEmpty()) {
             lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
             PostHog.capture(
-                event = "lectio session lost",
+                event = AppAnalytics.Event.AUTH_SESSION_LOST,
                 properties = mapOf(
                     "school_id" to student.gymId.toString(),
                     "school_name" to (student.schoolName ?: ""),
@@ -110,7 +111,7 @@ class SessionController @Inject constructor(
                     "platform" to "android",
                 ),
             )
-            PostHog.reset()
+            AppAnalytics.reset()
             credentialStore.deleteStudent()
             _authState.value = AuthState.Unauthenticated
             return

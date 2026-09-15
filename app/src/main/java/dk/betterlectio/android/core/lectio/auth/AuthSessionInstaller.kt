@@ -283,7 +283,7 @@ class AuthSessionInstaller @Inject constructor(
         if (!BuildConfig.ADMIN_BUILD) {
             AppAnalytics.identify(student)
             PostHog.capture(
-                event = "login_completed",
+                event = AppAnalytics.Event.AUTH_LOGIN_COMPLETED,
                 properties = mapOf("login_method" to "mitid"),
             )
         }
@@ -370,8 +370,8 @@ class AuthSessionInstaller @Inject constructor(
             return
         }
         lastSchoolStore.remember(student, LastSchoolReason.LOGGED_OUT)
-        PostHog.capture(event = "logged_out")
-        PostHog.reset()
+        PostHog.capture(event = AppAnalytics.Event.AUTH_LOGGED_OUT)
+        AppAnalytics.reset()
         sessionController.clearSession()
         bgScope.launch {
             runCatching { sessionExternalWiper.wipeExternalAuthState() }
@@ -388,7 +388,7 @@ class AuthSessionInstaller @Inject constructor(
         if (student.isDemo) return
         lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
         PostHog.capture(
-            event = "lectio session lost",
+            event = AppAnalytics.Event.AUTH_SESSION_LOST,
             properties = mapOf(
                 "school_id" to student.gymId.toString(),
                 "school_name" to (student.schoolName ?: ""),
@@ -396,7 +396,7 @@ class AuthSessionInstaller @Inject constructor(
                 "platform" to "android",
             ),
         )
-        PostHog.reset()
+        AppAnalytics.reset()
         sessionController.clearSession()
         bgScope.launch {
             runCatching { sessionExternalWiper.wipeExternalAuthState() }

@@ -2,7 +2,12 @@
 
 PostHog is initialized in `BetterLectioApp.onCreate()` in explicit, low-volume mode. The app emits one `app_active` event per 30-minute inactivity-defined session, one `app_load_completed` startup timing per process, all observed failures, and successful `load_completed` timings for a stable 10% device cohort. Automatic screen, replay, click, deep-link, survey, and feature-flag capture remain disabled. Automatic exceptions are retained, signature-deduplicated, and capped at twenty distinct errors per process.
 
-Authenticated people use the cross-platform `lectio:<studentId>` distinct ID and carry `platform`, `last_platform`, `app_version`, and `app_build`. A one-time alias joins the previous raw mobile ID to the canonical person. `PersonProfiles.IDENTIFIED_ONLY` avoids anonymous profiles.
+Authenticated people use the cross-platform `lectio:<studentId>` distinct ID and carry `student_id`, string `school_id`, `$name`, `platform`, `last_platform`, durable `uses_android`, `app_version`, and `app_build`. Identification runs on restore and completed login, is fingerprint-deduplicated, and has its dedupe state cleared on logout. A one-time alias joins the previous raw mobile ID to the canonical person. `PersonProfiles.IDENTIFIED_ONLY` avoids anonymous profiles.
+The SDK egress allowlist explicitly retains PostHog's internal `$identify`, `$create_alias`,
+and `$set` events; filtering them would silently defeat person creation, updates, or the
+legacy-ID merge.
+
+Shared auth events use canonical snake_case names (`auth_login_started`, `auth_login_completed`, `auth_login_failed`, `auth_session_lost`, `auth_logged_out`). Referral shares use `referral_shared`. Assignments, grades, absence, schedule, messages, and homework report `load_completed`; successful timings stay in the stable 10% device cohort while every failure remains available for incident detection.
 
 ## Historical event callsites (dropped unless allowlisted above)
 
@@ -31,8 +36,8 @@ Authenticated people use the cross-platform `lectio:<studentId>` distinct ID and
 - `local.properties` — added `posthog.apiKey` and `posthog.host` (gitignored)
 - `app/.../BetterLectioApp.kt` — initializes PostHog in explicit-only mode and enforces the two-event egress allowlist
 - `app/.../MainActivity.kt` — calls `PostHog.identify()` on cold start for already-authenticated users
-- `app/.../AuthSessionInstaller.kt` — calls `PostHog.identify()` + `login_completed` on MitID login; `demo_entered` on demo entry; `logged_out` + `PostHog.reset()` on logout
-- `app/.../LoginViewModel.kt` — captures `login_with_password_completed` and `login_failed` with login method property
+- `app/.../AuthSessionInstaller.kt` — calls `AppAnalytics.identify()` + `auth_login_completed` on MitID login; `demo_entered` on demo entry; `auth_logged_out` + `AppAnalytics.reset()` on logout
+- `app/.../LoginViewModel.kt` — captures `auth_login_started` and `auth_login_failed` with login method properties
 - `app/.../ScheduleViewModel.kt` — captures `lesson_detail_viewed`, `private_event_created`, `private_event_deleted`
 - `app/.../MessagesViewModel.kt` — captures `message_thread_opened`, `message_reply_sent`, `message_composed_sent`
 - `app/.../AssignmentsViewModel.kt` — captures `assignment_detail_viewed` with assignment status property

@@ -1,12 +1,14 @@
 package dk.betterlectio.android.ui.screens.more
 
 import android.content.Context
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dagger.hilt.android.qualifiers.ApplicationContext
 import dk.betterlectio.android.R
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.cache.SimpleCache
 import dk.betterlectio.android.core.i18n.UiText
 import dk.betterlectio.android.core.i18n.toUiText
@@ -291,9 +293,11 @@ class MoreViewModel @Inject constructor(
     }
 
     private fun loadGrades() = viewModelScope.launch {
+        val analyticsStartedAt = SystemClock.elapsedRealtime()
         _state.update { it.copy(loading = true) }
         when (val res = gradesRepo.load(true)) {
             is AppResult.Success -> {
+                AppAnalytics.captureLoad("grades", "success", analyticsStartedAt)
                 val report = res.data
                 val defaultKey = GradeAverage.defaultColumnKey(report.columns, report.grades)
                 _state.update {
@@ -304,8 +308,16 @@ class MoreViewModel @Inject constructor(
                     )
                 }
             }
-            is AppResult.Failure -> _state.update {
-                it.copy(loading = false, message = res.error.toUiText())
+            is AppResult.Failure -> {
+                AppAnalytics.captureLoad(
+                    "grades",
+                    "failure",
+                    analyticsStartedAt,
+                    mapOf("failure_code" to res.error::class.simpleName.orEmpty()),
+                )
+                _state.update {
+                    it.copy(loading = false, message = res.error.toUiText())
+                }
             }
         }
     }
@@ -352,10 +364,22 @@ class MoreViewModel @Inject constructor(
     }
 
     private fun loadAbsence() = viewModelScope.launch {
+        val analyticsStartedAt = SystemClock.elapsedRealtime()
         _state.update { it.copy(loading = true) }
         when (val res = absenceRepo.loadOverview(true)) {
-            is AppResult.Success -> _state.update { it.copy(loading = false, absence = res.data) }
-            is AppResult.Failure -> _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            is AppResult.Success -> {
+                AppAnalytics.captureLoad("absence", "success", analyticsStartedAt)
+                _state.update { it.copy(loading = false, absence = res.data) }
+            }
+            is AppResult.Failure -> {
+                AppAnalytics.captureLoad(
+                    "absence",
+                    "failure",
+                    analyticsStartedAt,
+                    mapOf("failure_code" to res.error::class.simpleName.orEmpty()),
+                )
+                _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            }
         }
     }
 
@@ -976,7 +1000,7 @@ class MoreViewModel @Inject constructor(
 
     fun onReferralShared(method: String) {
         PostHog.capture(
-            event = "referral share",
+            event = AppAnalytics.Event.REFERRAL_SHARED,
             properties = mapOf(
                 "method" to method,
                 "platform" to "android",

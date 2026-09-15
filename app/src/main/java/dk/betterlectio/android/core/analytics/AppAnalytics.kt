@@ -15,6 +15,18 @@ object AppAnalytics {
     private var lastActiveAt = 0L
     private var startupCaptured = false
 
+    object Event {
+        const val APP_ACTIVE = "app_active"
+        const val APP_LOAD_COMPLETED = "app_load_completed"
+        const val LOAD_COMPLETED = "load_completed"
+        const val AUTH_LOGIN_STARTED = "auth_login_started"
+        const val AUTH_LOGIN_COMPLETED = "auth_login_completed"
+        const val AUTH_LOGIN_FAILED = "auth_login_failed"
+        const val AUTH_SESSION_LOST = "auth_session_lost"
+        const val AUTH_LOGGED_OUT = "auth_logged_out"
+        const val REFERRAL_SHARED = "referral_shared"
+    }
+
     fun configure(context: Context) {
         appContext = context.applicationContext
         PostHog.register("platform", "android")
@@ -24,20 +36,37 @@ object AppAnalytics {
 
     fun identify(student: Student) {
         if (BuildConfig.ADMIN_BUILD || student.isDemo) return
-        PostHog.identify(
-            distinctId = canonicalDistinctId(student.studentId),
-            userProperties = buildMap {
-                put("gym_id", student.gymId)
-                put("platform", "android")
-                put("last_platform", "android")
-                put("app_version", BuildConfig.VERSION_NAME)
-                put("app_build", BuildConfig.VERSION_CODE)
-                student.schoolName?.takeIf(String::isNotBlank)?.let { put("school_name", it) }
-                student.classLabel?.takeIf(String::isNotBlank)?.let { put("class_name", it) }
-            },
-        )
-
+        val studentId = student.studentId.trim()
+        if (!studentId.matches(Regex("^[0-9A-Za-z_-]{1,48}$"))) return
+        val canonicalId = canonicalDistinctId(studentId)
+        val properties = buildMap<String, Any> {
+            put("student_id", studentId)
+            put("school_id", student.gymId.toString())
+            put("platform", "android")
+            put("last_platform", "android")
+            put("uses_android", true)
+            put("app_version", BuildConfig.VERSION_NAME)
+            put("app_build", BuildConfig.VERSION_CODE)
+            student.name?.takeIf(String::isNotBlank)?.let {
+                put("name", it)
+                put("\$name", it)
+            }
+            student.schoolName?.takeIf(String::isNotBlank)?.let { put("school_name", it) }
+            student.classLabel?.takeIf(String::isNotBlank)?.let { put("class_name", it) }
+        }
         val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+        val fingerprint = buildString {
+            append(canonicalId)
+            properties.toSortedMap().forEach { (key, value) -> append('|').append(key).append('=').append(value) }
+        }
+        val fingerprintKey = "identify_fingerprint"
+        if (prefs?.getString(fingerprintKey, null) != fingerprint) {
+            PostHog.identify(
+                distinctId = canonicalId,
+                userProperties = properties,
+            )
+            prefs?.edit()?.putString(fingerprintKey, fingerprint)?.apply()
+        }
         val migrationKey = "canonical_identity_migrated:${student.studentId}"
         if (prefs?.getBoolean(migrationKey, false) != true) {
             PostHog.alias(student.studentId)
@@ -53,7 +82,7 @@ object AppAnalytics {
         lastActiveAt = now
         if (previousActiveAt > 0 && now - previousActiveAt < ACTIVE_SESSION_GAP_MS) return
         PostHog.capture(
-            event = "app_active",
+            event = Event.APP_ACTIVE,
             properties = mapOf(
                 "auth_state" to "authenticated",
                 "school_id" to student.gymId.toString(),
@@ -66,7 +95,7 @@ object AppAnalytics {
         if (BuildConfig.ADMIN_BUILD || student.isDemo || startupCaptured) return
         startupCaptured = true
         PostHog.capture(
-            event = "app_load_completed",
+            event = Event.APP_LOAD_COMPLETED,
             properties = mapOf(
                 "outcome" to "success",
                 "auth_state" to "authenticated",
@@ -86,7 +115,7 @@ object AppAnalytics {
         val inHealthSample = sampleBucket() < SUCCESS_LOAD_SAMPLE_RATE
         if (outcome == "success" && !inHealthSample) return
         PostHog.capture(
-            event = "load_completed",
+            event = Event.LOAD_COMPLETED,
             properties = properties + mapOf(
                 "operation" to operation,
                 "outcome" to outcome,
@@ -98,6 +127,15 @@ object AppAnalytics {
     }
 
     fun canonicalDistinctId(studentId: String): String = "lectio:${studentId.trim()}"
+
+    fun reset() {
+        appContext
+            ?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.remove("identify_fingerprint")
+            ?.apply()
+        PostHog.reset()
+    }
 
     private fun sampleBucket(): Double {
         val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE) ?: return 1.0

@@ -3,6 +3,7 @@ package dk.betterlectio.android.ui.auth
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.core.lectio.auth.AuthSessionInstaller
 import dk.betterlectio.android.core.lectio.session.LastSchoolHint
@@ -142,7 +143,7 @@ class LoginViewModel @Inject constructor(
             return
         }
         PostHog.capture(
-            event = "login_started",
+            event = AppAnalytics.Event.AUTH_LOGIN_STARTED,
             properties = mapOf(
                 "source" to source,
                 "login_method" to "mitid",
@@ -218,7 +219,7 @@ class LoginViewModel @Inject constructor(
                 is AppResult.Failure -> {
                     sessionInstallInFlight.set(false)
                     PostHog.capture(
-                        event = "login_failed",
+                        event = AppAnalytics.Event.AUTH_LOGIN_FAILED,
                         properties = mapOf(
                             "login_method" to "mitid",
                             "error" to res.error.toString(),

@@ -1,9 +1,11 @@
 package dk.betterlectio.android.ui.screens.assignments
 
+import android.os.SystemClock
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.posthog.PostHog
 import dagger.hilt.android.lifecycle.HiltViewModel
+import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.result.AppError
 import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.core.cache.CacheFreshness
@@ -49,7 +51,8 @@ class AssignmentsViewModel @Inject constructor(
         refreshJob?.cancel()
         refreshJob = viewModelScope.launch {
             _state.update { it.copy(loading = true, error = null) }
-            applyResult(repository.load(force))
+            val startedAt = SystemClock.elapsedRealtime()
+            applyResult(repository.load(force), startedAt)
         }
     }
 
@@ -65,14 +68,16 @@ class AssignmentsViewModel @Inject constructor(
             }
             if (freshness != CacheFreshness.FRESH) {
                 _state.update { it.copy(loading = true) }
-                applyResult(repository.load(forceRefresh = true))
+                val startedAt = SystemClock.elapsedRealtime()
+                applyResult(repository.load(forceRefresh = true), startedAt)
             }
         }
     }
 
-    private fun applyResult(res: AppResult<List<AssignmentItem>>) {
+    private fun applyResult(res: AppResult<List<AssignmentItem>>, analyticsStartedAt: Long? = null) {
         when (res) {
                 is AppResult.Success -> {
+                    analyticsStartedAt?.let { AppAnalytics.captureLoad("assignments", "success", it) }
                     val f = _state.value.filter
                     _state.update {
                         it.copy(
@@ -82,7 +87,17 @@ class AssignmentsViewModel @Inject constructor(
                         )
                     }
                 }
-                is AppResult.Failure -> _state.update { it.copy(loading = false, error = res.error) }
+                is AppResult.Failure -> {
+                    analyticsStartedAt?.let {
+                        AppAnalytics.captureLoad(
+                            "assignments",
+                            "failure",
+                            it,
+                            mapOf("failure_code" to res.error::class.simpleName.orEmpty()),
+                        )
+                    }
+                    _state.update { it.copy(loading = false, error = res.error) }
+                }
         }
     }
 
