@@ -105,4 +105,55 @@ note her</td>
         assertEquals("HE123", teams[0].teamId)
         assertEquals(0.05, teams[0].regularCurrentPercent, 0.001)
     }
+
+    @Test
+    fun parses_lectio_24_031_overview_and_totals() {
+        val html = """
+            <table id="s_m_Content_Content_ElevUpdatePanel_FravaerOversigt_SFTabStudentAbsenceDataTable">
+              <tr><th rowspan="3">Hold</th><th colspan="2">Almindeligt fravær</th><th colspan="2">Skriftligt fravær</th></tr>
+              <tr><th>Periode</th><th>Opgjort</th><th>Periode</th><th>Opgjort</th></tr>
+              <tr><th>Moduler</th><th>Procent</th><th>Elevtid</th><th>Procent</th></tr>
+              <tr><td><a href="?holdelementid=123">Ma A</a></td><td><span title="Opgjort: 9,1% 1/11 Periode: 11,1% 1/9">1/9</span></td><td>9,1%</td><td><span title="Opgjort: 0,0% 0/8 Periode: 0,0% 0/8">0/8</span></td><td>0,0%</td></tr>
+              <tr><td><b>Samlet</b></td><td>6/69</td><td><b>8,0%</b></td><td>0/19</td><td><b>0,0%</b></td></tr>
+            </table>
+        """.trimIndent()
+
+        val teams = AbsenceParser.parseOverview(html)
+        val summary = AbsenceParser.parseSummaryPercents(html)
+        assertEquals(1, teams.size)
+        assertEquals(0.111, teams[0].regularCurrentPercent, 0.001)
+        assertEquals(0.091, teams[0].regularFinalPercent, 0.001)
+        assertEquals(1.0, teams[0].regularCurrentModules.current, 0.001)
+        assertEquals(9.0, teams[0].regularCurrentModules.total, 0.001)
+        assertEquals(11.0, teams[0].regularFinalModules.total, 0.001)
+        assertEquals(0.08, summary.first!!, 0.001)
+        assertEquals(0.0, summary.second!!, 0.001)
+    }
+
+    @Test
+    fun parses_lectio_24_031_merged_registration_cell() {
+        val html = """
+            <table id="s_m_Content_Content_FatabAbsenceFravaerGV">
+              <tr><th>Uge</th><th>Aktivitet</th><th>Fravær</th><th>Registreret</th><th>Bemærkning</th><th>Fraværsårsag</th><th></th></tr>
+              <tr>
+                <td class="OnlyDesktop">36</td>
+                <td><a class="s2skemabrik" href="?absid=9" data-tooltip="4/9-2026 10:05 til 11:45&#10;Hold: 2v FF">fr 4/9 2. modul - 2v FF</a></td>
+                <td class="OnlyDesktop">Godskrevet 100%</td>
+                <td class="OnlyDesktop">4/9-2026 HD</td>
+                <td class="OnlyDesktop">bemærk</td>
+                <td class="OnlyDesktop">Sygdom<br>note her</td>
+                <td class="OnlyDesktop"><a href="fravaer_aarsag.aspx?id=81975970642">ret</a></td>
+              </tr>
+            </table>
+        """.trimIndent()
+
+        val entry = AbsenceParser.parseRegistrations(html).single()
+        assertEquals("81975970642", entry.id)
+        assertEquals("Godskrevet", entry.status)
+        assertEquals(1.0, entry.percent!!, 0.001)
+        assertEquals("Sygdom", entry.cause)
+        assertEquals("note her", entry.note)
+        assertEquals("bemærk", entry.remark)
+        assertTrue(entry.isApproved)
+    }
 }

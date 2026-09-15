@@ -17,12 +17,17 @@ object AbsenceParser {
     fun parseOverview(html: String): List<AbsenceTeamRow> {
         val doc = Jsoup.parse(html)
         val table = doc.getElementById("s_m_Content_Content_SFTabStudentAbsenceDataTable")
+            ?: doc.selectFirst("table[id$=SFTabStudentAbsenceDataTable]")
             ?: doc.selectFirst("table[id*=Absence]")
             ?: return emptyList()
-        val rows = table.select("tr")
-        // skip header rows (first ~3) and last total — Flutter extractAbsence
-        if (rows.size <= 4) return emptyList()
-        return rows.drop(3).dropLast(1).mapNotNull { parseTeamRow(it) }
+        return table.select("tr").mapNotNull { row ->
+            if (row.select("th").isNotEmpty()) return@mapNotNull null
+            val first = row.selectFirst("td")?.text()?.trim().orEmpty()
+            if (first.equals("Samlet", ignoreCase = true) || first.equals("Ej hold", ignoreCase = true)) {
+                return@mapNotNull null
+            }
+            parseTeamRow(row)
+        }
     }
 
     fun parseSummaryPercents(html: String): Pair<Double?, Double?> {
@@ -35,9 +40,19 @@ object AbsenceParser {
                 .orEmpty()
             return t.toDoubleOrNull()?.div(100.0)
         }
-        // iOS StudentParser summary spans
-        return pct("s_m_Content_Content_FremmoedeFravaer") to
+        val legacy = pct("s_m_Content_Content_FremmoedeFravaer") to
             pct("s_m_Content_Content_SkriftligFravaer")
+        if (legacy.first != null || legacy.second != null) return legacy
+
+        val table = doc.selectFirst("table[id$=SFTabStudentAbsenceDataTable]")
+            ?: doc.selectFirst("table[id*=Absence]")
+        val totalPercents = table?.select("tr")
+            ?.firstOrNull { it.selectFirst("td")?.text()?.trim()?.equals("Samlet", true) == true }
+            ?.select("td")
+            ?.drop(1)
+            ?.mapNotNull { percent(it.text()) }
+            .orEmpty()
+        return totalPercents.getOrNull(0) to totalPercents.getOrNull(1)
     }
 
     private fun parseTeamRow(row: Element): AbsenceTeamRow? {
@@ -51,13 +66,10 @@ object AbsenceParser {
             AspNetForm.queriesFromUrl(href)["holdelementid"]?.let { "HE$it" }
         }
 
-        fun pct(i: Int): Double {
-            val t = cells.getOrNull(i)?.text()?.replace("%", "")?.replace(",", ".")?.trim().orEmpty()
-            return t.toDoubleOrNull()?.div(100.0) ?: 0.0
-        }
+        fun pct(i: Int): Double = percent(cells.getOrNull(i)?.text()).orZero()
 
-        fun fraction(i: Int): AbsenceFraction {
-            val t = cells.getOrNull(i)?.text()?.replace(",", ".")?.trim().orEmpty()
+        fun fraction(raw: String?): AbsenceFraction {
+            val t = raw?.replace(",", ".")?.trim().orEmpty()
             if (t.isEmpty()) return AbsenceFraction()
             val parts = t.split("/")
             return AbsenceFraction(
@@ -66,18 +78,88 @@ object AbsenceParser {
             )
         }
 
-        // Flutter: cells 1–8 alternating percent / fraction
+        fun fraction(i: Int): AbsenceFraction = fraction(cells.getOrNull(i)?.text())
+
+        fun tooltipMetric(i: Int, label: String): Pair<Double?, AbsenceFraction?> {
+            val title = cells.getOrNull(i)?.selectFirst("[title]")?.attr("title").orEmpty()
+            val match = Regex(
+                """${Regex.escape(label)}:\s*(\d+(?:[,.]\d+)?)%\s+(\d+(?:[,.]\d+)?/\d+(?:[,.]\d+)?)""",
+                RegexOption.IGNORE_CASE,
+            ).find(title) ?: return null to null
+            return percent(match.groupValues[1] + "%") to fraction(match.groupValues[2])
+        }
+
+        val values = cells.drop(1).map { it.text().trim() }
+        val hasFractions = values.any { it.contains('/') }
+        val percentIndexes = values.mapIndexedNotNull { index, value ->
+            index.takeIf { value.contains('%') }
+        }
+        val fractionIndexes = values.mapIndexedNotNull { index, value ->
+            index.takeIf { value.contains('/') }
+        }
+
+        // 24.031: regular fraction, regular %, written fraction, written %.
+        // Older layouts contain four percentages, or eight alternating values.
+        val regularCurrentPercent: Double
+        val regularFinalPercent: Double
+        val assignmentCurrentPercent: Double
+        val assignmentFinalPercent: Double
+        val regularCurrentModules: AbsenceFraction
+        val regularFinalModules: AbsenceFraction
+        val assignmentCurrentTime: AbsenceFraction
+        val assignmentFinalTime: AbsenceFraction
+        if (hasFractions && values.size <= 4) {
+            val regularFractionIndex = fractionIndexes.getOrNull(0)?.plus(1)
+            val assignmentFractionIndex = fractionIndexes.getOrNull(1)?.plus(1)
+            val regularAssessed = percentIndexes.getOrNull(0)?.let { pct(it + 1) } ?: 0.0
+            val assignmentAssessed = percentIndexes.getOrNull(1)?.let { pct(it + 1) } ?: 0.0
+            val regularPeriod = regularFractionIndex?.let { tooltipMetric(it, "Periode") }
+            val regularOpgjort = regularFractionIndex?.let { tooltipMetric(it, "Opgjort") }
+            val assignmentPeriod = assignmentFractionIndex?.let { tooltipMetric(it, "Periode") }
+            val assignmentOpgjort = assignmentFractionIndex?.let { tooltipMetric(it, "Opgjort") }
+
+            regularCurrentPercent = regularPeriod?.first ?: regularAssessed
+            regularFinalPercent = regularAssessed
+            assignmentCurrentPercent = assignmentPeriod?.first ?: assignmentAssessed
+            assignmentFinalPercent = assignmentAssessed
+            regularCurrentModules = regularFractionIndex?.let { fraction(it) } ?: AbsenceFraction()
+            regularFinalModules = regularOpgjort?.second ?: regularCurrentModules
+            assignmentCurrentTime = assignmentFractionIndex?.let { fraction(it) } ?: AbsenceFraction()
+            assignmentFinalTime = assignmentOpgjort?.second ?: assignmentCurrentTime
+        } else {
+            regularCurrentPercent = pct(1)
+            regularCurrentModules = fraction(2)
+            regularFinalPercent = pct(3)
+            regularFinalModules = fraction(4)
+            assignmentCurrentPercent = pct(5)
+            assignmentCurrentTime = fraction(6)
+            assignmentFinalPercent = pct(7)
+            assignmentFinalTime = fraction(8)
+
+            // The pre-24.031 production table had four percentage-only cells.
+            if (!hasFractions && values.size <= 4) {
+                return AbsenceTeamRow(
+                    team = team,
+                    teamId = teamId,
+                    regularCurrentPercent = pct(1),
+                    regularFinalPercent = pct(2),
+                    assignmentCurrentPercent = pct(3),
+                    assignmentFinalPercent = pct(4),
+                )
+            }
+        }
+
         return AbsenceTeamRow(
             team = team,
             teamId = teamId,
-            regularCurrentPercent = pct(1),
-            regularCurrentModules = fraction(2),
-            regularFinalPercent = pct(3),
-            regularFinalModules = fraction(4),
-            assignmentCurrentPercent = pct(5),
-            assignmentCurrentTime = fraction(6),
-            assignmentFinalPercent = pct(7),
-            assignmentFinalTime = fraction(8),
+            regularCurrentPercent = regularCurrentPercent,
+            regularCurrentModules = regularCurrentModules,
+            regularFinalPercent = regularFinalPercent,
+            regularFinalModules = regularFinalModules,
+            assignmentCurrentPercent = assignmentCurrentPercent,
+            assignmentCurrentTime = assignmentCurrentTime,
+            assignmentFinalPercent = assignmentFinalPercent,
+            assignmentFinalTime = assignmentFinalTime,
         )
     }
 
@@ -122,21 +204,25 @@ object AbsenceParser {
             val cells = desktopCells(row)
             if (cells.size < 4) return@mapNotNull null
 
-            val week = cells.getOrNull(0)?.text()?.trim().orEmpty()
-            val activityCell = cells.getOrNull(1)
+            val activityIndex = cells.indexOfFirst {
+                it.selectFirst("a.s2skemabrik, a.s2bgbox") != null
+            }.takeIf { it >= 0 } ?: 1
+            val week = cells.getOrNull(activityIndex - 1)?.text()?.trim().orEmpty()
+            val activityCell = cells.getOrNull(activityIndex)
             val activity = activityCell?.selectFirst("a.s2skemabrik, a.s2bgbox")
             val activityText = activity?.text()?.trim()
                 ?: activityCell?.text()?.trim().orEmpty()
             val details = parseActivityDetails(activity, activityText)
 
-            val percent = cells.getOrNull(2)?.text()
-                ?.replace("%", "")
-                ?.replace(",", ".")
-                ?.trim()
-                ?.toDoubleOrNull()
-                ?.div(100.0)
+            val firstAbsenceIndex = activityIndex + 1
+            val firstAbsenceText = cells.getOrNull(firstAbsenceIndex)?.text()?.trim().orEmpty()
+            val mergedTypeAndPercent = firstAbsenceText.contains('%') &&
+                (firstAbsenceText.contains("Fravær", true) || firstAbsenceText.contains("Godskrevet", true))
+            val typeIndex = if (mergedTypeAndPercent) firstAbsenceIndex else firstAbsenceIndex + 1
+            val registeredIndex = typeIndex + 1
+            val percent = percent(firstAbsenceText)
 
-            val typeCell = cells.getOrNull(3)
+            val typeCell = cells.getOrNull(typeIndex)
             val typeText = typeCell?.text()?.trim().orEmpty()
             val hasOk = typeCell?.selectFirst("img[src*=ok.gif]") != null
             val isApproved = hasOk || typeText.contains("Godskrevet", ignoreCase = true)
@@ -147,15 +233,23 @@ object AbsenceParser {
                 else -> "Fravær"
             }
 
-            val registeredRaw = cells.getOrNull(4)?.text()?.trim().orEmpty()
+            val registeredRaw = cells.getOrNull(registeredIndex)?.text()?.trim().orEmpty()
             // First line is date/time; second may be teacher initials
-            val registeredFirstLine = registeredRaw.lineSequence().firstOrNull()?.trim().orEmpty()
-            val registeredAt = parseRegisteredAt(registeredFirstLine.ifBlank { registeredRaw })
+            val registeredDateTime = Regex("""\d{1,2}/\d{1,2}-\d{4}(?:\s+\d{1,2}:\d{2})?""")
+                .find(registeredRaw)?.value
+                ?: registeredRaw.lineSequence().firstOrNull()?.trim().orEmpty()
+            val registeredAt = parseRegisteredAt(registeredDateTime.ifBlank { registeredRaw })
 
-            val remark = cells.getOrNull(5)?.text()?.trim().orEmpty()
+            val editIndex = cells.indexOfFirst {
+                it.selectFirst("a[href*=fravaer_aarsag]") != null
+            }.takeIf { it >= 0 } ?: cells.size
+            val causeIndex = if (missingCause) -1 else editIndex - 1
+            val remarkIndex = registeredIndex + 1
+            val remark = if (remarkIndex < (if (causeIndex >= 0) causeIndex else editIndex)) {
+                cells.getOrNull(remarkIndex)?.text()?.trim().orEmpty()
+            } else ""
 
-            // Cause column: registered table col 6 (wholeText keeps newlines from <br>)
-            val causeCell = cells.getOrNull(6)
+            val causeCell = cells.getOrNull(causeIndex)
             val causeText = causeCell?.wholeText()?.trim().orEmpty()
                 .ifBlank { causeCell?.text()?.trim().orEmpty() }
             val causeLines = causeText.lineSequence().map { it.trim() }.filter { it.isNotEmpty() }.toList()
@@ -202,7 +296,7 @@ object AbsenceParser {
                 teacher = details.teacher,
                 room = details.room,
                 dateTimeLabel = details.dateTimeLabel.ifBlank {
-                    registeredFirstLine
+                    registeredDateTime
                 },
                 lessonTitle = details.title,
                 remark = remark,
@@ -325,6 +419,13 @@ object AbsenceParser {
         }
         return LectioDateUtils.parseLectioDate(raw)
     }
+
+    private fun percent(raw: String?): Double? {
+        val match = Regex("""\d+(?:[,.]\d+)?\s*%""").find(raw.orEmpty())?.value ?: return null
+        return match.replace("%", "").replace(",", ".").trim().toDoubleOrNull()?.div(100.0)
+    }
+
+    private fun Double?.orZero(): Double = this ?: 0.0
 
     private fun desktopCells(row: Element): List<Element> {
         // iOS: td:not(.OnlyMobile) so activity cell (no class) is included
