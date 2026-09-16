@@ -391,9 +391,9 @@ object DemoData {
     )
 
     val moduleStats = listOf(
-        ModuleStat("Ma A", 120, 4, 2),
-        ModuleStat("Da A", 110, 6, 1),
-        ModuleStat("Fy B", 90, 10, 0),
+        ModuleStat("demo-ma", "Ma A", 120.0, 8.0, 2.0, 0.0, 130.0, 128.0, "+2"),
+        ModuleStat("demo-da", "Da A", 110.0, 12.0, 1.0, 0.0, 123.0, 126.0, "-3"),
+        ModuleStat("demo-fy", "Fy B", 90.0, 6.0, 0.0, 0.0, 96.0, 96.0, "0"),
     )
 
     fun lessonDetail(event: ScheduleEvent) = LessonDetail(

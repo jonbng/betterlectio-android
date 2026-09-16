@@ -66,6 +66,10 @@
     <string name="grades_type_exam">Exam</string>
     <string name="grades_no_average">—</string>
     <string name="grades_empty">No grades found</string>
+    <string name="grades_diploma_lines">Diploma lines</string>
+    <string name="grades_diploma_lines_named">Diploma lines · %1$s</string>
+    <string name="grades_diploma_line">Year grade %1$s · Exam %2$s</string>
+    <string name="grades_protocol_lines">Protocol lines</string>
     <string name="grades_weight_label">Weight %1$s</string>
     <string name="grades_subject_header">Subject</string>
     <string name="absence_regular">Regular</string>
@@ -446,7 +450,9 @@
 
     <string name="absence_current_final">Current %1$s%% · Final %2$s%%</string>
     <string name="absence_assignments_pct">Assignments %1$s%%</string>
-    <string name="module_stats_line">Held %1$d · Cancelled %2$d · Changed %3$d</string>
+    <string name="module_stats_line">Total %1$s · Norm %2$s · Deviation %3$s</string>
+    <string name="module_stats_teaching_line">Teaching: %1$s held · %2$s planned</string>
+    <string name="module_stats_other_line">Other activity: %1$s held · %2$s planned</string>
 
     <string name="msg_cache_cleared">Cache cleared</string>
     <string name="msg_absence_cause_updated">Cause updated: %1$s</string>

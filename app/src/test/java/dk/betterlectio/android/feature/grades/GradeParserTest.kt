@@ -92,4 +92,26 @@ class GradeParserTest {
         assertEquals("2.standpunkt", GradeParser.canonicalColumnKey("2. standpunkt"))
         assertEquals("3.standpunkt", GradeParser.canonicalColumnKey("3.standpunkt"))
     }
+
+    @Test
+    fun parses_diploma_and_protocol_when_current_grades_are_empty() {
+        val html = javaClass.classLoader!!
+            .getResourceAsStream("lectio/fixtures/grades_history.html")!!
+            .bufferedReader().readText()
+
+        val report = GradeParser.parse(html)
+        assertTrue(report.grades.isEmpty())
+
+        val diploma = report.diplomaTypes.single()
+        assertEquals("STX v2", diploma.name)
+        assertEquals("Samfundsfag C", diploma.lines.single().subject)
+        assertEquals("7", diploma.lines.single().yearGrade)
+        assertEquals("10", diploma.lines.single().examGrade)
+        assertTrue(diploma.average.contains("6,6"))
+
+        val protocol = report.protocolLines.single()
+        assertEquals("Vinter 2025/26", protocol.term)
+        assertEquals("Naturvidenskabeligt grundforløb", protocol.subject)
+        assertEquals("4", protocol.grade)
+    }
 }

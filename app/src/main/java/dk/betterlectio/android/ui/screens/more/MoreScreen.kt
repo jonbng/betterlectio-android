@@ -768,8 +768,29 @@ fun MoreScreen(
                     AppListRow {
                         AppListPrimary(s.team, emphasized = true)
                         AppListSecondary(
-                            stringResource(R.string.module_stats_line, s.held, s.cancelled, s.changed),
+                            stringResource(
+                                R.string.module_stats_line,
+                                formatModuleNumber(s.total),
+                                formatModuleNumber(s.norm),
+                                s.deviation.ifBlank { "–" },
+                            ),
                         )
+                        AppListSecondary(
+                            stringResource(
+                                R.string.module_stats_teaching_line,
+                                formatModuleNumber(s.teachingHeld),
+                                formatModuleNumber(s.teachingPlanned),
+                            ),
+                        )
+                        if (s.otherHeld != null || s.otherPlanned != null) {
+                            AppListSecondary(
+                                stringResource(
+                                    R.string.module_stats_other_line,
+                                    formatModuleNumber(s.otherHeld),
+                                    formatModuleNumber(s.otherPlanned),
+                                ),
+                            )
+                        }
                     }
                     AppListDivider()
                 }
@@ -1373,6 +1394,8 @@ private fun GradesOverviewContent(
     val columns = report?.columns.orEmpty()
     val grades = report?.grades.orEmpty()
     val notes = report?.notes.orEmpty()
+    val diplomaTypes = report?.diplomaTypes.orEmpty()
+    val protocolLines = report?.protocolLines.orEmpty()
     val alerts = report?.alerts.orEmpty()
     val visible = GradeAverage.filterRows(grades, selectedColumnKey)
     val isAll = selectedColumnKey == null
@@ -1389,7 +1412,7 @@ private fun GradesOverviewContent(
         state = listState,
         modifier = modifier.fillMaxSize(),
     ) {
-        item {
+        if (grades.isNotEmpty()) item {
             FlowRow(
                 modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
                 horizontalArrangement = Arrangement.spacedBy(6.dp),
@@ -1439,7 +1462,7 @@ private fun GradesOverviewContent(
             }
         }
 
-        item {
+        if (grades.isNotEmpty()) item {
             Surface(
                 modifier = Modifier
                     .fillMaxWidth()
@@ -1506,7 +1529,7 @@ private fun GradesOverviewContent(
             }
         }
 
-        if (visible.isEmpty()) {
+        if (visible.isEmpty() && grades.isNotEmpty()) {
             item {
                 Text(
                     stringResource(R.string.grades_empty),
@@ -1563,8 +1586,101 @@ private fun GradesOverviewContent(
                 AppListDivider()
             }
         }
+
+        diplomaTypes.forEachIndexed { diplomaIndex, diploma ->
+                item(key = "diploma-header-$diplomaIndex") {
+                    SectionHeader(
+                        if (diploma.name.isBlank()) {
+                            stringResource(R.string.grades_diploma_lines)
+                        } else {
+                            stringResource(R.string.grades_diploma_lines_named, diploma.name)
+                        },
+                    )
+                }
+                if (diploma.average.isNotBlank()) {
+                    item(key = "diploma-average-$diplomaIndex") {
+                        Text(
+                            diploma.average,
+                            style = MaterialTheme.typography.bodyMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        )
+                    }
+                }
+                itemsIndexed(
+                    diploma.lines,
+                    key = { lineIndex, line ->
+                        "diploma-$diplomaIndex-${line.subject}-$lineIndex"
+                    },
+                ) { _, line ->
+                    AppListRow {
+                        AppListPrimary(line.subject, emphasized = true)
+                        AppListSecondary(
+                            stringResource(
+                                R.string.grades_diploma_line,
+                                gradeOrDash(line.yearGrade),
+                                gradeOrDash(line.examGrade),
+                            ),
+                        )
+                    }
+                    AppListDivider()
+                }
+        }
+
+        if (protocolLines.isNotEmpty()) {
+            item { SectionHeader(stringResource(R.string.grades_protocol_lines)) }
+            itemsIndexed(
+                protocolLines,
+                key = { index, line ->
+                    "protocol-${line.term}-${line.subject}-${line.type}-$index"
+                },
+            ) { _, line ->
+                AppListRow(
+                    trailing = {
+                        Text(
+                            gradeOrDash(line.grade),
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = FontWeight.SemiBold,
+                            color = gradeSpectrumColor(line.grade),
+                        )
+                    },
+                ) {
+                    AppListPrimary(line.subject, emphasized = true)
+                    AppListSecondary(
+                        listOf(line.term, line.type, line.evaluationForm, line.team)
+                            .filter { it.isNotBlank() }
+                            .joinToString(" · "),
+                    )
+                }
+                AppListDivider()
+            }
+        }
+
+        if (grades.isEmpty() && diplomaTypes.isEmpty() && protocolLines.isEmpty()) {
+            item {
+                Text(
+                    stringResource(R.string.grades_empty),
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 24.dp),
+                    textAlign = TextAlign.Center,
+                )
+            }
+        }
     }
 }
+
+private fun gradeOrDash(value: String): String = value.trim()
+    .takeUnless { it.isEmpty() || it == "-" || it == "–" || it == "—" }
+    ?: "–"
+
+private fun formatModuleNumber(value: Double?): String = value
+    ?.toString()
+    ?.removeSuffix(".0")
+    ?.replace('.', ',')
+    ?: "–"
 
 @Composable
 private fun GradesDetailContent(

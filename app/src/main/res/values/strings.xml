@@ -65,6 +65,10 @@
     <string name="grades_type_exam">Eks.</string>
     <string name="grades_no_average">—</string>
     <string name="grades_empty">Ingen karakterer fundet</string>
+    <string name="grades_diploma_lines">Linjer på bevis</string>
+    <string name="grades_diploma_lines_named">Linjer på bevis · %1$s</string>
+    <string name="grades_diploma_line">Årskarakter %1$s · Eksamen %2$s</string>
+    <string name="grades_protocol_lines">Protokollinjer</string>
     <string name="grades_weight_label">Vægt %1$s</string>
     <string name="grades_subject_header">Fag</string>
     <string name="absence_regular">Almindeligt</string>
@@ -444,7 +448,9 @@
 
     <string name="absence_current_final">Aktuelt %1$s%% · Slut %2$s%%</string>
     <string name="absence_assignments_pct">Opgaver %1$s%%</string>
-    <string name="module_stats_line">Afholdt %1$d · Aflyst %2$d · Ændret %3$d</string>
+    <string name="module_stats_line">Total %1$s · Norm %2$s · Afvigelse %3$s</string>
+    <string name="module_stats_teaching_line">Undervisning: %1$s afholdt · %2$s planlagt</string>
+    <string name="module_stats_other_line">Anden aktivitet: %1$s afholdt · %2$s planlagt</string>
 
     <string name="msg_cache_cleared">Cache ryddet</string>
     <string name="msg_absence_cause_updated">Årsag opdateret: %1$s</string>

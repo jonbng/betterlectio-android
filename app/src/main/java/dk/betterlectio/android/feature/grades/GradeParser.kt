@@ -65,6 +65,8 @@ object GradeParser {
             columns = columns,
             grades = grades,
             notes = parseNotesStructured(doc),
+            diplomaTypes = parseDiplomaTypes(doc),
+            protocolLines = parseProtocolLines(doc),
             alerts = parseAlerts(doc),
         )
     }
@@ -132,6 +134,79 @@ object GradeParser {
                 note = noteText,
             )
         }.distinct().take(100)
+    }
+
+    private fun parseDiplomaTypes(doc: org.jsoup.nodes.Document): List<DiplomaType> {
+        val repeaterAreas = doc.select("[id*=DiplomaTypeRepeater][id$=_printareaDiplomaLines]")
+        val areas = if (repeaterAreas.isNotEmpty()) {
+            repeaterAreas
+        } else {
+            doc.select("#printareaDiplomaLines, [id$=printareaDiplomaLines]").take(1)
+        }
+
+        return areas.mapNotNull { area ->
+            val prefix = area.id().takeIf { it.endsWith("_printareaDiplomaLines") }
+                ?.removeSuffix("_printareaDiplomaLines")
+                .orEmpty()
+            val name = prefix.takeIf { it.isNotEmpty() }
+                ?.let { doc.getElementById("${it}_DiplomaTypeText")?.text() }
+                ?: area.parents().firstOrNull { it.tagName() == "section" }
+                    ?.selectFirst(".islandHeader")?.text()
+            val cleanedName = name
+                ?.replace(Regex("^\\s*Bevistype:\\s*", RegexOption.IGNORE_CASE), "")
+                ?.trim()
+                .orEmpty()
+            val lines = area.selectFirst("table")?.select("tr")?.drop(2).orEmpty()
+                .mapNotNull { row ->
+                    val cells = row.select("td")
+                    if (cells.size < 7) return@mapNotNull null
+                    DiplomaLine(
+                        subject = cells[0].text().trim(),
+                        yearWeight = cells[1].text().trim(),
+                        yearGrade = cells[2].text().trim(),
+                        yearEcts = cells[3].text().trim(),
+                        examWeight = cells[4].text().trim(),
+                        examGrade = cells[5].text().trim(),
+                        examEcts = cells[6].text().trim(),
+                    )
+                }
+                .filter { it.subject.isNotBlank() }
+
+            val average = if (prefix.isNotEmpty()) {
+                doc.getElementById("${prefix}_GradeAverageLabel")?.wholeText()
+            } else {
+                doc.selectFirst("[id$=GradeAverageLabel]")?.wholeText()
+            }?.replace('\u00a0', ' ')
+                ?.lineSequence()
+                ?.map { it.replace(Regex("\\s+"), " ").trim() }
+                ?.filter { it.isNotEmpty() }
+                ?.joinToString("\n")
+                .orEmpty()
+
+            if (lines.isEmpty() && average.isEmpty()) null else DiplomaType(cleanedName, lines, average)
+        }
+    }
+
+    private fun parseProtocolLines(doc: org.jsoup.nodes.Document): List<ProtocolLine> {
+        val table = doc.getElementById("s_m_Content_Content_ProtokolLinierGrid")
+            ?: doc.selectFirst("table[id*=ProtokolLinierGrid]")
+            ?: return emptyList()
+
+        return table.select("tr").drop(1).mapNotNull { row ->
+            val cells = desktopCells(row)
+            if (cells.size < 9) return@mapNotNull null
+            ProtocolLine(
+                term = cells[0].text().trim(),
+                type = cells[1].text().trim(),
+                counts = cells[2].text().trim(),
+                subject = cells[3].text().trim(),
+                evaluationForm = cells[4].text().trim(),
+                team = cells[5].text().trim(),
+                weight = cells[6].text().trim(),
+                grade = cells[7].text().trim(),
+                scale = cells[8].text().trim(),
+            )
+        }.filter { it.subject.isNotBlank() || it.team.isNotBlank() }
     }
 
     private fun parseGradeCell(cell: Element): GradeCellValue? {

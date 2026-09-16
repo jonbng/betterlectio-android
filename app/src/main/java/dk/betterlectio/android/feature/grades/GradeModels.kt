@@ -40,10 +40,40 @@ data class GradeNoteEntry(
     val note: String?,
 )
 
+data class DiplomaLine(
+    val subject: String,
+    val yearWeight: String,
+    val yearGrade: String,
+    val yearEcts: String,
+    val examWeight: String,
+    val examGrade: String,
+    val examEcts: String,
+)
+
+data class DiplomaType(
+    val name: String,
+    val lines: List<DiplomaLine>,
+    val average: String,
+)
+
+data class ProtocolLine(
+    val term: String,
+    val type: String,
+    val counts: String,
+    val subject: String,
+    val evaluationForm: String,
+    val team: String,
+    val weight: String,
+    val grade: String,
+    val scale: String,
+)
+
 data class GradesReport(
     val columns: List<GradeColumn>,
     val grades: List<GradeRow>,
     val notes: List<GradeNoteEntry> = emptyList(),
+    val diplomaTypes: List<DiplomaType> = emptyList(),
+    val protocolLines: List<ProtocolLine> = emptyList(),
     val alerts: List<String> = emptyList(),
 )
 
