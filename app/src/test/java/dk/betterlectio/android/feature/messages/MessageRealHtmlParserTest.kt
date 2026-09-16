@@ -15,6 +15,11 @@ class MessageRealHtmlParserTest {
         threads.forEach { println("  id=${it.id} norm=${it.normalizedId} topic=${it.topic} unread=${it.unread}") }
         assertTrue("expected threads from real HTML, got ${threads.size}", threads.size >= 3)
         assertTrue(threads.all { it.normalizedId.matches(Regex("\\d+")) })
+        assertTrue("fixture starts with unread rows", threads[0].unread && threads[1].unread)
+        assertTrue(
+            "read row must not be classified from its Læst/Ulæst action text",
+            !threads[2].unread,
+        )
         // Latest sender should use full title, not initials-only "MPS"
         assertTrue(
             "sender should be full title, was: ${threads[0].sender}",

@@ -67,10 +67,17 @@ object MessageParser {
             ?: ""
         val date = LectioDateUtils.parseLectioDate(dateRaw)
 
-        // iOS: row class "unread"; also Danish class / text heuristics
+        // Lectio puts a "Læst/Ulæst" action in every row, so row text cannot
+        // distinguish read messages. Prefer the row class and the icon action:
+        // unread rows offer READMESSAGE_, read rows offer UNREADMESSAGE_.
+        val readAction = cells.getOrNull(2)
+            ?.selectFirst("[onclick], [href]")
+            ?.let { it.attr("onclick").ifBlank { it.attr("href") } }
+            .orEmpty()
         val unread = row.hasClass("ulæst") ||
             row.className().contains("unread", true) ||
-            cells.any { it.text().contains("Ulæst", true) }
+            (readAction.contains("READMESSAGE_", true) &&
+                !readAction.contains("UNREADMESSAGE_", true))
 
         // iOS: img[title*=flag] with flagon src
         val flagged = row.select("img[title*=flag], img[title*=Flag]").any {

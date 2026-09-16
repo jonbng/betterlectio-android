@@ -128,6 +128,13 @@ class NotificationDiffWorker(
                     val keys = folder.data.map { NotificationSnapshotDiff.messageKey(it.id) }.toSet()
                     val fresh = NotificationSnapshotDiff.newIds(previous, keys)
                     if (fresh.isNotEmpty()) {
+                        // The notification poll refreshes Ulæst, but the Messages screen opens
+                        // Nyeste. Warm that folder too so tapping into the app cannot show the
+                        // still-fresh five-minute cache without the message we just announced.
+                        deps.messageRepository().loadFolder(
+                            MessageFolder.NEWEST,
+                            forceRefresh = true,
+                        )
                         nm.notify(
                             notifId++,
                             NotificationCompat.Builder(ctx, CHANNEL_ID)
