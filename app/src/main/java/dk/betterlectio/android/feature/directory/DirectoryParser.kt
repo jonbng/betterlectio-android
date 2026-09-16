@@ -423,12 +423,17 @@ object DirectoryParser {
         return cleaned
     }
 
-    /** Active student info is typically `"3x 12"` → class `3x`. */
+    /** Active student info is typically `"3x 12"` or `"BShannon 12"`; drop the seat number. */
     private fun studentClassSubtitle(info: String?): String? {
         if (info.isNullOrBlank()) return null
         val parts = info.split(Regex("\\s+")).filter { it.isNotBlank() }
-        val first = parts.firstOrNull() ?: return null
-        return if (first.firstOrNull()?.isDigit() == true) first else null
+        if (parts.isEmpty()) return null
+        val classParts = if (parts.size > 1 && parts.last().all(Char::isDigit)) {
+            parts.dropLast(1)
+        } else {
+            parts
+        }
+        return classParts.joinToString(" ").ifBlank { null }
     }
 
     /**

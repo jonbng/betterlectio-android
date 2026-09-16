@@ -273,6 +273,31 @@ class DirectoryCatalogMergeTest {
     }
 
     @Test
+    fun parseDropdownJson_preserves_named_class_and_drops_seat_number() {
+        val json = """
+            {"items":[["Balder Henriksson Andersen (BShannon 12)", "S42", "", "11", " fs", null, true]]}
+        """.trimIndent()
+        val entities = DirectoryParser.parseDropdownJson(json)
+        assertEquals(1, entities.size)
+        assertEquals("BShannon", entities[0].subtitle)
+    }
+
+    @Test
+    fun memberRequest_uses_klasseid_for_classes_and_holdelementid_for_holds() {
+        val classEntity = DirectoryEntity("SC123", "2026 BShannon", DirectoryEntityKind.CLASS)
+        val holdEntity = DirectoryEntity("HE456", "BShannon DA", DirectoryEntityKind.HOLD)
+
+        assertEquals(
+            "subnav/members.aspx?klasseid=123&showstudents=1&reporttype=withpics",
+            DirectoryMembersRequest.path(classEntity),
+        )
+        assertEquals(
+            "subnav/members.aspx?holdelementid=456&showteachers=1&showstudents=1&reporttype=withpics",
+            DirectoryMembersRequest.path(holdEntity),
+        )
+    }
+
+    @Test
     fun looksLikeNavChrome_flags_material_icon_mashups() {
         assertTrue(DirectoryParser.looksLikeNavChrome("hjælp"))
         assertTrue(DirectoryParser.looksLikeNavChrome("import_contactsBøger"))

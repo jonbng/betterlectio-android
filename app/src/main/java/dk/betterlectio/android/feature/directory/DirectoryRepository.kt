@@ -96,13 +96,7 @@ class DirectoryRepository @Inject constructor(
             )
         }
 
-        val holdElementId = DirectoryParser.numericId(entity.id)
-        val path = when (entity.kind) {
-            DirectoryEntityKind.CLASS, DirectoryEntityKind.HOLD, DirectoryEntityKind.GROUP ->
-                // Extension ActivityClassModal: showteachers + showstudents + withpics
-                "subnav/members.aspx?holdelementid=$holdElementId&showteachers=1&showstudents=1&reporttype=withpics"
-            else -> "FindSkemaBew.aspx?type=elev&nosubnav=1&relatedto=$holdElementId"
-        }
+        val path = DirectoryMembersRequest.path(entity)
 
         val membersCacheKey = "dir_members_${student.gymId}_${entity.id}"
         val cached = cache.getWithMeta(membersCacheKey)
