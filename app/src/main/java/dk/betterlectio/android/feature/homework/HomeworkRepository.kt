@@ -126,19 +126,16 @@ class HomeworkRepository @Inject constructor(
                 ?: DemoData.homeworkDetailHtml(item)
             return AppResult.Success(HomeworkDetailLoader.mergeDetail(item, html))
         }
-        val href = item.href?.trim().orEmpty()
-        if (href.isBlank()) {
+        val requestTarget = HomeworkDetailLoader.requestTarget(item)
+        if (requestTarget == null) {
             return AppResult.Success(item)
         }
-        val path = href
-            .removePrefix("https://www.lectio.dk/lectio/${student.gymId}/")
-            .removePrefix("/")
         val cacheKey = "homework_detail_${item.id}"
         val cached = cache.getWithMeta(cacheKey)
         if (!forceRefresh && cached?.freshness(CachePolicy.MUTABLE_DETAIL) == CacheFreshness.FRESH) {
             return AppResult.Success(HomeworkDetailLoader.mergeDetail(item, cached.value))
         }
-        return when (val res = client.get(path)) {
+        return when (val res = client.get(requestTarget)) {
             is AppResult.Failure -> AppResult.Success(
                 cached?.let { HomeworkDetailLoader.mergeDetail(item, it.value) } ?: item,
             )

@@ -29,4 +29,20 @@ class HomeworkDetailLoaderTest {
         assertTrue(HomeworkDetailLoader.hasLinkedContent(bare.copy(href = "x.aspx")))
         assertTrue(HomeworkDetailLoader.hasLinkedContent(bare.copy(detailHtml = "<p>x</p>")))
     }
+
+    @Test
+    fun requestTarget_preserves_lectio_absolute_path() {
+        val item = HomeworkItem(
+            id = "80296232213",
+            note = "",
+            activityTitle = "Kemi",
+            date = null,
+            href = "/lectio/680/aktivitet/aktivitetforside2.aspx?absid=80296232213",
+        )
+
+        assertEquals(
+            "/lectio/680/aktivitet/aktivitetforside2.aspx?absid=80296232213",
+            HomeworkDetailLoader.requestTarget(item),
+        )
+    }
 }

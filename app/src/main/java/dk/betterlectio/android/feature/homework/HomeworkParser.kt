@@ -67,7 +67,7 @@ object HomeworkParser {
 
             HomeworkItem(
                 id = id,
-                note = note.ifBlank { tasks.joinToString("\n") { it.text } },
+                note = note,
                 activityTitle = title,
                 date = date,
                 team = team,

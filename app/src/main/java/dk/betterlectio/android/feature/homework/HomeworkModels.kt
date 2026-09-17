@@ -24,7 +24,13 @@ data class HomeworkItem(
     val detailHtml: String? = null,
     /** Structured lektier from content cell (iOS items). */
     val tasks: List<HomeworkTask> = emptyList(),
-)
+) {
+    val textTasks: List<HomeworkTask>
+        get() = tasks.filter { it.url.isNullOrBlank() }
+
+    val linkedTasks: List<HomeworkTask>
+        get() = tasks.filter { !it.url.isNullOrBlank() }
+}
 
 data class HomeworkDayGroup(
     val date: LocalDate?,

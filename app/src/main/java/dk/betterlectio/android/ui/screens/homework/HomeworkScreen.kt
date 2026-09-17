@@ -217,6 +217,7 @@ private fun SwipeableHomeworkRow(
     onOpen: () -> Unit,
     onToggleDone: () -> Unit,
 ) {
+    val summary = item.note.ifBlank { item.tasks.joinToString("\n") { it.text } }
     val dismissState = rememberSwipeToDismissBoxState(
         confirmValueChange = { value ->
             when (value) {
@@ -316,8 +317,8 @@ private fun SwipeableHomeworkRow(
                 textDecoration = if (item.done) TextDecoration.LineThrough else null,
                 maxLines = 2,
             )
-            if (item.note.isNotBlank()) {
-                AppListSecondary(item.note, maxLines = 2)
+            if (summary.isNotBlank()) {
+                AppListSecondary(summary, maxLines = 2)
             }
             if (item.team.isNotBlank()) {
                 AppListMeta(displayTeam(item.team))
@@ -336,7 +337,8 @@ private fun HomeworkDetailPane(
 ) {
     val haptics = LocalHapticFeedback.current
     val snackbarHostState = remember { SnackbarHostState() }
-    val linkedTasks = item.tasks.filter { !it.url.isNullOrBlank() }
+    val textTasks = item.textTasks
+    val linkedTasks = item.linkedTasks
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
         topBar = {
@@ -375,11 +377,34 @@ private fun HomeworkDetailPane(
                 Text(displayTeam(item.team), style = MaterialTheme.typography.bodyMedium)
                 Spacer(Modifier.height(12.dp))
             }
-            DetailSection(stringResource(R.string.label_homework)) {
-                Text(
-                    item.note.ifBlank { stringResource(R.string.homework_no_note) },
-                    style = MaterialTheme.typography.bodyLarge,
-                )
+            if (item.note.isNotBlank() || textTasks.isNotEmpty()) {
+                DetailSection(stringResource(R.string.label_homework)) {
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        if (item.note.isNotBlank()) {
+                            Text(
+                                item.note,
+                                style = MaterialTheme.typography.bodyLarge,
+                            )
+                        }
+                        textTasks.forEach { task ->
+                            Row(
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalAlignment = Alignment.Top,
+                            ) {
+                                Text(
+                                    "•",
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    color = MaterialTheme.colorScheme.primary,
+                                )
+                                Text(
+                                    task.text,
+                                    style = MaterialTheme.typography.bodyLarge,
+                                    modifier = Modifier.weight(1f),
+                                )
+                            }
+                        }
+                    }
+                }
             }
             item.detailHtml?.let { html ->
                 DetailSection(stringResource(R.string.homework_lesson_content)) {

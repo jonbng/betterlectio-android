@@ -4,6 +4,9 @@ package dk.betterlectio.android.feature.homework
  * Pure merge of list homework item with fetched lesson HTML / detail content.
  */
 object HomeworkDetailLoader {
+    fun requestTarget(item: HomeworkItem): String? =
+        item.href?.trim()?.takeIf { it.isNotEmpty() }
+
     fun mergeDetail(item: HomeworkItem, htmlOrText: String?): HomeworkItem {
         if (htmlOrText.isNullOrBlank()) return item
         return item.copy(detailHtml = htmlOrText)
