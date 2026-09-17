@@ -2,13 +2,13 @@ package dk.betterlectio.android.ui.screens.schedule
 
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
-import androidx.compose.foundation.isSystemInDarkTheme
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -49,7 +49,9 @@ import dk.betterlectio.android.feature.schedule.EventStatus
 import dk.betterlectio.android.feature.schedule.ScheduleEvent
 import dk.betterlectio.android.feature.schedule.ScheduleMultiDay
 import dk.betterlectio.android.feature.schedule.timeLabelText
+import dk.betterlectio.android.ui.components.LeadingAccentBar
 import dk.betterlectio.android.ui.components.PersonAvatar
+import dk.betterlectio.android.ui.theme.scheduleWash
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.math.max
@@ -90,8 +92,6 @@ fun TimelineDayView(
 ) {
     val allDay = events.filter { it.isAllDay }
     val timed = events.filter { !it.isAllDay }
-    val dark = isSystemInDarkTheme()
-    val neutralBlend = if (dark) Color(0xFF2C2C2E) else Color.White
 
     val layouts = remember(timed, date, dayStartHour) {
         calculateOverlapLayouts(timed, date, dayStartHour)
@@ -186,8 +186,6 @@ fun TimelineDayView(
                             teacherId = event.teacherId,
                             status = event.status,
                             accent = accentFor(event),
-                            neutralBlend = neutralBlend,
-                            dark = dark,
                             showTeacherAvatar = true,
                             onClick = { onEventClick(event) },
                             modifier = Modifier
@@ -245,6 +243,7 @@ private fun AllDayStrip(
     accentFor: (ScheduleEvent) -> Color,
     onEventClick: (ScheduleEvent) -> Unit,
 ) {
+    val scheme = MaterialTheme.colorScheme
     Column(
         Modifier
             .fillMaxWidth()
@@ -268,22 +267,30 @@ private fun AllDayStrip(
                     modifier = Modifier
                         .then(if (index == events.lastIndex) Modifier.weight(1f) else Modifier)
                         .clip(RoundedCornerShape(10.dp))
-                        .background(accent.copy(alpha = 0.18f))
+                        .background(
+                            if (cancelled) {
+                                scheme.surfaceVariant
+                            } else {
+                                scheme.surfaceContainerLow.scheduleWash(accent)
+                            },
+                        )
                         .clickable { onEventClick(ev) }
                         .padding(horizontal = 10.dp, vertical = 8.dp),
                     verticalAlignment = Alignment.CenterVertically,
-                    horizontalArrangement = Arrangement.spacedBy(6.dp),
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
-                    Icon(
-                        subjectIcon(displayTitle(ev)),
-                        contentDescription = null,
-                        modifier = Modifier.size(14.dp),
-                        tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                    Box(
+                        Modifier
+                            .width(3.dp)
+                            .height(16.dp)
+                            .clip(RoundedCornerShape(2.dp))
+                            .background(if (cancelled) Color.Transparent else accent),
                     )
                     Text(
                         displayTitle(ev),
                         style = MaterialTheme.typography.labelMedium,
-                        fontWeight = FontWeight.Medium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = scheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textDecoration = if (cancelled) TextDecoration.LineThrough else null,
@@ -301,18 +308,20 @@ private fun ModernScheduleCard(
     teacher: String?,
     status: EventStatus,
     accent: Color,
-    neutralBlend: Color,
-    dark: Boolean,
     onClick: () -> Unit,
     showTeacherAvatar: Boolean = false,
     teacherId: String? = null,
     modifier: Modifier = Modifier,
 ) {
     val cancelled = status == EventStatus.CANCELLED
-    val bg = when (status) {
-        EventStatus.CANCELLED -> if (dark) Color(0xFF3A3A3C) else Color(0xFFF2F2F7)
-        else -> accent.blend(neutralBlend, if (dark) 0.52f else 0.82f)
+    val scheme = MaterialTheme.colorScheme
+    val bg = if (cancelled) {
+        scheme.surfaceVariant
+    } else {
+        scheme.surfaceContainerLow.scheduleWash(accent)
     }
+    val titleColor = scheme.onSurface.copy(alpha = if (cancelled) 0.55f else 1f)
+    val metaColor = scheme.onSurfaceVariant
     val shape = RoundedCornerShape(15.dp)
 
     Box(
@@ -321,62 +330,69 @@ private fun ModernScheduleCard(
             .background(bg)
             .clickable(onClick = onClick),
     ) {
-        Column(
-            Modifier
-                .fillMaxSize()
-                .padding(start = 14.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
-            verticalArrangement = Arrangement.spacedBy(4.dp),
-        ) {
-            Row(
-                Modifier.fillMaxWidth(),
-                verticalAlignment = Alignment.CenterVertically,
+        Row(Modifier.fillMaxSize()) {
+            Box(
+                Modifier
+                    .padding(start = 6.dp, top = 10.dp, bottom = 10.dp)
+                    .width(3.dp)
+                    .fillMaxHeight()
+                    .clip(RoundedCornerShape(2.dp))
+                    .background(if (cancelled) Color.Transparent else accent),
+            )
+            Column(
+                Modifier
+                    .weight(1f)
+                    .fillMaxSize()
+                    .padding(start = 10.dp, end = 12.dp, top = 12.dp, bottom = 4.dp),
+                verticalArrangement = Arrangement.spacedBy(4.dp),
             ) {
-                Text(
-                    title,
-                    modifier = Modifier.weight(1f),
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = FontWeight.Medium,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (cancelled) 0.5f else 0.92f,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                )
-                if (showTeacherAvatar && !teacher.isNullOrBlank()) {
-                    PersonAvatar(
-                        name = teacher,
-                        size = 20.dp,
-                        teacherNumericId = teacherId,
-                        kind = DirectoryEntityKind.TEACHER,
+                Row(
+                    Modifier.fillMaxWidth(),
+                    verticalAlignment = Alignment.CenterVertically,
+                ) {
+                    Text(
+                        title,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        color = titleColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (cancelled) TextDecoration.LineThrough else null,
                     )
-                    Spacer(Modifier.width(6.dp))
+                    if (showTeacherAvatar && !teacher.isNullOrBlank()) {
+                        PersonAvatar(
+                            name = teacher,
+                            size = 20.dp,
+                            teacherNumericId = teacherId,
+                            kind = DirectoryEntityKind.TEACHER,
+                        )
+                        Spacer(Modifier.width(6.dp))
+                    }
+                    Icon(
+                        subjectIcon(title),
+                        contentDescription = null,
+                        modifier = Modifier.size(14.dp),
+                        tint = if (cancelled) metaColor else accent.copy(alpha = 0.8f),
+                    )
                 }
-                Icon(
-                    subjectIcon(title),
-                    contentDescription = null,
-                    modifier = Modifier.size(14.dp),
-                    tint = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.4f),
-                )
+                val meta = buildList {
+                    room?.takeIf { it.isNotBlank() }?.let(::add)
+                    teacher?.takeIf { it.isNotBlank() }?.let { add("· $it") }
+                }.joinToString(" ")
+                if (meta.isNotBlank()) {
+                    Text(
+                        meta,
+                        style = MaterialTheme.typography.labelMedium,
+                        fontWeight = FontWeight.Medium,
+                        color = metaColor,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
+                        textDecoration = if (cancelled) TextDecoration.LineThrough else null,
+                    )
+                }
+                Spacer(Modifier.weight(1f, fill = true))
             }
-            val meta = buildList {
-                room?.takeIf { it.isNotBlank() }?.let(::add)
-                teacher?.takeIf { it.isNotBlank() }?.let { add("· $it") }
-            }.joinToString(" ")
-            if (meta.isNotBlank()) {
-                Text(
-                    meta,
-                    style = MaterialTheme.typography.labelMedium,
-                    fontWeight = FontWeight.Light,
-                    color = MaterialTheme.colorScheme.onSurface.copy(
-                        alpha = if (cancelled) 0.4f else 0.62f,
-                    ),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                    textDecoration = if (cancelled) TextDecoration.LineThrough else null,
-                )
-            }
-            Spacer(Modifier.weight(1f, fill = true))
         }
 
         if (status != EventStatus.NORMAL) {
@@ -517,17 +533,6 @@ internal fun overlapPlacement(
     )
 }
 
-/** Blend this color toward [other] by [fraction] (0 = self, 1 = other). */
-fun Color.blend(other: Color, fraction: Float): Color {
-    val f = fraction.coerceIn(0f, 1f)
-    return Color(
-        red = red + (other.red - red) * f,
-        green = green + (other.green - green) * f,
-        blue = blue + (other.blue - blue) * f,
-        alpha = 1f,
-    )
-}
-
 /**
  * Standard (list) day content — subject-tinted cards stacked vertically.
  */
@@ -541,8 +546,7 @@ fun StandardDayList(
 ) {
     val allDay = events.filter { it.isAllDay }
     val timed = events.filter { !it.isAllDay }
-    val dark = isSystemInDarkTheme()
-    val neutral = if (dark) Color(0xFF2C2C2E) else Color.White
+    val scheme = MaterialTheme.colorScheme
     val scroll = rememberScrollState()
 
     if (events.isEmpty()) {
@@ -568,9 +572,10 @@ fun StandardDayList(
         timed.forEach { event ->
             val accent = accentFor(event)
             val cancelled = event.status == EventStatus.CANCELLED
-            val bg = when (event.status) {
-                EventStatus.CANCELLED -> if (dark) Color(0xFF3A3A3C) else Color(0xFFF2F2F7)
-                else -> accent.blend(neutral, if (dark) 0.55f else 0.82f)
+            val bg = if (cancelled) {
+                scheme.surfaceVariant
+            } else {
+                scheme.surfaceContainerLow.scheduleWash(accent)
             }
             Row(
                 Modifier
@@ -582,6 +587,8 @@ fun StandardDayList(
                     .alpha(if (cancelled) 0.55f else 1f),
                 verticalAlignment = Alignment.CenterVertically,
             ) {
+                LeadingAccentBar(if (cancelled) Color.Transparent else accent)
+                Spacer(Modifier.width(10.dp))
                 Icon(
                     subjectIcon(displayTitle(event)),
                     contentDescription = null,
@@ -594,6 +601,7 @@ fun StandardDayList(
                         displayTitle(event),
                         style = MaterialTheme.typography.titleSmall,
                         fontWeight = FontWeight.SemiBold,
+                        color = scheme.onSurface,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         textDecoration = if (cancelled) TextDecoration.LineThrough else null,
@@ -601,14 +609,14 @@ fun StandardDayList(
                     Text(
                         event.timeLabelText(),
                         style = MaterialTheme.typography.labelMedium,
-                        color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.55f),
+                        color = scheme.onSurfaceVariant,
                     )
                     val meta = listOfNotNull(event.room, event.teacher).joinToString(" · ")
                     if (meta.isNotBlank()) {
                         Text(
                             meta,
                             style = MaterialTheme.typography.labelSmall,
-                            color = MaterialTheme.colorScheme.onSurface.copy(alpha = 0.45f),
+                            color = scheme.onSurfaceVariant,
                             maxLines = 1,
                             overflow = TextOverflow.Ellipsis,
                         )
