@@ -12,10 +12,12 @@ import javax.inject.Singleton
  */
 @Singleton
 class FeedbackOpenRequests @Inject constructor() {
-    private val _requests = MutableSharedFlow<Unit>(extraBufferCapacity = 1)
-    val requests: SharedFlow<Unit> = _requests.asSharedFlow()
+    private val _requests = MutableSharedFlow<FeedbackOpenMode>(extraBufferCapacity = 1)
+    val requests: SharedFlow<FeedbackOpenMode> = _requests.asSharedFlow()
 
-    fun requestOpen() {
-        _requests.tryEmit(Unit)
+    fun requestOpen(mode: FeedbackOpenMode = FeedbackOpenMode.COMPOSE) {
+        _requests.tryEmit(mode)
     }
 }
+
+enum class FeedbackOpenMode { COMPOSE, INBOX }

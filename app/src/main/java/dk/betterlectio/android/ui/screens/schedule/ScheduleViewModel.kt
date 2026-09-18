@@ -554,7 +554,7 @@ class ScheduleViewModel @Inject constructor(
             event = AppAnalytics.Event.REFERRAL_SHARED,
             properties = mapOf("method" to "nudge_sheet", "platform" to "android"),
         )
-        dismissReferralNudge()
+        session.currentStudent?.let { referralCoordinator.dismissNudge(it.studentId, trackDismissal = false) }
     }
 
     fun referralNudgeRemaining(): Int {

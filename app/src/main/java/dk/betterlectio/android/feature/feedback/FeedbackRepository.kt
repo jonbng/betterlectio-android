@@ -22,6 +22,19 @@ class FeedbackRepository @Inject constructor(
     private val feedbackService: SupabaseFeedbackService,
 ) {
 
+    suspend fun listMine(): List<FeedbackInboxItem> = withContext(Dispatchers.IO) {
+        feedbackService.listMine()
+    }
+
+    suspend fun thread(id: String): FeedbackThread = withContext(Dispatchers.IO) {
+        feedbackService.thread(id)
+    }
+
+    suspend fun reply(id: String, body: String) = withContext(Dispatchers.IO) {
+        require(body.isNotBlank())
+        feedbackService.reply(id, body)
+    }
+
     fun currentLogs(): String = logBuffer.snapshot()
 
     suspend fun submit(submission: FeedbackSubmission): FeedbackSubmitResult =

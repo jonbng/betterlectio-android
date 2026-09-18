@@ -187,7 +187,7 @@ class MoreViewModel @Inject constructor(
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.notificationHistory.value)
 
     fun openFeedback() {
-        feedbackOpenRequests.requestOpen()
+        feedbackOpenRequests.requestOpen(dk.betterlectio.android.feature.feedback.FeedbackOpenMode.INBOX)
     }
 
     fun navigate(dest: MoreDestination) {

@@ -76,6 +76,8 @@ import dk.betterlectio.android.feature.feedback.FeedbackCategory
 import dk.betterlectio.android.feature.feedback.FeedbackCapture
 import dk.betterlectio.android.feature.feedback.FeedbackSubmitResult
 import dk.betterlectio.android.feature.feedback.FeedbackSubmission
+import dk.betterlectio.android.feature.feedback.FeedbackInboxItem
+import dk.betterlectio.android.feature.feedback.FeedbackThread
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
@@ -90,8 +92,12 @@ private enum class SheetPhase {
 @Composable
 fun FeedbackSheet(
     capture: FeedbackCapture,
+    initialInbox: Boolean = false,
     onDismiss: () -> Unit,
     onSubmit: suspend (FeedbackSubmission) -> FeedbackSubmitResult,
+    onList: suspend () -> List<FeedbackInboxItem>,
+    onThread: suspend (String) -> FeedbackThread,
+    onReply: suspend (String, String) -> Unit,
 ) {
     val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = true)
     val scope = rememberCoroutineScope()
@@ -105,6 +111,7 @@ fun FeedbackSheet(
         mutableStateOf(capture.logs.isNotBlank())
     }
     var phase by remember { mutableStateOf(SheetPhase.Compose) }
+    var showInbox by remember { mutableStateOf(initialInbox) }
 
     val canSend = message.trim().length >= 3 && phase == SheetPhase.Compose
 
@@ -116,7 +123,15 @@ fun FeedbackSheet(
         containerColor = MaterialTheme.colorScheme.surface,
         dragHandle = null,
     ) {
-        AnimatedContent(
+        if (showInbox) {
+            FeedbackInboxPane(
+                onClose = onDismiss,
+                onCompose = { showInbox = false },
+                onList = onList,
+                onThread = onThread,
+                onReply = onReply,
+            )
+        } else AnimatedContent(
             targetState = phase,
             transitionSpec = {
                 (
@@ -167,6 +182,7 @@ fun FeedbackSheet(
                             onDismiss()
                         }
                     },
+                    onInbox = { showInbox = true },
                     onSend = {
                         phase = SheetPhase.Sending
                         scope.launch {
@@ -206,6 +222,7 @@ private fun ComposePane(
     sending: Boolean,
     canSend: Boolean,
     onClose: () -> Unit,
+    onInbox: () -> Unit,
     onSend: () -> Unit,
 ) {
     Column(
@@ -244,6 +261,9 @@ private fun ComposePane(
                     style = MaterialTheme.typography.bodyMedium,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            TextButton(onClick = onInbox, enabled = !sending) {
+                Text(stringResource(R.string.feedback_my_feedback))
             }
             IconButton(onClick = onClose, enabled = !sending) {
                 Icon(

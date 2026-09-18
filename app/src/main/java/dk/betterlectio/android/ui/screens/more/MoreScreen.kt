@@ -1,6 +1,7 @@
 package dk.betterlectio.android.ui.screens.more
 
 import android.content.Intent
+import android.graphics.Bitmap
 import android.net.Uri
 import androidx.activity.compose.BackHandler
 import androidx.compose.animation.core.FastOutSlowInEasing
@@ -10,6 +11,7 @@ import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.Image
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -63,6 +65,7 @@ import androidx.compose.material.icons.outlined.Feedback
 import androidx.compose.material.icons.outlined.Lock
 import androidx.compose.material.icons.outlined.PushPin
 import androidx.compose.material3.Button
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
 import androidx.compose.material3.HorizontalDivider
@@ -96,6 +99,7 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
@@ -152,6 +156,8 @@ import dk.betterlectio.android.ui.components.LectioImagePreviewDialog
 import dk.betterlectio.android.ui.components.PersonAvatar
 import dk.betterlectio.android.ui.components.LoadingBox
 import dk.betterlectio.android.ui.components.SectionHeader
+import com.google.zxing.BarcodeFormat
+import com.google.zxing.MultiFormatWriter
 import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
 import dagger.hilt.android.EntryPointAccessors
 import java.time.format.TextStyle
@@ -2500,6 +2506,7 @@ private fun MoreRoot(
         }
         item { Spacer(Modifier.height(24.dp)) }
     }
+
 }
 
 // region Absence (Flutter-style: Oversigt | Registreringer + edit sheet)
@@ -3163,6 +3170,7 @@ private fun ReferralScreenContent(
     onCopy: (String) -> Unit,
     onOpenProfilePicture: () -> Unit,
 ) {
+    var showingQrCode by remember { mutableStateOf(false) }
     val conversions = stats?.conversions ?: 0
     val clicks = stats?.totalClicks ?: 0
     val unlock = referralUnlockProgress(conversions)
@@ -3296,6 +3304,21 @@ private fun ReferralScreenContent(
                         },
                     )
                 }
+                androidx.compose.material3.OutlinedButton(
+                    onClick = {
+                        showingQrCode = true
+                        com.posthog.PostHog.capture(
+                            event = "referral_qr_opened",
+                            properties = mapOf("platform" to "android"),
+                        )
+                    },
+                    enabled = shareUrl != null,
+                    modifier = Modifier.fillMaxWidth(),
+                ) {
+                    Icon(Icons.Default.QrCode2, contentDescription = null)
+                    Spacer(Modifier.size(8.dp))
+                    Text(stringResource(R.string.referral_show_qr))
+                }
                 if (shareUrl != null) {
                     Text(
                         shareUrl.removePrefix("https://"),
@@ -3304,6 +3327,23 @@ private fun ReferralScreenContent(
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Icon(
+                            Icons.Default.Check,
+                            contentDescription = null,
+                            modifier = Modifier.size(16.dp),
+                            tint = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                        Spacer(Modifier.size(8.dp))
+                        Text(
+                            stringResource(R.string.referral_count_explainer),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                 }
             }
         }
@@ -3366,6 +3406,38 @@ private fun ReferralScreenContent(
         }
 
         item { Spacer(Modifier.height(24.dp)) }
+    }
+
+    if (showingQrCode && shareUrl != null) {
+        val qrImage = remember(shareUrl) { referralQrBitmap(shareUrl) }
+        AlertDialog(
+            onDismissRequest = { showingQrCode = false },
+            title = { Text(stringResource(R.string.referral_qr_title)) },
+            text = {
+                Column(
+                    horizontalAlignment = Alignment.CenterHorizontally,
+                    verticalArrangement = Arrangement.spacedBy(16.dp),
+                ) {
+                    Text(
+                        stringResource(R.string.referral_qr_body),
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                    )
+                    qrImage?.let {
+                        Image(
+                            bitmap = it,
+                            contentDescription = stringResource(R.string.referral_qr_title),
+                            modifier = Modifier.fillMaxWidth().aspectRatio(1f),
+                        )
+                    }
+                }
+            },
+            confirmButton = {
+                TextButton(onClick = { showingQrCode = false }) {
+                    Text(stringResource(R.string.referral_qr_close))
+                }
+            },
+        )
     }
 }
 
@@ -3574,4 +3646,17 @@ private fun SubjectEditSheet(
             }
         }
     }
+
 }
+
+private fun referralQrBitmap(value: String, size: Int = 768): androidx.compose.ui.graphics.ImageBitmap? =
+    runCatching {
+        val matrix = MultiFormatWriter().encode(value, BarcodeFormat.QR_CODE, size, size)
+        val pixels = IntArray(size * size)
+        for (y in 0 until size) {
+            for (x in 0 until size) {
+                pixels[y * size + x] = if (matrix[x, y]) android.graphics.Color.BLACK else android.graphics.Color.WHITE
+            }
+        }
+        Bitmap.createBitmap(pixels, size, size, Bitmap.Config.ARGB_8888).asImageBitmap()
+    }.getOrNull()

@@ -11,6 +11,8 @@ import kotlinx.serialization.json.JsonPrimitive
 import kotlinx.serialization.json.buildJsonObject
 import timber.log.Timber
 import java.util.UUID
+import dk.betterlectio.android.feature.feedback.FeedbackInboxItem
+import dk.betterlectio.android.feature.feedback.FeedbackThread
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -105,6 +107,36 @@ class SupabaseFeedbackService @Inject constructor(
         return SubmitResult(feedbackId = feedbackId, attachmentId = attachmentId)
     }
 
+    suspend fun listMine(): List<FeedbackInboxItem> {
+        val client = readyClient()
+        return client.postgrest.rpc("list_my_feedback").decodeAs()
+    }
+
+    suspend fun thread(id: String): FeedbackThread {
+        val client = readyClient()
+        return client.postgrest.rpc(
+            "get_my_feedback_thread",
+            FeedbackIdParams(pFeedbackId = id),
+        ).decodeAs()
+    }
+
+    suspend fun reply(id: String, body: String) {
+        val client = readyClient()
+        client.postgrest.rpc(
+            "reply_to_feedback",
+            ReplyFeedbackParams(pFeedbackId = id, pBody = body.trim().take(4_000)),
+        ).decodeAs<String>()
+    }
+
+    private suspend fun readyClient() = manager.client
+        ?.also {
+            val session = manager.awaitSessionReady()
+            if (session is SupabaseSessionState.Unavailable) {
+                throw SupabaseUnavailableException(session.reason)
+            }
+        }
+        ?: error("Supabase not configured")
+
     @Serializable
     private data class SubmitFeedbackParams(
         @SerialName("p_student_id") val pStudentId: String,
@@ -124,6 +156,17 @@ class SupabaseFeedbackService @Inject constructor(
         @SerialName("p_byte_size") val pByteSize: Int? = null,
         @SerialName("p_width") val pWidth: Int? = null,
         @SerialName("p_height") val pHeight: Int? = null,
+    )
+
+    @Serializable
+    private data class FeedbackIdParams(
+        @SerialName("p_feedback_id") val pFeedbackId: String,
+    )
+
+    @Serializable
+    private data class ReplyFeedbackParams(
+        @SerialName("p_feedback_id") val pFeedbackId: String,
+        @SerialName("p_body") val pBody: String,
     )
 
     companion object {

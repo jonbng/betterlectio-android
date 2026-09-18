@@ -56,15 +56,14 @@ class ReferralCoordinator @Inject constructor(
         // Network failures leave the flag unset so cold-start can retry.
         if (result != null) {
             store.markFinalizeAttempted(student.studentId)
-            if (result.attributed) {
-                PostHog.capture(
-                    event = "referral attributed",
-                    properties = mapOf(
-                        "platform" to "android",
-                        "referrer_student_id" to (result.referrerStudentId ?: ""),
-                    ),
-                )
-            }
+            PostHog.capture(
+                event = "referral_attributed",
+                properties = mapOf(
+                    "platform" to "android",
+                    "outcome" to if (result.attributed) "success" else "rejected",
+                    "reason" to (result.reason ?: "none"),
+                ),
+            )
             Timber.i(
                 "Referral finalize: attributed=%s reason=%s",
                 result.attributed,
@@ -90,23 +89,31 @@ class ReferralCoordinator @Inject constructor(
         _celebrationName.value = null
     }
 
-    /**
-     * After first successful skema load — show soft nudge once if under unlock threshold.
-     */
+    /** Records a successful day, then offers sharing only after demonstrated repeat value. */
     suspend fun maybeShowNudge(student: Student) {
         if (BuildConfig.ADMIN_BUILD) return
         if (student.isDemo) return
-        if (store.wasNudgeShown(student.studentId)) return
+        store.recordSuccessfulUse(student.studentId)
+        if (!store.canShowNudge(student.studentId)) return
         val stats = refreshStats(student.studentId) ?: return
         if (referralUnlockProgress(stats.conversions).unlocked) {
-            store.markNudgeShown(student.studentId)
             return
         }
+        store.recordNudgeImpression(student.studentId)
         _nudgeVisible.value = true
+        PostHog.capture(
+            event = "referral_prompt_impression",
+            properties = mapOf("trigger" to "schedule_loaded", "platform" to "android"),
+        )
     }
 
-    fun dismissNudge(studentId: String) {
-        store.markNudgeShown(studentId)
+    fun dismissNudge(studentId: String, trackDismissal: Boolean = true) {
+        if (_nudgeVisible.value && trackDismissal) {
+            PostHog.capture(
+                event = "referral_prompt_dismissed",
+                properties = mapOf("trigger" to "schedule_loaded", "platform" to "android"),
+            )
+        }
         _nudgeVisible.value = false
     }
 }

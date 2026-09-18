@@ -269,17 +269,22 @@
     <string name="referral_unlock_done_body">You can now choose your own profile picture. It appears after approval.</string>
     <string name="referral_teaser_title">Your own profile picture</string>
     <string name="referral_teaser_body">Invite %1$d friends to unlock it.</string>
-    <string name="referral_share_cta">Del med dine venner</string>
+    <string name="referral_share_cta">Invite classmates</string>
     <string name="referral_share_chooser">Del BetterLectio</string>
     <string name="referral_share_text">Prøv BetterLectio. Lectio der faktisk virker på mobilen.\n%1$s</string>
     <string name="referral_copy_link">Kopiér link</string>
     <string name="referral_copied">Kopieret</string>
+    <string name="referral_show_qr">Show QR code</string>
+    <string name="referral_qr_title">Invite with a QR code</string>
+    <string name="referral_qr_body">Let a classmate scan the code with their camera.</string>
+    <string name="referral_qr_close">Done</string>
     <string name="referral_stat_invited">Inviterede</string>
     <string name="referral_stat_clicks">Klik</string>
     <string name="referral_recent_title">Senest inviterede</string>
     <string name="referral_anonymous">Anonym</string>
-    <string name="referral_nudge_title">Del med dine venner</string>
-    <string name="referral_nudge_body">%1$d tilbage til tilpasning. Ét link, og invitationen knyttes automatisk.</string>
+    <string name="referral_count_explainer">The invitation counts after your friend installs the app and signs in.</string>
+    <string name="referral_nudge_title">Give your class a better Lectio</string>
+    <string name="referral_nudge_body">Invite classmates. You need %1$d more to unlock your own profile picture.</string>
     <string name="referral_nudge_share">Del nu</string>
     <string name="profile_picture_edit">Change profile picture</string>
     <string name="profile_picture_title">Profile picture</string>
@@ -566,4 +571,5 @@
     <string name="onboarding_next">Next</string>
     <string name="onboarding_start">Get started</string>
     <string name="onboarding_skip_shake">Continue without practicing</string>
+    <string name="feedback_my_feedback">Mine</string>
 </resources>

@@ -7,7 +7,7 @@ import javax.inject.Inject
 import javax.inject.Singleton
 
 /**
- * Local flags for referral finalize (at-most-once) and the soft share nudge.
+ * Per-student referral finalization, conversion, and frequency-capped prompt state.
  */
 @Singleton
 class ReferralStore @Inject constructor(
@@ -22,11 +22,29 @@ class ReferralStore @Inject constructor(
         prefs.edit { putBoolean(finalizeKey(studentId), true) }
     }
 
-    fun wasNudgeShown(studentId: String): Boolean =
-        prefs.getBoolean(nudgeKey(studentId), false)
+    fun recordSuccessfulUse(studentId: String, nowMillis: Long = System.currentTimeMillis()) {
+        val key = activeDaysKey(studentId)
+        val days = prefs.getStringSet(key, emptySet()).orEmpty().toMutableSet()
+        days += (nowMillis / DAY_MILLIS).toString()
+        prefs.edit { putStringSet(key, days) }
+    }
 
-    fun markNudgeShown(studentId: String) {
-        prefs.edit { putBoolean(nudgeKey(studentId), true) }
+    fun canShowNudge(studentId: String, nowMillis: Long = System.currentTimeMillis()): Boolean =
+        ReferralPromptPolicy.isEligible(
+            activeDayCount = prefs.getStringSet(activeDaysKey(studentId), emptySet()).orEmpty().size,
+            impressionCount = prefs.getInt(nudgeImpressionsKey(studentId), 0),
+            lastShownAtMillis = prefs.getLong(nudgeLastShownKey(studentId), 0L).takeIf { it > 0L },
+            nowMillis = nowMillis,
+        )
+
+    fun recordNudgeImpression(studentId: String, nowMillis: Long = System.currentTimeMillis()) {
+        prefs.edit {
+            putInt(
+                nudgeImpressionsKey(studentId),
+                prefs.getInt(nudgeImpressionsKey(studentId), 0) + 1,
+            )
+            putLong(nudgeLastShownKey(studentId), nowMillis)
+        }
     }
 
     fun lastKnownConversions(studentId: String): Int =
@@ -37,6 +55,12 @@ class ReferralStore @Inject constructor(
     }
 
     private fun finalizeKey(studentId: String) = "finalize_attempted:$studentId"
-    private fun nudgeKey(studentId: String) = "nudge_shown:$studentId"
+    private fun activeDaysKey(studentId: String) = "active_days_v2:$studentId"
+    private fun nudgeImpressionsKey(studentId: String) = "nudge_impressions_v2:$studentId"
+    private fun nudgeLastShownKey(studentId: String) = "nudge_last_shown_v2:$studentId"
     private fun conversionsKey(studentId: String) = "conversions:$studentId"
+
+    private companion object {
+        const val DAY_MILLIS = 24L * 60 * 60 * 1_000
+    }
 }

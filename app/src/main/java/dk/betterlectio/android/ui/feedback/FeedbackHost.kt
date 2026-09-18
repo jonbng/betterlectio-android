@@ -50,6 +50,9 @@ import dagger.hilt.android.lifecycle.HiltViewModel
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.feedback.FeedbackCapture
 import dk.betterlectio.android.feature.feedback.FeedbackOpenRequests
+import dk.betterlectio.android.feature.feedback.FeedbackOpenMode
+import dk.betterlectio.android.feature.feedback.FeedbackInboxItem
+import dk.betterlectio.android.feature.feedback.FeedbackThread
 import dk.betterlectio.android.feature.feedback.FeedbackRepository
 import dk.betterlectio.android.feature.feedback.FeedbackSubmitResult
 import dk.betterlectio.android.feature.feedback.FeedbackSubmission
@@ -84,6 +87,7 @@ fun FeedbackHost(
     var opening by remember { mutableStateOf(false) }
     var promptGeneration by remember { mutableIntStateOf(0) }
     var openRequestGeneration by remember { mutableIntStateOf(0) }
+    var openInInbox by remember { mutableStateOf(false) }
     val practiceMode by viewModel.practiceMode.collectAsStateWithLifecycle()
 
     DisposableEffect(activity) {
@@ -120,7 +124,8 @@ fun FeedbackHost(
 
     // Rating pre-filter "could be better" → open feedback sheet directly.
     LaunchedEffect(viewModel) {
-        viewModel.openRequests.collect {
+        viewModel.openRequests.collect { mode ->
+            openInInbox = mode == FeedbackOpenMode.INBOX
             openRequestGeneration += 1
         }
     }
@@ -140,6 +145,10 @@ fun FeedbackHost(
         showPrompt = false
         opening = true
         try {
+            if (openInInbox) {
+                activeCapture = FeedbackCapture(screenshot = null, logs = "")
+                return@LaunchedEffect
+            }
             delay(PROMPT_EXIT_CAPTURE_DELAY_MS)
             performHaptic(view)
             val bitmap = ScreenshotCapturer.capture(act)
@@ -167,6 +176,7 @@ fun FeedbackHost(
     fun openFeedbackSheet() {
         if (opening || activeCapture != null) return
         val act = activity ?: return
+        openInInbox = false
         showPrompt = false
         opening = true
         scope.launch {
@@ -227,12 +237,16 @@ fun FeedbackHost(
     activeCapture?.let { capture ->
         FeedbackSheet(
             capture = capture,
+            initialInbox = openInInbox,
             onDismiss = {
                 capture.screenshot?.takeIf { !it.isRecycled }?.recycle()
                 activeCapture = null
                 viewModel.setReviewBlocking(false)
             },
             onSubmit = { submission -> viewModel.submit(submission) },
+            onList = viewModel::listMine,
+            onThread = viewModel::thread,
+            onReply = viewModel::reply,
         )
     }
 }
@@ -286,7 +300,7 @@ class FeedbackHostViewModel @Inject constructor(
 
     val shakeEvents: SharedFlow<Unit> = shakeGate.shakeEvents
 
-    val openRequests: SharedFlow<Unit> = openRequestsBus.requests
+    val openRequests: SharedFlow<FeedbackOpenMode> = openRequestsBus.requests
 
     val practiceMode = shakeGate.practiceMode
 
@@ -317,6 +331,12 @@ class FeedbackHostViewModel @Inject constructor(
     suspend fun submit(submission: FeedbackSubmission): FeedbackSubmitResult {
         return repository.submit(submission)
     }
+
+    suspend fun listMine(): List<FeedbackInboxItem> = repository.listMine()
+
+    suspend fun thread(id: String): FeedbackThread = repository.thread(id)
+
+    suspend fun reply(id: String, body: String) = repository.reply(id, body)
 
     /** Optional: fire-and-forget submit from non-suspend call sites. */
     fun submitAsync(
