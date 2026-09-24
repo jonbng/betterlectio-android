@@ -649,10 +649,10 @@ fun MoreScreen(
                             ) {
                                 AppListPrimary("${room.shortName} · ${room.name}", emphasized = true)
                                 AppListSecondary(
-                                    if (room.inUse) {
-                                        stringResource(R.string.room_in_use)
-                                    } else {
-                                        stringResource(R.string.room_free)
+                                    when (room.inUse) {
+                                        true -> stringResource(R.string.room_in_use)
+                                        false -> stringResource(R.string.room_free)
+                                        null -> stringResource(R.string.room_status_unknown)
                                     },
                                 )
                             }

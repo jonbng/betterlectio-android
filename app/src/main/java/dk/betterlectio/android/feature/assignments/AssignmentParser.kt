@@ -79,7 +79,11 @@ object AssignmentParser {
         )
     }
 
-    fun parseDetail(html: String, item: AssignmentItem): AssignmentDetail {
+    fun parseDetail(
+        html: String,
+        item: AssignmentItem,
+        requestedStudentId: String? = null,
+    ): AssignmentDetail {
         val doc = Jsoup.parse(html)
         val title = doc.getElementById("m_Content_NameLbl")?.text()?.trim().orEmpty().ifBlank { item.title }
 
@@ -146,31 +150,70 @@ object AssignmentParser {
         var completed = false
         var studentGrade: String? = item.grade
         var studentGradeNote: String? = item.gradeNote
-        doc.selectFirst("#m_Content_StudentGV")?.select("tr")?.forEach { row ->
-            val cells = row.select("td")
-            if (cells.size < 6) return@forEach
-            awaits = cells.getOrNull(2)?.text()?.trim()?.ifBlank { awaits } ?: awaits
-            status = cells.getOrNull(3)?.text()?.trim()?.ifBlank { status } ?: status
-            completed = cells.getOrNull(4)?.selectFirst("input[type=checkbox][checked]") != null ||
-                cells.getOrNull(4)?.selectFirst("input[type=checkbox]")?.hasAttr("checked") == true
-            studentGrade = cells.getOrNull(5)?.text()?.trim()?.ifBlank { null } ?: studentGrade
-            studentGradeNote = cells.getOrNull(6)?.text()?.trim()?.ifBlank { null } ?: studentGradeNote
-            return@forEach // first data row only
+        var studentNote: String? = item.studentNote
+        doc.selectFirst("#m_Content_StudentGV")?.let { table ->
+            val rows = table.select("tr").filter { it.select("td").isNotEmpty() }
+            val requestedContextCard = requestedStudentId?.let { "S$it" }
+            val row = rows.firstOrNull {
+                requestedContextCard != null && contextCardId(it) == requestedContextCard
+            } ?: rows.firstOrNull { it.hasClass("heavy") }
+                ?: rows.firstOrNull()
+            if (row != null) {
+                val cells = row.select("td")
+                val labeled = cells.mapNotNull { cell ->
+                    val label = cell.selectFirst(".ls-elevaflevering-field-label") ?: return@mapNotNull null
+                    normalizeLabel(label.text()) to cell
+                }.toMap()
+                fun cell(label: String, fallback: Int): Element? =
+                    labeled[normalizeLabel(label)] ?: cells.getOrNull(fallback)
+
+                awaits = valueWithoutInlineLabel(cell("Afventer", 2)).ifBlank { awaits }
+                status = valueWithoutInlineLabel(cell("Status - fravær", 3)).ifBlank { status }
+                val completedCell = cell("Afsluttet", 4)
+                completed = completedCell?.selectFirst("input[type=checkbox][checked]") != null ||
+                    completedCell?.selectFirst("input[type=checkbox]")?.hasAttr("checked") == true
+                studentGrade = valueWithoutInlineLabel(cell("Karakter", 5)).ifBlank { null } ?: studentGrade
+                studentGradeNote = valueWithoutInlineLabel(cell("Karakternote", 6)).ifBlank { null } ?: studentGradeNote
+                studentNote = valueWithoutInlineLabel(cell("Elevnote", 7)).ifBlank { null } ?: studentNote
+            }
         }
 
         // Submissions
         val submissions = mutableListOf<AssignmentSubmission>()
         val recipient = doc.selectFirst("#m_Content_RecipientGV")
         if (recipient != null && recipient.select("span.norecord").isEmpty()) {
+            val headerIndexes = recipient.selectFirst("tr")?.select("th")
+                ?.mapIndexed { index, header -> normalizeLabel(header.text()) to index }
+                ?.toMap()
+                .orEmpty()
             var index = 0
             for (row in recipient.select("tr")) {
                 val cells = row.select("td")
-                if (cells.size < 4) continue
-                val timestamp = cells[0].text().trim()
-                val user = cells[1].text().trim()
+                if (cells.isEmpty()) continue
+                val desktop = desktopCells(row)
+                fun mobileValue(label: String): Element? = row
+                    .select(".ls-elevaflevering-entry-label")
+                    .firstOrNull { normalizeLabel(it.text()) == normalizeLabel(label) }
+                    ?.parent()
+                    ?.selectFirst(".ls-elevaflevering-entry-value")
+                fun entryCell(label: String, fallback: Int): Element? {
+                    val headerIndex = headerIndexes[normalizeLabel(label)]
+                    return headerIndex?.let { cells.getOrNull(it) }
+                        ?: desktop.getOrNull(fallback)
+                        ?: mobileValue(label)
+                }
+
+                val timestamp = elementText(entryCell("Tidspunkt", 0))
+                val userCell = entryCell("Bruger", 1)
+                val userElement = userCell?.selectFirst("[data-lectiocontextcard]")
+                val userText = userElement?.text()?.trim().orEmpty()
+                val userTitle = userElement?.attr("title")?.trim().orEmpty()
+                val user = if (userTitle.length > userText.length) userTitle else userText.ifBlank {
+                    elementText(userCell)
+                }
                 if (timestamp.isBlank() && user.isBlank()) continue
-                val comment = cells.getOrNull(2)?.text()?.trim()?.ifBlank { null }
-                val docLink = cells.getOrNull(3)?.selectFirst("a")
+                val comment = elementText(entryCell("Indlæg", 2)).ifBlank { null }
+                val docLink = entryCell("Dokument", 3)?.selectFirst("a[href*=ExerciseFileGet], a[href]")
                 submissions += AssignmentSubmission(
                     id = "$index",
                     timestamp = timestamp,
@@ -193,6 +236,7 @@ object AssignmentParser {
                 note = description.ifBlank { item.note },
                 grade = studentGrade,
                 gradeNote = studentGradeNote,
+                studentNote = studentNote,
             ),
             description = description,
             files = files.distinctBy { it.second },
@@ -212,6 +256,34 @@ object AssignmentParser {
         if (nonMobile.isNotEmpty()) return nonMobile
         return row.select("td")
     }
+
+    private fun normalizeLabel(value: String?): String = value.orEmpty()
+        .replace('\u00a0', ' ')
+        .replace(Regex(":\\s*$"), "")
+        .replace(Regex("\\s+"), " ")
+        .trim()
+        .lowercase()
+
+    private fun valueWithoutInlineLabel(cell: Element?): String {
+        if (cell == null) return ""
+        val value = cell.selectFirst(".ls-elevaflevering-field-value, .ls-elevaflevering-note-value")
+        if (value != null) return elementText(value)
+        val label = cell.selectFirst(".ls-elevaflevering-field-label")?.text().orEmpty()
+        return elementText(cell).removePrefix(label).trim()
+    }
+
+    private fun elementText(element: Element?): String = element?.wholeText()
+        ?.replace('\u00a0', ' ')
+        ?.lines()
+        ?.joinToString("\n") { it.replace(Regex("[\\t\\r ]+"), " ").trim() }
+        ?.replace(Regex("\n{3,}"), "\n\n")
+        ?.trim()
+        .orEmpty()
+
+    private fun contextCardId(root: Element): String? = root
+        .selectFirst("[data-lectiocontextcard]")
+        ?.attr("data-lectiocontextcard")
+        ?.takeIf { it.isNotBlank() }
 
     private fun absolutize(href: String): String = when {
         href.startsWith("http") -> href

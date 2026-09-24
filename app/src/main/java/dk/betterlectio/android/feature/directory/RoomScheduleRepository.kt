@@ -19,7 +19,7 @@ class RoomScheduleRepository @Inject constructor(
 ) {
     /**
      * Room list with live occupancy flags (Flutter rooms controller parity).
-     * Sources: FindSkema type=lokale + SkemaAvanceret type=aktuelleallelokaler.
+     * Sources: FindSkema type=lokale + both Lectio occupancy variants.
      */
     suspend fun listRoomsWithOccupancy(): AppResult<List<RoomParser.RoomWithOccupancy>> {
         val student = session.currentStudent ?: return AppResult.Failure(AppError.Unauthorized)
@@ -40,16 +40,17 @@ class RoomScheduleRepository @Inject constructor(
         }
         val rooms = RoomParser.parseRooms(roomsHtml)
 
-        val availHtml = when (
-            val res = client.get(
-                "SkemaAvanceret.aspx?type=aktuelleallelokaler&nosubnav=1&prevurl=FindSkemaAdv.aspx",
-                FetchPriority.Important,
-            )
-        ) {
-            is AppResult.Failure -> null
-            is AppResult.Success -> res.data.body
-        }
-        val availabilities = availHtml?.let { RoomParser.parseAvailabilities(it) }.orEmpty()
+        val availabilities = listOf("aktuelleallelokaler", "aktuellelokaler").flatMap { type ->
+            when (
+                val res = client.get(
+                    "SkemaAvanceret.aspx?type=$type&nosubnav=1&prevurl=FindSkemaAdv.aspx",
+                    FetchPriority.Important,
+                )
+            ) {
+                is AppResult.Failure -> emptyList()
+                is AppResult.Success -> RoomParser.parseAvailabilities(res.data.body)
+            }
+        }.distinctBy { it.shortName.lowercase() to it.name.lowercase() }
         return AppResult.Success(RoomParser.mergeOccupancy(rooms, availabilities))
     }
 

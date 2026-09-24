@@ -65,16 +65,16 @@ class AssignmentRepository @Inject constructor(
         val cacheKey = "assignment_detail_${student.studentId}_${item.id}"
         val cached = cache.getWithMeta(cacheKey)
         if (!forceRefresh && cached?.freshness(CachePolicy.MUTABLE_DETAIL) == CacheFreshness.FRESH) {
-            return AppResult.Success(AssignmentParser.parseDetail(cached.value, item))
+            return AppResult.Success(AssignmentParser.parseDetail(cached.value, item, student.studentId))
         }
         return when (val res = client.get(path)) {
             is AppResult.Failure -> AppResult.Success(
-                cached?.let { AssignmentParser.parseDetail(it.value, item) }
+                cached?.let { AssignmentParser.parseDetail(it.value, item, student.studentId) }
                     ?: AssignmentDetail(item = item, description = item.note),
             )
             is AppResult.Success -> {
                 cache.put(cacheKey, res.data.body)
-                AppResult.Success(AssignmentParser.parseDetail(res.data.body, item))
+                AppResult.Success(AssignmentParser.parseDetail(res.data.body, item, student.studentId))
             }
         }
     }

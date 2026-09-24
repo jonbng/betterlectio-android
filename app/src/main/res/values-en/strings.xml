@@ -64,7 +64,7 @@
     <string name="grades_type_internal">Int.</string>
     <string name="grades_type_year">Year</string>
     <string name="grades_type_exam">Exam</string>
-    <string name="grades_no_average">—</string>
+    <string name="grades_no_average">No average</string>
     <string name="grades_empty">No grades found</string>
     <string name="grades_diploma_lines">Diploma lines</string>
     <string name="grades_diploma_lines_named">Diploma lines · %1$s</string>
@@ -236,6 +236,7 @@
     <string name="more_rooms">Rooms</string>
     <string name="room_in_use">In use</string>
     <string name="room_free">Free</string>
+    <string name="room_status_unknown">Status unknown</string>
     <string name="rooms_occupancy_header">Current occupancy</string>
     <string name="absence_overview">Total absence</string>
     <string name="absence_chart">Absence per class</string>

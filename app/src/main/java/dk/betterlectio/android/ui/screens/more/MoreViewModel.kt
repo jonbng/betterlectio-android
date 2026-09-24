@@ -739,9 +739,11 @@ class MoreViewModel @Inject constructor(
                 id = room.id,
                 name = "${room.shortName} · ${room.name}",
                 kind = DirectoryEntityKind.ROOM,
-                subtitle = appContext.getString(
-                    if (room.inUse) R.string.room_in_use else R.string.room_free,
-                ),
+                subtitle = appContext.getString(when (room.inUse) {
+                    true -> R.string.room_in_use
+                    false -> R.string.room_free
+                    null -> R.string.room_status_unknown
+                }),
             ),
         )
     }

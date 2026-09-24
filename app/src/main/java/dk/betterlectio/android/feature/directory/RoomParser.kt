@@ -25,7 +25,7 @@ object RoomParser {
         val id: String,
         val shortName: String,
         val name: String,
-        val inUse: Boolean,
+        val inUse: Boolean?,
     )
 
     /**
@@ -64,20 +64,36 @@ object RoomParser {
     }
 
     private fun parseAvailabilityRow(row: Element): RoomAvailability? {
-        val header = row.selectFirst("h2") ?: return null
-        return parseAvailabilityFromHeader(header, row)
+        row.selectFirst("h2")?.let { return parseAvailabilityFromHeader(it, row) }
+
+        val text = row.selectFirst("span")?.text()
+            ?.replace(Regex("^Lokale\\s*:?\\s*", RegexOption.IGNORE_CASE), "")
+            ?.trim()
+            .orEmpty()
+        if (text.isBlank()) return null
+        val parts = splitRoomHeader(text)
+        val booking = row.selectFirst("table") ?: return null
+        return RoomAvailability(
+            shortName = parts.first,
+            name = parts.second,
+            inUse = !booking.text().contains("Der er ingen data", ignoreCase = true),
+        )
     }
 
     private fun parseAvailabilityFromHeader(header: Element, container: Element): RoomAvailability? {
         val text = header.text().trim()
-        val dashIndex = text.indexOf('-')
-        if (dashIndex <= 0) return null
-        val short = text.substring(0, dashIndex).trim()
-        val name = text.substring(dashIndex + 1).trim()
-        if (short.isBlank() || name.isBlank()) return null
+        val (short, name) = splitRoomHeader(text)
+        if (short.isBlank()) return null
         val booking = container.selectFirst("table")
         val notUsed = booking == null || booking.text().contains("Der er ingen data")
         return RoomAvailability(shortName = short, name = name, inUse = !notUsed)
+    }
+
+    private fun splitRoomHeader(text: String): Pair<String, String> {
+        val match = Regex("\\s[-–—]\\s*").find(text) ?: return text.trim() to text.trim()
+        val short = text.substring(0, match.range.first).trim()
+        val name = text.substring(match.range.last + 1).trim()
+        return short to name
     }
 
     /**
@@ -127,19 +143,36 @@ object RoomParser {
         rooms: List<RoomListItem>,
         availabilities: List<RoomAvailability>,
     ): List<RoomWithOccupancy> {
-        return rooms.map { room ->
-            val match = availabilities.firstOrNull {
-                it.name.equals(room.name, ignoreCase = true) ||
-                    it.shortName.equals(room.shortName, ignoreCase = true) ||
-                    it.name.equals(room.shortName, ignoreCase = true) ||
-                    "${it.shortName} - ${it.name}".equals("${room.shortName} - ${room.name}", ignoreCase = true)
+        val byKey = mutableMapOf<String, RoomAvailability>()
+        availabilities.forEach { availability ->
+            roomKeys(availability.shortName, availability.name).forEach { key ->
+                byKey.putIfAbsent(key, availability)
             }
+        }
+        return rooms.map { room ->
+            val match = roomKeys(room.shortName, room.name).firstNotNullOfOrNull(byKey::get)
             RoomWithOccupancy(
                 id = room.id,
                 shortName = room.shortName,
                 name = room.name,
-                inUse = match?.inUse ?: false,
+                inUse = match?.inUse,
             )
+        }
+    }
+
+    private fun roomKeys(shortName: String, name: String): Set<String> = buildSet {
+        listOf(shortName, name, "$shortName $name").forEach { value ->
+            val normalized = value
+                .replace('\u00a0', ' ')
+                .replace(Regex("^lokale\\s*:?\\s*", RegexOption.IGNORE_CASE), "")
+                .replace(Regex("\\s*[-–—]\\s*"), " ")
+                .replace(Regex("\\s+"), " ")
+                .trim()
+                .lowercase()
+            if (normalized.isNotEmpty()) {
+                add(normalized)
+                add(normalized.replace(" ", ""))
+            }
         }
     }
 }

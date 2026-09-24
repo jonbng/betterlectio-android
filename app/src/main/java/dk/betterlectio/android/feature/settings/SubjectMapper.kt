@@ -72,6 +72,7 @@ object SubjectMapper {
      * Hues match iOS SubjectMapper defaults.
      */
     val metadataByCanonicalKey: Map<String, SubjectMetadata> = mapOf(
+        "af" to meta("Afsætning", "chart", 336, "af", "afs", "afsaetning", "afsætning"),
         "ap" to meta("Almen sprogforståelse", "globe", 48, "ap", "almen sprogforstaaelse", "almen sprogforståelse"),
         "as" to meta("Astronomi", "sparkles", 260, "as", "astronomi"),
         "at" to meta("AT", "doc", 215, "at", "almen studieforberedelse"),
@@ -94,6 +95,7 @@ object SubjectMapper {
         "hi" to meta("Historie", "history", 24, "hi", "his", "historie"),
         "id" to meta("Idræt", "sport", 188, "id", "idræt", "idraet"),
         "ih" to meta("Idéhistorie", "history", 300, "ih", "idehistorie", "idéhistorie", "ide-historie"),
+        "in" to meta("Innovation", "bulb", 295, "in", "innovation"),
         "it" to meta("Informatik", "computer", 248, "it", "if", "informatik"),
         "inf" to meta("Informatik", "computer", 248, "inf"),
         "ke" to meta("Kemi", "science", 138, "ke", "kem", "kemi"),
@@ -102,6 +104,7 @@ object SubjectMapper {
         "kt" to meta("Klassens Time", "people", 170, "kt", "klassens time"),
         "la" to meta("Latin", "book", 358, "la", "latin"),
         "ma" to meta("Matematik", "functions", 238, "ma", "mat", "matematik"),
+        "mak" to meta("Makroøkonomisk analyse", "chart", 80, "mak", "makrooekonomisk analyse", "makroøkonomisk analyse"),
         "me" to meta("Mediefag", "film", 318, "me", "mediefag"),
         "mu" to meta("Musik", "music", 322, "mu", "musik"),
         "ng" to meta("Naturgeografi", "globe", 88, "ng", "naturgeografi"),
@@ -220,6 +223,8 @@ object SubjectMapper {
 
         resolveCanonicalCandidate(normalized)?.let { return it }
 
+        resolveUnderscoreDelimitedHold(normalized)?.let { return it }
+
         val parts = normalized.split(" ").filter { it.isNotEmpty() }
         if (parts.size <= 1) return null
 
@@ -249,6 +254,26 @@ object SubjectMapper {
         val first = tokens.firstOrNull() ?: return null
         val firstStripped = stripSubjectLevelSuffix(first)
         return aliasToCanonicalKey[first] ?: aliasToCanonicalKey[firstStripped]
+    }
+
+    private fun resolveCompactSubject(value: String): String? {
+        resolveCanonicalCandidate(value.replace('_', ' '))?.let { return it }
+        Regex("^(.+?)([_-][ABC])$", RegexOption.IGNORE_CASE).matchEntire(value)?.let { match ->
+            resolveCanonicalCandidate(match.groupValues[1].replace('_', ' '))?.let { return it }
+        }
+        Regex("^(.+?)([ABC])$").matchEntire(value)?.let { match ->
+            resolveCanonicalCandidate(match.groupValues[1].replace('_', ' '))?.let { return it }
+        }
+        return null
+    }
+
+    private fun resolveUnderscoreDelimitedHold(holdCode: String): String? {
+        holdCode.indices.filter { holdCode[it] == '_' }.forEach { index ->
+            val prefix = holdCode.substring(0, index)
+            if (!classPrefixPattern.matches(prefix)) return@forEach
+            resolveCompactSubject(holdCode.substring(index + 1))?.let { return it }
+        }
+        return null
     }
 
     private fun normalizeClassCode(value: String): String {

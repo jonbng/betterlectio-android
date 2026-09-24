@@ -53,6 +53,17 @@ class SubjectMapperTest {
     }
 
     @Test
+    fun canonicalKey_underscoreDelimitedSchoolHolds() {
+        assertEquals("af", SubjectMapper.canonicalKey("h24hhxe_3e_AfsætningA"))
+        assertEquals("en", SubjectMapper.canonicalKey("h24hhxe_3e_EngelskA"))
+        assertEquals("hi", SubjectMapper.canonicalKey("h24hhxe_3e_HistorieB"))
+        assertEquals("da", SubjectMapper.canonicalKey("h24hhxe_3e_DanskA"))
+        assertEquals("ma", SubjectMapper.canonicalKey("h24hhxabef_3_Matematik_A"))
+        assertEquals("in", SubjectMapper.canonicalKey("h24hhxabcef_3abcef_InnovationC"))
+        assertEquals("mak", SubjectMapper.canonicalKey("Makroøkonomisk analyse"))
+    }
+
+    @Test
     fun canonicalKey_informatikNotIdehistorie() {
         assertEquals("it", SubjectMapper.canonicalKey("1x IF"))
         assertEquals("it", SubjectMapper.canonicalKey("IF"))

@@ -63,7 +63,7 @@
     <string name="grades_type_internal">Int.</string>
     <string name="grades_type_year">Års</string>
     <string name="grades_type_exam">Eks.</string>
-    <string name="grades_no_average">—</string>
+    <string name="grades_no_average">Intet gennemsnit</string>
     <string name="grades_empty">Ingen karakterer fundet</string>
     <string name="grades_diploma_lines">Linjer på bevis</string>
     <string name="grades_diploma_lines_named">Linjer på bevis · %1$s</string>
@@ -235,6 +235,7 @@
     <string name="more_rooms">Lokaler</string>
     <string name="room_in_use">I brug</string>
     <string name="room_free">Ledig</string>
+    <string name="room_status_unknown">Status ukendt</string>
     <string name="rooms_occupancy_header">Aktuel belægning</string>
     <string name="absence_overview">Samlet fravær</string>
     <string name="absence_chart">Fravær pr. hold</string>

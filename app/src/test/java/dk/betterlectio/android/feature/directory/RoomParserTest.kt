@@ -2,6 +2,7 @@ package dk.betterlectio.android.feature.directory
 
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
+import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
@@ -31,6 +32,44 @@ class RoomParserTest {
         assertEquals("Bygning A", r201.name)
         assertFalse(r105.inUse)
         assertEquals("Bygning B", r105.name)
+    }
+
+    @Test
+    fun parseAvailabilities_accepts_prefixed_ids_unicode_dashes_and_empty_names() {
+        val html = """
+            <div id="s_m_Content_Content_LectioDetailIsland1_pa">
+              <div id="s_m_Content_Content_printSingleControl1">
+                <h2>10 - Lærer arbejdsrum</h2>
+                <table><tr><td>Ma 08:15 Matematik</td></tr></table>
+              </div>
+              <div id="s_m_Content_Content_printSingleControl2">
+                <h2>01 –</h2>
+                <table><tr><td>Der er ingen data</td></tr></table>
+              </div>
+            </div>
+        """.trimIndent()
+
+        val avail = RoomParser.parseAvailabilities(html)
+        assertEquals(2, avail.size)
+        assertEquals("", avail.first { it.shortName == "01" }.name)
+        assertFalse(avail.first { it.shortName == "01" }.inUse)
+    }
+
+    @Test
+    fun parseAvailabilities_accepts_legacy_lokale_span() {
+        val html = """
+            <div id="m_Content_LectioDetailIsland1_pa">
+              <div id="printSingleControl1">
+                <span>Lokale: Lærer arbejdsrum</span>
+                <table><tr><td>Ma 08:15 Matematik</td></tr></table>
+              </div>
+            </div>
+        """.trimIndent()
+
+        val room = RoomParser.parseAvailabilities(html).single()
+        assertEquals("Lærer arbejdsrum", room.shortName)
+        assertEquals("Lærer arbejdsrum", room.name)
+        assertTrue(room.inUse)
     }
 
     @Test
@@ -66,8 +105,23 @@ class RoomParserTest {
         )
         val merged = RoomParser.mergeOccupancy(rooms, avail)
         assertEquals(3, merged.size)
-        assertTrue(merged.first { it.id == "1" }.inUse)
-        assertFalse(merged.first { it.id == "2" }.inUse)
-        assertFalse(merged.first { it.id == "3" }.inUse)
+        assertTrue(merged.first { it.id == "1" }.inUse == true)
+        assertTrue(merged.first { it.id == "2" }.inUse == false)
+        assertNull(merged.first { it.id == "3" }.inUse)
+    }
+
+    @Test
+    fun mergeOccupancy_normalizes_spacing_and_preserves_unknown_status() {
+        val rooms = listOf(
+            RoomParser.RoomListItem("1", "A-10", "Lærer  arbejdsrum"),
+            RoomParser.RoomListItem("2", "X", "Ukendt"),
+        )
+        val avail = listOf(
+            RoomParser.RoomAvailability("A-10", "A-10 – Lærer arbejdsrum", inUse = true),
+        )
+
+        val merged = RoomParser.mergeOccupancy(rooms, avail)
+        assertTrue(merged.first { it.id == "1" }.inUse == true)
+        assertNull(merged.first { it.id == "2" }.inUse)
     }
 }
