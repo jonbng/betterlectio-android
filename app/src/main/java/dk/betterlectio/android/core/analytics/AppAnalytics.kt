@@ -137,6 +137,12 @@ object AppAnalytics {
         PostHog.reset()
     }
 
+    /** Starts delivery of queued events before logout changes the distinct ID. */
+    fun flush() {
+        if (BuildConfig.ADMIN_BUILD) return
+        PostHog.flush()
+    }
+
     private fun sampleBucket(): Double {
         val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE) ?: return 1.0
         if (prefs.contains("load_sample_bucket")) {

@@ -371,6 +371,7 @@ class AuthSessionInstaller @Inject constructor(
         }
         lastSchoolStore.remember(student, LastSchoolReason.LOGGED_OUT)
         PostHog.capture(event = AppAnalytics.Event.AUTH_LOGGED_OUT)
+        AppAnalytics.flush()
         AppAnalytics.reset()
         sessionController.clearSession()
         bgScope.launch {
