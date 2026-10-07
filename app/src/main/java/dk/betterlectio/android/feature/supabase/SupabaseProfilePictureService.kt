@@ -1,5 +1,8 @@
 package dk.betterlectio.android.feature.supabase
 
+import dk.betterlectio.android.core.lectio.LectioClient
+import dk.betterlectio.android.core.result.AppResult
+import dk.betterlectio.android.feature.directory.AvatarUrls
 import dk.betterlectio.android.feature.profilepicture.ProfilePictureState
 import dk.betterlectio.android.feature.profilepicture.ProfilePictureSubmission
 import dk.betterlectio.android.feature.profilepicture.ProfilePictureSubmitResult
@@ -22,6 +25,7 @@ import javax.inject.Singleton
 @Singleton
 class SupabaseProfilePictureService @Inject constructor(
     private val manager: SupabaseManager,
+    private val lectioClient: LectioClient,
 ) {
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
@@ -43,12 +47,27 @@ class SupabaseProfilePictureService @Inject constructor(
     suspend fun submit(
         studentId: String,
         schoolId: Int,
+        pictureId: String?,
         bytes: ByteArray,
         mimeType: String,
     ): ProfilePictureSubmitResult {
         val client = manager.client ?: return ProfilePictureSubmitResult(false, "not_configured")
         if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) {
             return ProfilePictureSubmitResult(false, "session_unavailable")
+        }
+        if (pictureId.isNullOrBlank()) {
+            return ProfilePictureSubmitResult(false, "invalid_lectio_image")
+        }
+        val lectioBytes = when (
+            val result = lectioClient.getBytes(AvatarUrls.fromPictureId(schoolId, pictureId))
+        ) {
+            is AppResult.Success -> result.data
+            is AppResult.Failure -> return ProfilePictureSubmitResult(false, "invalid_lectio_image")
+        }
+        val lectioMimeType = detectedMimeType(lectioBytes)
+            ?: return ProfilePictureSubmitResult(false, "invalid_lectio_image")
+        if (lectioBytes.isEmpty() || lectioBytes.size > 5 * 1024 * 1024) {
+            return ProfilePictureSubmitResult(false, "invalid_lectio_image")
         }
         return try {
             val response = client.functions.invoke("profile-picture-submit") {
@@ -69,6 +88,17 @@ class SupabaseProfilePictureService @Inject constructor(
                                     )
                                 },
                             )
+                            append(
+                                "lectioFile",
+                                lectioBytes,
+                                Headers.build {
+                                    append(HttpHeaders.ContentType, lectioMimeType)
+                                    append(
+                                        HttpHeaders.ContentDisposition,
+                                        "filename=lectio-profile.${extensionFor(lectioMimeType)}",
+                                    )
+                                },
+                            )
                         },
                     ),
                 )
@@ -86,6 +116,16 @@ class SupabaseProfilePictureService @Inject constructor(
         "image/png" -> "png"
         "image/webp" -> "webp"
         else -> "jpg"
+    }
+
+    private fun detectedMimeType(bytes: ByteArray): String? = when {
+        bytes.size >= 3 && bytes[0] == 0xff.toByte() && bytes[1] == 0xd8.toByte() && bytes[2] == 0xff.toByte() -> "image/jpeg"
+        bytes.size >= 8 && bytes.sliceArray(0..7).contentEquals(
+            byteArrayOf(0x89.toByte(), 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a),
+        ) -> "image/png"
+        bytes.size >= 12 && bytes.copyOfRange(0, 4).decodeToString() == "RIFF" &&
+            bytes.copyOfRange(8, 12).decodeToString() == "WEBP" -> "image/webp"
+        else -> null
     }
 
     @Serializable

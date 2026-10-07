@@ -306,6 +306,7 @@
     <string name="profile_picture_cooldown">You can change it again on %1$s.</string>
     <string name="profile_picture_format_hint">JPEG, PNG, or WebP · max 5 MB</string>
     <string name="profile_picture_invalid_file">Choose a JPEG, PNG, or WebP image no larger than 5 MB.</string>
+    <string name="profile_picture_lectio_image_unavailable">Your current Lectio picture could not be loaded. Refresh and try again.</string>
     <string name="profile_picture_load_failed">Could not load profile-picture status.</string>
     <string name="profile_picture_upload_failed">Could not send the picture. Try again.</string>
     <string name="profile_picture_not_unlocked">Invite three friends to unlock this feature.</string>

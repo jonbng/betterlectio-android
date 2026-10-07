@@ -38,19 +38,12 @@ class ReferralCoordinator @Inject constructor(
         if (store.wasFinalizeAttempted(student.studentId)) return
 
         val cookieId = referrerReader.readReferralCookieId()
-        // Mark attempted after we got a referrer response (even empty) so we don't
-        // hammer Play's API — but only after a real network finalize attempt when
-        // we have a cookie, or immediately when there is nothing to attribute.
-        if (cookieId.isNullOrBlank()) {
-            store.markFinalizeAttempted(student.studentId)
-            Timber.d("Referral: no Install Referrer cookie — skipping finalize")
-            return
-        }
-
+        // Send even the no-token outcome so the backend can distinguish a lost
+        // Install Referrer handoff from users who never started finalization.
         val result = referralService.finalizeAndroid(
             studentId = student.studentId,
             schoolId = student.gymId,
-            cookieId = cookieId,
+            cookieId = cookieId?.takeIf { it.isNotBlank() },
         )
         // Only mark attempted on a definite HTTP response (success or attributed:false).
         // Network failures leave the flag unset so cold-start can retry.

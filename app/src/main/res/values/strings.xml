@@ -304,6 +304,7 @@
     <string name="profile_picture_cooldown">Du kan skifte igen den %1$s.</string>
     <string name="profile_picture_format_hint">JPEG, PNG eller WebP · maks. 5 MB</string>
     <string name="profile_picture_invalid_file">Vælg et JPEG-, PNG- eller WebP-billede på højst 5 MB.</string>
+    <string name="profile_picture_lectio_image_unavailable">Dit nuværende Lectio-billede kunne ikke hentes. Opdater og prøv igen.</string>
     <string name="profile_picture_load_failed">Kunne ikke hente status for profilbilledet.</string>
     <string name="profile_picture_upload_failed">Kunne ikke sende billedet. Prøv igen.</string>
     <string name="profile_picture_not_unlocked">Invitér tre venner for at låse funktionen op.</string>

@@ -976,6 +976,7 @@ class MoreViewModel @Inject constructor(
             val result = profilePictureService.submit(
                 studentId = student.studentId,
                 schoolId = schoolId,
+                pictureId = _state.value.card?.student?.pictureId ?: student.pictureId,
                 bytes = bytes,
                 mimeType = mimeType,
             )
@@ -988,6 +989,7 @@ class MoreViewModel @Inject constructor(
                     "pending_exists" -> R.string.profile_picture_pending_exists
                     "cooldown" -> R.string.profile_picture_cooldown_active
                     "invalid_file" -> R.string.profile_picture_invalid_file
+                    "invalid_lectio_image" -> R.string.profile_picture_lectio_image_unavailable
                     else -> R.string.profile_picture_upload_failed
                 }
                 _state.update {

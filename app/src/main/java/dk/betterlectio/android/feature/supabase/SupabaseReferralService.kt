@@ -1,5 +1,6 @@
 package dk.betterlectio.android.feature.supabase
 
+import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.feature.referral.RecentReferral
 import dk.betterlectio.android.feature.referral.ReferralStats
 import io.github.jan.supabase.auth.auth
@@ -61,7 +62,7 @@ class SupabaseReferralService @Inject constructor(
     suspend fun finalizeAndroid(
         studentId: String,
         schoolId: Int?,
-        cookieId: String,
+        cookieId: String?,
     ): FinalizeResult? {
         val client = manager.client ?: return null
         if (manager.awaitSessionReady() !is SupabaseSessionState.Ready) return null
@@ -77,6 +78,7 @@ class SupabaseReferralService @Inject constructor(
                             schoolId = schoolId,
                             cookieId = cookieId,
                             platform = "android",
+                            clientVersion = BuildConfig.VERSION_NAME,
                         ),
                     ),
                 )
@@ -113,8 +115,9 @@ class SupabaseReferralService @Inject constructor(
     private data class FinalizeRequest(
         val studentId: String,
         val schoolId: Int? = null,
-        val cookieId: String,
+        val cookieId: String? = null,
         val platform: String,
+        val clientVersion: String? = null,
     )
 
     @Serializable
