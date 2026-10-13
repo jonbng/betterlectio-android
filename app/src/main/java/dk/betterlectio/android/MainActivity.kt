@@ -1,6 +1,7 @@
 package dk.betterlectio.android
 
 import android.Manifest
+import android.content.Intent
 import android.content.pm.PackageManager
 import android.graphics.Color
 import android.os.Build
@@ -35,6 +36,7 @@ import dk.betterlectio.android.ui.feedback.FeedbackHost
 import dk.betterlectio.android.ui.navigation.BetterLectioRoot
 import dk.betterlectio.android.ui.theme.BetterLectioTheme
 import javax.inject.Inject
+import kotlinx.coroutines.flow.MutableStateFlow
 
 /**
  * [AppCompatActivity] (not ComponentActivity) so per-app language works on API 29–32
@@ -44,6 +46,7 @@ import javax.inject.Inject
 @AndroidEntryPoint
 class MainActivity : AppCompatActivity() {
     private val processUiStartedAt = SystemClock.elapsedRealtime()
+    private val notificationDestination = MutableStateFlow<String?>(null)
     private val notificationPermissionLauncher = registerForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) { /* A denied permission leaves notifications disabled; the app continues normally. */ }
@@ -70,6 +73,7 @@ class MainActivity : AppCompatActivity() {
         splashScreen.setKeepOnScreenCondition { keepSplash }
 
         super.onCreate(savedInstanceState)
+        notificationDestination.value = intent.notificationDestination()
         settingsStore.applyStoredLanguage()
         sessionController.restore()
         when (val state = sessionController.authState.value) {
@@ -92,6 +96,7 @@ class MainActivity : AppCompatActivity() {
         setContent {
             val appearance by settingsStore.appearance.collectAsStateWithLifecycle()
             val authState by sessionController.authState.collectAsStateWithLifecycle()
+            val requestedDestination by notificationDestination.collectAsStateWithLifecycle()
             LaunchedEffect(authState) {
                 (authState as? AuthState.Authenticated)?.student?.let { student ->
                     AppAnalytics.captureActive(student)
@@ -140,7 +145,13 @@ class MainActivity : AppCompatActivity() {
             BetterLectioTheme(darkTheme = dark) {
                 Surface(modifier = Modifier.fillMaxSize()) {
                     FeedbackHost {
-                        BetterLectioRoot(sessionController = sessionController)
+                        BetterLectioRoot(
+                            sessionController = sessionController,
+                            notificationDestination = requestedDestination,
+                            onNotificationDestinationConsumed = {
+                                notificationDestination.value = null
+                            },
+                        )
                     }
                 }
             }
@@ -153,4 +164,13 @@ class MainActivity : AppCompatActivity() {
             AppAnalytics.captureActive(it)
         }
     }
+
+    override fun onNewIntent(intent: Intent) {
+        super.onNewIntent(intent)
+        setIntent(intent)
+        notificationDestination.value = intent.notificationDestination()
+    }
+
+    private fun Intent.notificationDestination(): String? =
+        getStringExtra(NotificationDiffWorker.EXTRA_DESTINATION)
 }

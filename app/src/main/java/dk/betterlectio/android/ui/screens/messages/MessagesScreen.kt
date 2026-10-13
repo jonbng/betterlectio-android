@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.safeDrawing
@@ -30,6 +31,8 @@ import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.ExperimentalLayoutApi
@@ -1143,8 +1146,10 @@ private fun MessageComposePane(
         state.composeBody.isNotBlank() &&
         state.selectedRecipients.isNotEmpty() &&
         !state.isSending
-    // See MessageThreadPane: no IME insets here — MainActivity uses adjustResize.
+    val bodyBringIntoViewRequester = remember { BringIntoViewRequester() }
+    val coroutineScope = rememberCoroutineScope()
     Scaffold(
+        modifier = Modifier.imePadding(),
         contentWindowInsets = WindowInsets.safeDrawing.only(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
         ),
@@ -1269,7 +1274,19 @@ private fun MessageComposePane(
                 minLines = 4,
                 maxLines = 12,
                 enabled = !state.isSending,
-                modifier = Modifier.fillMaxWidth(),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .bringIntoViewRequester(bodyBringIntoViewRequester),
+                onFocusChanged = { focused ->
+                    if (focused) {
+                        coroutineScope.launch {
+                            // Wait for the IME inset animation before calculating the
+                            // final visible viewport, then reveal the editor and caret.
+                            delay(250)
+                            bodyBringIntoViewRequester.bringIntoView()
+                        }
+                    }
+                },
             )
 
             PendingAttachmentsRow(

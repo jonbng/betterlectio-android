@@ -795,10 +795,27 @@ class MoreViewModel @Inject constructor(
     }
 
     private fun loadModuleStats() = viewModelScope.launch {
+        val analyticsStartedAt = SystemClock.elapsedRealtime()
         _state.update { it.copy(loading = true) }
         when (val res = moduleStatRepo.load()) {
-            is AppResult.Success -> _state.update { it.copy(loading = false, moduleStats = res.data) }
-            is AppResult.Failure -> _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            is AppResult.Success -> {
+                AppAnalytics.captureLoad(
+                    "module_stats",
+                    "success",
+                    analyticsStartedAt,
+                    mapOf("report_count" to res.data.size),
+                )
+                _state.update { it.copy(loading = false, moduleStats = res.data) }
+            }
+            is AppResult.Failure -> {
+                AppAnalytics.captureLoad(
+                    "module_stats",
+                    "failure",
+                    analyticsStartedAt,
+                    mapOf("failure_type" to res.error::class.simpleName.orEmpty()),
+                )
+                _state.update { it.copy(loading = false, message = res.error.toUiText()) }
+            }
         }
     }
 

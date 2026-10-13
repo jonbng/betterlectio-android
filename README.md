@@ -172,6 +172,12 @@ cp key.properties.example key.properties   # fill passwords
 ./gradlew :app:bundleRelease               # → app/build/outputs/bundle/release/app-release.aab
 ```
 
+Release bundles also run PostHog's official `uploadPostHogProguardMappingsRelease`
+task after R8 so crash frames match the exact shipped mapping. Install
+`posthog-cli` 0.7.12+ and provide `POSTHOG_CLI_API_KEY` (personal key with error
+tracking write and organization read); the EU host and project ID are configured
+in Gradle. Mapping upload failure fails the release build.
+
 ## Notes
 
 - Do not commit `local.properties`, `key.properties`, or `*.jks` / signing secrets.

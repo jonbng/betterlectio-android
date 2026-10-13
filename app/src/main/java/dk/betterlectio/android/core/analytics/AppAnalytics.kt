@@ -5,15 +5,18 @@ import android.os.SystemClock
 import com.posthog.PostHog
 import dk.betterlectio.android.BuildConfig
 import dk.betterlectio.android.core.model.Student
+import java.util.UUID
 
 /** Low-volume operational analytics shared by every Android surface. */
 object AppAnalytics {
     private const val PREFS = "posthog_observability"
     private const val SUCCESS_LOAD_SAMPLE_RATE = 0.1
     private const val ACTIVE_SESSION_GAP_MS = 30 * 60 * 1_000L
+    private const val AUTHENTICATED_STATE_MARKER = "had_authenticated_state"
     private var appContext: Context? = null
     private var lastActiveAt = 0L
     private var startupCaptured = false
+    private var sessionRestoredCaptured = false
 
     object Event {
         const val APP_ACTIVE = "app_active"
@@ -23,6 +26,8 @@ object AppAnalytics {
         const val AUTH_LOGIN_COMPLETED = "auth_login_completed"
         const val AUTH_LOGIN_FAILED = "auth_login_failed"
         const val AUTH_SESSION_LOST = "auth_session_lost"
+        const val AUTH_SESSION_RESTORED = "auth_session_restored"
+        const val AUTH_SESSION_RECOVERY = "auth_session_recovery"
         const val AUTH_LOGGED_OUT = "auth_logged_out"
         const val REFERRAL_SHARED = "referral_shared"
     }
@@ -72,6 +77,7 @@ object AppAnalytics {
             PostHog.alias(student.studentId)
             prefs?.edit()?.putBoolean(migrationKey, true)?.apply()
         }
+        prefs?.edit()?.putBoolean(AUTHENTICATED_STATE_MARKER, true)?.apply()
     }
 
     @Synchronized
@@ -126,6 +132,90 @@ object AppAnalytics {
         )
     }
 
+    @Synchronized
+    fun captureSessionRestored(student: Student, coldStartProbe: String) {
+        if (BuildConfig.ADMIN_BUILD || student.isDemo || sessionRestoredCaptured) return
+        sessionRestoredCaptured = true
+        PostHog.capture(
+            event = Event.AUTH_SESSION_RESTORED,
+            properties = mapOf(
+                "school_id" to student.gymId.toString(),
+                "school_name" to (student.schoolName ?: ""),
+                "restore_path" to "credential_store",
+                "cold_start_probe" to coldStartProbe,
+                "platform" to "android",
+            ),
+        )
+    }
+
+    fun captureSessionLost(student: Student, detectionSource: String) {
+        if (BuildConfig.ADMIN_BUILD || student.isDemo) return
+        PostHog.capture(
+            event = Event.AUTH_SESSION_LOST,
+            properties = mapOf(
+                "school_id" to student.gymId.toString(),
+                "school_name" to (student.schoolName ?: ""),
+                "detection_source" to detectionSource,
+                "incident_id" to UUID.randomUUID().toString(),
+                "end_type" to "involuntary",
+                "session_expired" to true,
+                "platform" to "android",
+            ),
+        )
+        setAuthenticatedStateMarker(false)
+        flush()
+    }
+
+    fun captureLoggedOut(student: Student) {
+        if (BuildConfig.ADMIN_BUILD || student.isDemo) return
+        PostHog.capture(
+            event = Event.AUTH_LOGGED_OUT,
+            properties = mapOf(
+                "school_id" to student.gymId.toString(),
+                "school_name" to (student.schoolName ?: ""),
+                "detection_source" to "settings_logout",
+                "incident_id" to UUID.randomUUID().toString(),
+                "end_type" to "voluntary",
+                "platform" to "android",
+            ),
+        )
+        setAuthenticatedStateMarker(false)
+        flush()
+    }
+
+    fun captureSessionRecovery(trigger: String, outcome: String, durationMs: Long) {
+        if (BuildConfig.ADMIN_BUILD) return
+        PostHog.capture(
+            event = Event.AUTH_SESSION_RECOVERY,
+            properties = mapOf(
+                "trigger" to trigger,
+                "outcome" to outcome,
+                "duration_ms" to durationMs.coerceAtLeast(0L),
+                "strategy" to "clear_aspnet_session_id",
+                "platform" to "android",
+            ),
+        )
+    }
+
+    /** Reports storage/keychain disappearance once, without creating clean-install noise. */
+    fun captureMissingAuthenticatedStateOnLaunch() {
+        if (BuildConfig.ADMIN_BUILD) return
+        val prefs = appContext?.getSharedPreferences(PREFS, Context.MODE_PRIVATE) ?: return
+        if (!prefs.getBoolean(AUTHENTICATED_STATE_MARKER, false)) return
+        PostHog.capture(
+            event = Event.AUTH_SESSION_LOST,
+            properties = mapOf(
+                "detection_source" to "missing_auth_state_on_launch",
+                "incident_id" to UUID.randomUUID().toString(),
+                "end_type" to "involuntary",
+                "session_expired" to false,
+                "platform" to "android",
+            ),
+        )
+        setAuthenticatedStateMarker(false)
+        flush()
+    }
+
     fun canonicalDistinctId(studentId: String): String = "lectio:${studentId.trim()}"
 
     fun reset() {
@@ -141,6 +231,14 @@ object AppAnalytics {
     fun flush() {
         if (BuildConfig.ADMIN_BUILD) return
         PostHog.flush()
+    }
+
+    private fun setAuthenticatedStateMarker(value: Boolean) {
+        appContext
+            ?.getSharedPreferences(PREFS, Context.MODE_PRIVATE)
+            ?.edit()
+            ?.putBoolean(AUTHENTICATED_STATE_MARKER, value)
+            ?.apply()
     }
 
     private fun sampleBucket(): Double {

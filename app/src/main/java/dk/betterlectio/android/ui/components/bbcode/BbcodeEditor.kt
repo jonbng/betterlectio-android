@@ -9,6 +9,7 @@ import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.util.TypedValue
 import android.view.Gravity
+import android.view.View
 import android.widget.EditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
@@ -40,6 +41,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.focusProperties
@@ -72,12 +74,14 @@ fun BbcodeEditor(
     minLines: Int = 6,
     maxLines: Int = 16,
     enabled: Boolean = true,
+    onFocusChanged: (Boolean) -> Unit = {},
 ) {
     val linkColor = MaterialTheme.colorScheme.primary.toArgb()
     val textColor = MaterialTheme.colorScheme.onSurface.toArgb()
     val hintColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val density = LocalDensity.current
     val minHeightPx = with(density) { (minLines * 24).dp.roundToPx() }
+    val currentOnFocusChanged by rememberUpdatedState(onFocusChanged)
 
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
     var lastExported by remember { mutableStateOf(value) }
@@ -222,6 +226,9 @@ fun BbcodeEditor(
                     // Avoid LinkMovementMethod stealing selection / opening URLs while editing
                     movementMethod = null
                     isEnabled = enabled
+                    isVerticalScrollBarEnabled = true
+                    overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
+                    setOnFocusChangeListener { _, hasFocus -> currentOnFocusChanged(hasFocus) }
                     BbcodeSpannable.setFromBbcode(this, value, linkColor)
                     lastExported = value
 

@@ -26,9 +26,40 @@ class NotificationSnapshotDiffTest {
     }
 
     @Test
+    fun freshIds_missingSnapshot_establishesSilentBaseline() {
+        val current = setOf("event:1:CANCELLED", "msg:42")
+        assertTrue(
+            NotificationSnapshotDiff.freshIds(
+                previous = emptySet(),
+                current = current,
+                initialized = false,
+            ).isEmpty(),
+        )
+    }
+
+    @Test
+    fun replacingSnapshot_allowsARepeatedStateTransition() {
+        val cancelled = setOf("event:1:CANCELLED")
+        val restored = setOf("event:1:NORMAL")
+
+        assertEquals(
+            restored,
+            NotificationSnapshotDiff.freshIds(cancelled, restored, initialized = true),
+        )
+        assertEquals(
+            cancelled,
+            NotificationSnapshotDiff.freshIds(restored, cancelled, initialized = true),
+        )
+    }
+
+    @Test
     fun keyHelpers_areStable() {
         assertEquals("event:1:CANCELLED", NotificationSnapshotDiff.eventKey("1", "CANCELLED"))
         assertEquals("msg:42", NotificationSnapshotDiff.messageKey("42"))
         assertEquals("asg:9:Afleveret", NotificationSnapshotDiff.assignmentKey("9", "Afleveret"))
+        assertEquals(
+            NotificationSnapshotDiff.notificationId("event:1:CANCELLED"),
+            NotificationSnapshotDiff.notificationId("event:1:CANCELLED"),
+        )
     }
 }

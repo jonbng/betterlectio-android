@@ -64,6 +64,8 @@ import kotlinx.coroutines.delay
 @Composable
 fun BetterLectioRoot(
     sessionController: SessionController,
+    notificationDestination: String? = null,
+    onNotificationDestinationConsumed: () -> Unit = {},
 ) {
     val authState by sessionController.authState.collectAsStateWithLifecycle()
     AnimatedContent(
@@ -83,13 +85,19 @@ fun BetterLectioRoot(
         when (state) {
             AuthState.Loading -> LoadingBox()
             AuthState.Unauthenticated -> VariantLoginScreen()
-            is AuthState.Authenticated -> AuthenticatedShell()
+            is AuthState.Authenticated -> AuthenticatedShell(
+                notificationDestination = notificationDestination,
+                onNotificationDestinationConsumed = onNotificationDestinationConsumed,
+            )
         }
     }
 }
 
 @Composable
-private fun AuthenticatedShell() {
+private fun AuthenticatedShell(
+    notificationDestination: String?,
+    onNotificationDestinationConsumed: () -> Unit,
+) {
     val navController = rememberNavController()
     val navBackStackEntry by navController.currentBackStackEntryAsState()
     val currentDestination = navBackStackEntry?.destination
@@ -112,6 +120,21 @@ private fun AuthenticatedShell() {
         mutableStateOf(!BuildConfig.ADMIN_BUILD && settingsStore.shouldShowOnboarding())
     }
     var showExtensionInvite by remember { mutableStateOf(false) }
+
+    LaunchedEffect(notificationDestination, showOnboarding) {
+        val destination = AppDestination.entries.firstOrNull {
+            it.route == notificationDestination
+        } ?: return@LaunchedEffect
+        if (showOnboarding) return@LaunchedEffect
+        navController.navigate(destination.route) {
+            popUpTo(navController.graph.findStartDestination().id) {
+                saveState = true
+            }
+            launchSingleTop = true
+            restoreState = true
+        }
+        onNotificationDestinationConsumed()
+    }
 
     LaunchedEffect(showOnboarding) {
         reviewPromptCoordinator.setExternalPromptBlocking("onboarding", showOnboarding)

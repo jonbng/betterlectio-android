@@ -1,6 +1,8 @@
 import java.io.FileInputStream
 import java.net.URI
 import java.util.Properties
+import com.posthog.android.PostHogCliExecTask
+import com.posthog.android.PostHogUploadProguardMappingsTask
 
 plugins {
     alias(libs.plugins.android.application)
@@ -8,6 +10,17 @@ plugins {
     alias(libs.plugins.kotlin.serialization)
     alias(libs.plugins.ksp)
     alias(libs.plugins.hilt)
+    alias(libs.plugins.posthog)
+}
+
+// Release builds automatically upload their exact R8 mapping through PostHog's
+// official Gradle plugin. POSTHOG_CLI_API_KEY remains an environment/CI secret.
+tasks.withType<PostHogCliExecTask>().configureEach {
+    postHogHost.set("https://eu.posthog.com")
+    postHogProjectId.set("145688")
+}
+tasks.withType<PostHogUploadProguardMappingsTask>().configureEach {
+    skipOnConflict.set(true)
 }
 
 // Release signing (Play upload key). See SIGNING.md.

@@ -12,13 +12,25 @@ import javax.inject.Singleton
  */
 @Singleton
 class SessionEvents @Inject constructor() {
-    private val _sessionExpired = MutableSharedFlow<Unit>(
+    data class SessionRecovery(val trigger: String, val outcome: String, val durationMs: Long)
+    data class SessionExpired(
+        val detectionSource: String,
+        val recovery: SessionRecovery? = null,
+    )
+
+    private val _sessionExpired = MutableSharedFlow<SessionExpired>(
         extraBufferCapacity = 1,
         replay = 0,
     )
-    val sessionExpired: SharedFlow<Unit> = _sessionExpired.asSharedFlow()
+    val sessionExpired: SharedFlow<SessionExpired> = _sessionExpired.asSharedFlow()
+    private val _sessionRecovery = MutableSharedFlow<SessionRecovery>(extraBufferCapacity = 1, replay = 0)
+    val sessionRecovery: SharedFlow<SessionRecovery> = _sessionRecovery.asSharedFlow()
 
-    fun emitSessionExpired() {
-        _sessionExpired.tryEmit(Unit)
+    fun emitSessionExpired(detectionSource: String, recovery: SessionRecovery? = null) {
+        _sessionExpired.tryEmit(SessionExpired(detectionSource, recovery))
+    }
+
+    fun emitSessionRecovery(trigger: String, outcome: String, durationMs: Long) {
+        _sessionRecovery.tryEmit(SessionRecovery(trigger, outcome, durationMs))
     }
 }

@@ -370,8 +370,7 @@ class AuthSessionInstaller @Inject constructor(
             return
         }
         lastSchoolStore.remember(student, LastSchoolReason.LOGGED_OUT)
-        PostHog.capture(event = AppAnalytics.Event.AUTH_LOGGED_OUT)
-        AppAnalytics.flush()
+        AppAnalytics.captureLoggedOut(student)
         AppAnalytics.reset()
         sessionController.clearSession()
         bgScope.launch {
@@ -388,15 +387,7 @@ class AuthSessionInstaller @Inject constructor(
         val student = sessionController.currentStudent ?: return
         if (student.isDemo) return
         lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
-        PostHog.capture(
-            event = AppAnalytics.Event.AUTH_SESSION_LOST,
-            properties = mapOf(
-                "school_id" to student.gymId.toString(),
-                "school_name" to (student.schoolName ?: ""),
-                "detection_source" to detectionSource,
-                "platform" to "android",
-            ),
-        )
+        AppAnalytics.captureSessionLost(student, detectionSource)
         AppAnalytics.reset()
         sessionController.clearSession()
         bgScope.launch {
@@ -441,12 +432,14 @@ class AuthSessionInstaller @Inject constructor(
                     return@launch
                 }
                 is ColdStartResult.Deferred -> {
+                    AppAnalytics.captureSessionRestored(student, "deferred")
                     Timber.w(
                         probe.cause,
                         "Cold-start validation deferred — will recover on next user fetch",
                     )
                 }
                 ColdStartResult.Ok -> {
+                    AppAnalytics.captureSessionRestored(student, "ok")
                     Timber.i("Cold-start validation OK")
                 }
             }

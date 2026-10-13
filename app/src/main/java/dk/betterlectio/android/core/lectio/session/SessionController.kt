@@ -1,6 +1,5 @@
 package dk.betterlectio.android.core.lectio.session
 
-import com.posthog.PostHog
 import dk.betterlectio.android.core.analytics.AppAnalytics
 import dk.betterlectio.android.core.cache.OfflineDataCleaner
 import dk.betterlectio.android.core.lectio.model.LectioCredentials
@@ -50,8 +49,16 @@ class SessionController @Inject constructor(
 
     init {
         sessionEvents.sessionExpired
-            .onEach {
-                handleSessionExpired()
+            .onEach { signal ->
+                signal.recovery?.let {
+                    AppAnalytics.captureSessionRecovery(it.trigger, it.outcome, it.durationMs)
+                }
+                handleSessionExpired(signal.detectionSource)
+            }
+            .launchIn(scope)
+        sessionEvents.sessionRecovery
+            .onEach { signal ->
+                AppAnalytics.captureSessionRecovery(signal.trigger, signal.outcome, signal.durationMs)
             }
             .launchIn(scope)
     }
@@ -59,7 +66,7 @@ class SessionController @Inject constructor(
     /**
      * iOS AuthenticationViewModel.handleSessionExpired — idempotent.
      */
-    private fun handleSessionExpired() {
+    private fun handleSessionExpired(detectionSource: String) {
         val student = currentStudent
         if (student?.isDemo == true) return
         if (_authState.value !is AuthState.Authenticated && student == null) {
@@ -72,15 +79,7 @@ class SessionController @Inject constructor(
         Timber.w("Session expired — full wipe (store + WebView + Supabase)")
         student?.let { lastSchoolStore.remember(it, LastSchoolReason.SESSION_EXPIRED) }
         // Canonical unexpected-session-death signal shared by every platform.
-        PostHog.capture(
-            event = AppAnalytics.Event.AUTH_SESSION_LOST,
-            properties = buildMap {
-                student?.gymId?.let { put("school_id", it.toString()) }
-                student?.schoolName?.takeIf { it.isNotBlank() }?.let { put("school_name", it) }
-                put("detection_source", "http_session_expired")
-                put("platform", "android")
-            },
-        )
+        student?.let { AppAnalytics.captureSessionLost(it, detectionSource) }
         AppAnalytics.reset()
         clearSession(keepStudentProfile = false)
         ioScope.launch {
@@ -92,6 +91,7 @@ class SessionController @Inject constructor(
     fun restore() {
         val student = credentialStore.loadStudent()
         if (student == null) {
+            AppAnalytics.captureMissingAuthenticatedStateOnLaunch()
             _authState.value = AuthState.Unauthenticated
             return
         }
@@ -102,15 +102,7 @@ class SessionController @Inject constructor(
         val creds = credentialStore.loadCredentials(student.studentId)
         if (creds == null || creds.autologinkey.isEmpty()) {
             lastSchoolStore.remember(student, LastSchoolReason.SESSION_EXPIRED)
-            PostHog.capture(
-                event = AppAnalytics.Event.AUTH_SESSION_LOST,
-                properties = mapOf(
-                    "school_id" to student.gymId.toString(),
-                    "school_name" to (student.schoolName ?: ""),
-                    "detection_source" to "missing_credentials_on_restore",
-                    "platform" to "android",
-                ),
-            )
+            AppAnalytics.captureSessionLost(student, "missing_credentials_on_restore")
             AppAnalytics.reset()
             credentialStore.deleteStudent()
             _authState.value = AuthState.Unauthenticated

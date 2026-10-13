@@ -295,7 +295,7 @@ class DefaultLectioClient @Inject constructor(
         val student = sessionController.currentStudent
         if (student == null || student.isDemo) return
         Timber.w("Mid-session missing credentials — emitting sessionExpired (%s)", reason)
-        sessionEvents.emitSessionExpired()
+        sessionEvents.emitSessionExpired("missing_credentials_mid_session")
     }
 
     private fun urlEncode(value: String): String =

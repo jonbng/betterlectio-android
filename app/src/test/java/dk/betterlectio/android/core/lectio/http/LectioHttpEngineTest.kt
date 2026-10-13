@@ -53,33 +53,54 @@ class LectioHttpEngineTest {
     }
 
     @Test
-    fun unilogin_location_throws_session_expired_without_retry() = runBlocking {
-        // Definitive session death: only one response needed (no InvalidCredentials retries).
+    fun unilogin_location_recovers_once_without_short_session_cookie() = runBlocking {
         server.enqueue(
             MockResponse()
                 .setResponseCode(302)
                 .addHeader("Location", "https://broker.unilogin.dk/auth/realms/broker"),
         )
-        // Would be consumed if we incorrectly retried:
-        server.enqueue(MockResponse().setResponseCode(200).setBody("should not be requested"))
+        server.enqueue(MockResponse().setResponseCode(200).setBody("recovered"))
 
         val url = server.url("/page")
+        store.saveCredentials(creds, "s1")
+        val result = engine.execute(
+            LectioRequest(url = url, priority = FetchPriority.Important, studentId = "s1"),
+            creds,
+        )
+        assertTrue(result.response.body.contains("recovered"))
+        assertEquals(2, server.requestCount)
+        server.takeRequest()
+        val recoveryCookie = server.takeRequest().getHeader("Cookie").orEmpty()
+        assertTrue(recoveryCookie.contains("autologinkeyV2=AUTO"))
+        assertTrue(!recoveryCookie.contains("ASP.NET_SessionId"))
+    }
+
+    @Test
+    fun failed_unilogin_recovery_expires_session_after_one_retry() = runBlocking {
+        repeat(2) {
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .addHeader("Location", "https://broker.unilogin.dk/auth/realms/broker"),
+            )
+        }
+        store.saveCredentials(creds, "s1")
         try {
             engine.execute(
-                LectioRequest(url = url, priority = FetchPriority.Important, studentId = "s1"),
+                LectioRequest(url = server.url("/page"), priority = FetchPriority.Important, studentId = "s1"),
                 creds,
             )
             org.junit.Assert.fail("expected LectioError.SessionExpired")
-        } catch (e: LectioError.SessionExpired) {
+        } catch (_: LectioError.SessionExpired) {
             // expected
         }
-        assertEquals(1, server.requestCount)
+        assertEquals(2, server.requestCount)
     }
 
     @Test
     fun max_redirects_with_student_is_session_expired() = runBlocking {
         // iOS: redirect budget exceeded → session death when already authenticated.
-        repeat(8) {
+        repeat(16) {
             server.enqueue(
                 MockResponse()
                     .setResponseCode(302)
@@ -173,5 +194,31 @@ class LectioHttpEngineTest {
         assertTrue(cookie!!.contains("autologinkeyV2=AUTO"))
         assertTrue(cookie.contains("ASP.NET_SessionId=SESS"))
         assertTrue(cookie.contains("isloggedin3=Y"))
+    }
+
+    @Test
+    fun cross_domain_redirect_does_not_forward_lectio_cookies() = runBlocking {
+        val external = MockWebServer()
+        external.start()
+        try {
+            val externalUrl = external.url("/landing").newBuilder()
+                .host("127.0.0.1")
+                .build()
+            server.enqueue(
+                MockResponse()
+                    .setResponseCode(302)
+                    .addHeader("Location", externalUrl.toString()),
+            )
+            external.enqueue(MockResponse().setResponseCode(200).setBody("external"))
+
+            engine.execute(
+                LectioRequest(url = server.url("/redirect"), priority = FetchPriority.Important),
+                creds,
+            )
+
+            assertEquals(null, external.takeRequest().getHeader("Cookie"))
+        } finally {
+            external.shutdown()
+        }
     }
 }
