@@ -89,7 +89,7 @@ private data class AdminSessionCredential(
 private data class AdminSessionRequest(
     val studentId: String,
     val schoolId: Int,
-    val platform: String = "admin-android",
+    val platform: String,
 )
 
 internal data class AdminLoginState(
@@ -193,6 +193,7 @@ internal class AdminLoginViewModel @Inject constructor(
                 AdminSessionRequest(
                     studentId = session.studentId,
                     schoolId = session.schoolId,
+                    platform = "admin-android",
                 ),
             )
             val request = requestBuilder()

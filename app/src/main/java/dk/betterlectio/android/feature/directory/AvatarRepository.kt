@@ -9,6 +9,7 @@ import dk.betterlectio.android.core.result.AppResult
 import dk.betterlectio.android.feature.demo.DemoData
 import dk.betterlectio.android.feature.offline.OfflineDirectoryStore
 import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.CoroutineStart
 import kotlinx.coroutines.Deferred
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.SupervisorJob
@@ -38,6 +39,7 @@ class AvatarRepository @Inject constructor(
     private val session: SessionController,
     private val offline: OfflineDirectoryStore,
     private val rateLimiter: RateLimitedAvatarLoader,
+    private val directorySync: DirectorySyncService,
 ) {
     /** entityId → avatar URL (or [NONE] when fetch found no photo). */
     private val memory = ConcurrentHashMap<String, String>()
@@ -47,6 +49,10 @@ class AvatarRepository @Inject constructor(
 
     /** In-flight network resolutions that outlive composition scopes. */
     private val inflight = ConcurrentHashMap<String, Deferred<String?>>()
+
+    /** Full-directory loads shared by message rows that only provide a sender name. */
+    private val catalogInflight = ConcurrentHashMap<String, Deferred<Boolean>>()
+    private val catalogPrimedForStudent = ConcurrentHashMap.newKeySet<String>()
 
     private val fetchScope = CoroutineScope(SupervisorJob() + Dispatchers.IO)
     private val indexMutex = Mutex()
@@ -104,9 +110,23 @@ class AvatarRepository @Inject constructor(
 
         ensureNameIndex(student.studentId)
 
-        val resolvedEntityId = entityId
+        var resolvedEntityId = entityId
             ?: teacherNumericId?.let { "T$it" }
             ?: name?.let { nameIndex[normalizeName(it)] }
+
+        // Message list/thread HTML usually contains a sender name and kind, but no
+        // data-lectiocontextcard id. Directory rows do contain that id, which is why
+        // their avatars worked while message avatars could remain initials forever.
+        // Prime the same full directory used by the directory screen, rebuild the
+        // name index, then retry the lookup. Concurrent visible rows share one load.
+        if (
+            resolvedEntityId == null &&
+            !name.isNullOrBlank() &&
+            (kind == null || kind == DirectoryEntityKind.STUDENT || kind == DirectoryEntityKind.TEACHER)
+        ) {
+            primeDirectoryIndex(student.studentId)
+            resolvedEntityId = nameIndex[normalizeName(name)]
+        }
 
         val cached = initialCached ?: peekUrl(entityId, name, teacherNumericId, knownUrl)
         if (resolvedEntityId == null) return cached
@@ -222,6 +242,57 @@ class AvatarRepository @Inject constructor(
                     memory[selfId] = url
                     rateLimiter.remember(selfId, url)
                     s.name?.let { indexName(it, selfId) }
+                }
+            }
+            indexBuiltForStudent = studentId
+        }
+    }
+
+    private suspend fun primeDirectoryIndex(studentId: String) {
+        if (catalogPrimedForStudent.contains(studentId)) return
+
+        val existing = catalogInflight[studentId]
+        if (existing != null) {
+            existing.await()
+            return
+        }
+
+        val deferred = fetchScope.async(start = CoroutineStart.LAZY) {
+            try {
+                val synced = directorySync.syncFullCatalog()
+                if (synced is AppResult.Success) {
+                    rebuildNameIndex(studentId)
+                    catalogPrimedForStudent.add(studentId)
+                    true
+                } else {
+                    false
+                }
+            } finally {
+                catalogInflight.remove(studentId)
+            }
+        }
+        val winner = catalogInflight.putIfAbsent(studentId, deferred)
+        if (winner != null) {
+            deferred.cancel()
+            winner.await()
+        } else {
+            deferred.start()
+            deferred.await()
+        }
+    }
+
+    private suspend fun rebuildNameIndex(studentId: String) {
+        indexMutex.withLock {
+            nameIndex.clear()
+            val rows = offline.loadAll(studentId)
+            for (entity in rows) {
+                if (entity.kind != DirectoryEntityKind.STUDENT && entity.kind != DirectoryEntityKind.TEACHER) {
+                    continue
+                }
+                indexName(entity.name, entity.id)
+                entity.avatarUrl?.takeIf { it.isNotBlank() }?.let { url ->
+                    memory[entity.id] = url
+                    rateLimiter.remember(entity.id, url)
                 }
             }
             indexBuiltForStudent = studentId
