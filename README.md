@@ -1,6 +1,10 @@
 # BetterLectio (Native Android)
 
-Native Kotlin + Jetpack Compose app for BetterLectio.
+BetterLectio for Android is the native mobile version of BetterLectio, built with Kotlin and Jetpack Compose. It turns Lectio schedules, homework, assignments, messages, class information, and absence into a mobile experience designed for quick daily use.
+
+![BetterLectio for Android](play-store/output/panorama.png)
+
+The app talks directly to Lectio for core school data. Optional Supabase services add cross-device sync and BetterLectio account features without moving Lectio cookies off the device.
 
 See [NATIVE_ANDROID_PLAN.md](./NATIVE_ANDROID_PLAN.md) for the full product/architecture plan.
 
@@ -28,7 +32,7 @@ cd android
 
 ### What never goes on GitHub
 
-Signing keys, `key.properties`, `local.properties`, and build outputs are gitignored — see `.gitignore` and [SIGNING.md](./SIGNING.md).
+Signing keys, `key.properties`, `local.properties`, and build outputs are gitignored: see `.gitignore` and [SIGNING.md](./SIGNING.md).
 
 ## Package
 
@@ -68,7 +72,7 @@ app/src/main/java/dk/betterlectio/android/
 - DataStore, Security Crypto
 - Coil 3
 - Timber
-- **Supabase Kotlin** (postgrest / auth / functions) — optional enhancement layer, iOS parity
+- **Supabase Kotlin** (postgrest / auth / functions): optional enhancement layer, iOS parity
 
 ## Supabase (optional)
 
@@ -117,7 +121,7 @@ class ScheduleRepository @Inject constructor(
 ) {
     suspend fun week(year: Int, week: Int): AppResult<...> {
         val html = client.get("SkemaNy.aspx?...")
-        // parse with Jsoup — do not reimplement cookies/redirects
+        // parse with Jsoup: do not reimplement cookies/redirects
     }
 }
 ```
