@@ -34,13 +34,13 @@ object AbsencePresentation {
     fun warningMessage(regularPct: Double, writtenPct: Double): String? {
         return when {
             writtenPct >= 15 ->
-                "Dit skriftlige fravær er meget højt (${formatPct(writtenPct)}%). " +
-                    "Du risikerer at blive indkaldt til samtale."
+                "Lectio viser ${formatPct(writtenPct)}% skriftligt fravær. " +
+                    "Skolens regler og opgørelsesmetode kan variere."
             regularPct >= 10 ->
-                "Dit samlede fravær er højt (${formatPct(regularPct)}%). " +
-                    "Hold øje med at det ikke stiger."
+                "Lectio viser ${formatPct(regularPct)}% almindeligt fravær. " +
+                    "Skolens regler og opgørelsesmetode kan variere."
             writtenPct >= 10 ->
-                "Dit skriftlige fravær er forhøjet (${formatPct(writtenPct)}%)."
+                "Lectio viser ${formatPct(writtenPct)}% skriftligt fravær."
             else -> null
         }
     }

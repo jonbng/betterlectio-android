@@ -94,6 +94,7 @@
     <string name="absence_edit_pick_cause">Choose reason</string>
     <string name="absence_stat_year">For the year</string>
     <string name="absence_stat_current">To date</string>
+    <string name="absence_period">Period</string>
     <string name="absence_chart_modules">Module absence</string>
     <string name="more_catalog">Catalog</string>
     <string name="catalog_students">Students</string>
@@ -456,6 +457,7 @@
     <string name="plan_subject_fallback">the subject</string>
 
     <string name="absence_current_final">Current %1$s%% · Final %2$s%%</string>
+    <string name="absence_period_assessed">Period %1$s%% · Assessed %2$s%%</string>
     <string name="absence_assignments_pct">Assignments %1$s%%</string>
     <string name="module_stats_line">Total %1$s · Norm %2$s · Deviation %3$s</string>
     <string name="module_stats_teaching_line">Teaching: %1$s held · %2$s planned</string>

@@ -93,6 +93,7 @@
     <string name="absence_edit_pick_cause">Vælg årsag</string>
     <string name="absence_stat_year">For året</string>
     <string name="absence_stat_current">Opgjort</string>
+    <string name="absence_period">Periode</string>
     <string name="absence_chart_modules">Modulers fravær</string>
     <string name="more_catalog">Katalog</string>
     <string name="catalog_students">Elever</string>
@@ -454,6 +455,7 @@
     <string name="plan_subject_fallback">faget</string>
 
     <string name="absence_current_final">Aktuelt %1$s%% · Slut %2$s%%</string>
+    <string name="absence_period_assessed">Periode %1$s%% · Opgjort %2$s%%</string>
     <string name="absence_assignments_pct">Opgaver %1$s%%</string>
     <string name="module_stats_line">Total %1$s · Norm %2$s · Afvigelse %3$s</string>
     <string name="module_stats_teaching_line">Undervisning: %1$s afholdt · %2$s planlagt</string>

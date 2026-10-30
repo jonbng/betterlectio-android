@@ -14,9 +14,13 @@ object AbsenceSummary {
 
     fun dual(overview: AbsenceOverview): Dual {
         val regular = overview.attendanceAbsencePercent?.let { pctToFraction(it) }
-            ?: averageOrZero(overview.teams.map { it.regularCurrentPercent })
+            ?: weightedOrZero(
+                overview.teams.map { it.regularFinalModules },
+            )
         val written = overview.writtenAbsencePercent?.let { pctToFraction(it) }
-            ?: averageOrZero(overview.teams.map { it.assignmentCurrentPercent })
+            ?: weightedOrZero(
+                overview.teams.map { it.assignmentFinalTime },
+            )
         return Dual(
             regularFraction = regular.coerceIn(0.0, 1.0),
             writtenFraction = written.coerceIn(0.0, 1.0),
@@ -30,8 +34,9 @@ object AbsenceSummary {
     fun pctToFraction(value: Double): Double =
         if (value > 1.0) value / 100.0 else value
 
-    private fun averageOrZero(values: List<Double>): Double {
-        if (values.isEmpty()) return 0.0
-        return values.sum() / values.size
+    private fun weightedOrZero(values: List<AbsenceFraction>): Double {
+        val total = values.sumOf { it.total }
+        if (total <= 0.0) return 0.0
+        return values.sumOf { it.current } / total
     }
 }

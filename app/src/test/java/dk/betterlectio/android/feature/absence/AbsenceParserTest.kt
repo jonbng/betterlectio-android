@@ -131,6 +131,65 @@ note her</td>
     }
 
     @Test
+    fun parses_expanded_overview_by_metric_semantics() {
+        val html = """
+            <div id="x_FravaerSamlet_Samletfravaer_pa">
+              <span class="title-large">11,5%</span><span class="title-large">0,0%</span>
+            </div>
+            <table id="x_SFTabStudentAbsenceDataTable">
+              <tr><th rowspan="3">Hold</th><th colspan="4">Almindeligt fravær</th><th colspan="4">Skriftligt fravær</th></tr>
+              <tr><th colspan="2">Periode</th><th colspan="2">Opgjort</th><th colspan="2">Periode</th><th colspan="2">Opgjort</th></tr>
+              <tr><th>Moduler</th><th>Procent</th><th>Moduler</th><th>Procent</th><th>Elevtid</th><th>Procent</th><th>Elevtid</th><th>Procent</th></tr>
+              <tr>
+                <td><a href="?holdelementid=123">Ma A</a></td>
+                <td><span title="Opgjort: 8,3% 1/12 Periode: 25,0% 1/4 For året: 1,7% 1/60">1/4</span></td>
+                <td>25,0%</td><td>1/12</td><td>8,3%</td>
+                <td><span title="Opgjort: 0,0% 0/9 Periode: 0,0% 0/3 For året: 0,0% 0/25">0/3</span></td>
+                <td>0,0%</td><td>0/9</td><td>0,0%</td>
+              </tr>
+              <tr>
+                <td><b>Samlet</b></td>
+                <td><span title="Opgjort: 11,5% 16,5/144 Periode: 14,0% 7/50 For året: 3,2% 16,5/521">7/50</span></td>
+                <td>14,0%</td><td>16,5/144</td><td>11,5%</td>
+                <td><span title="Opgjort: 0,0% 0/51 Periode: 0,0% 0/29 For året: 0,0% 0/223,5">0/29</span></td>
+                <td>0,0%</td><td>0/51</td><td>0,0%</td>
+              </tr>
+            </table>
+        """.trimIndent()
+
+        val team = AbsenceParser.parseOverview(html).single()
+        val totals = AbsenceParser.parseTotals(html)
+        assertEquals(0.25, team.regularCurrentPercent, 0.001)
+        assertEquals(0.083, team.regularFinalPercent, 0.001)
+        assertEquals(0.017, team.regularYearPercent!!, 0.001)
+        assertEquals(0.14, totals.regular.periodPercent!!, 0.001)
+        assertEquals(0.115, totals.regular.assessedPercent!!, 0.001)
+        assertEquals(0.032, totals.regular.yearPercent!!, 0.001)
+        assertEquals(0.0, totals.written.assessedPercent!!, 0.001)
+    }
+
+    @Test
+    fun merges_missing_reason_subset_without_duplicate_registrations() {
+        val row = """
+          <td>43</td><td><a class="s2skemabrik" data-tooltip="Hold: 2v En" data-brikid="ABS1">modul</a></td>
+          <td>Fravær 100%</td><td>22/10-2026 PC</td><td></td><td>(Mangler årsag)</td>
+          <td><a href="fravaer_aarsag.aspx?id=99">ret</a></td>
+        """.trimIndent()
+        val html = """
+          <table id="s_m_Content_Content_FatabAbsenceFravaerGV"><tr>$row</tr></table>
+          <table id="s_m_Content_Content_FatabMissingAarsagerGV"><tr>
+            <td>43</td><td><a class="s2skemabrik" data-tooltip="Hold: 2v En">modul</a></td>
+            <td>Fravær 100%</td><td></td><td><a href="fravaer_aarsag.aspx?id=99">ret</a></td>
+          </tr></table>
+        """.trimIndent()
+
+        val registrations = AbsenceParser.parseRegistrations(html)
+        assertEquals(1, registrations.size)
+        assertTrue(registrations.single().missingCause)
+        assertEquals("", registrations.single().cause)
+    }
+
+    @Test
     fun parses_lectio_24_031_merged_registration_cell() {
         val html = """
             <table id="s_m_Content_Content_FatabAbsenceFravaerGV">

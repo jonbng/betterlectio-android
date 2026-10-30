@@ -24,11 +24,19 @@ class AbsenceSummaryTest {
     }
 
     @Test
-    fun averagesTeamsWhenOverviewMissing() {
+    fun weightsAssessedModuleFractionsWhenOverviewMissing() {
         val overview = AbsenceOverview(
             teams = listOf(
-                AbsenceTeamRow("Ma", null, 0.10, 0.10, 0.20, 0.20),
-                AbsenceTeamRow("Da", null, 0.00, 0.00, 0.10, 0.10),
+                AbsenceTeamRow(
+                    "Ma", null, 0.10, 0.10, 0.20, 0.20,
+                    regularFinalModules = AbsenceFraction(1.0, 10.0),
+                    assignmentFinalTime = AbsenceFraction(2.0, 10.0),
+                ),
+                AbsenceTeamRow(
+                    "Da", null, 0.00, 0.00, 0.10, 0.10,
+                    regularFinalModules = AbsenceFraction(0.0, 10.0),
+                    assignmentFinalTime = AbsenceFraction(1.0, 10.0),
+                ),
             ),
         )
         val dual = AbsenceSummary.dual(overview)

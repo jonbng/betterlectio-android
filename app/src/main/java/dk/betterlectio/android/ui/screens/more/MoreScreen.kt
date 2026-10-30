@@ -2585,35 +2585,21 @@ private fun AbsenceOverviewTab(
     val teams = overview?.teams.orEmpty()
     val regs = overview?.registrations.orEmpty()
 
-    // Flutter-style module totals from team rows
-    val opgjortModules = teams.sumOf { it.regularCurrentModules.current }
-    val yearModules = teams.sumOf { it.regularFinalModules.current }
-    val yearTotal = teams.sumOf { it.regularFinalModules.total }.coerceAtLeast(0.0001)
-    val opgjortTotal = teams.sumOf { it.regularCurrentModules.total }.coerceAtLeast(0.0001)
-    val yearPct = if (teams.any { it.regularFinalModules.total > 0 }) {
-        yearModules / yearTotal
-    } else {
-        dual?.regularFraction ?: 0.0
-    }
-    val opgjortPct = if (teams.any { it.regularCurrentModules.total > 0 }) {
-        opgjortModules / opgjortTotal
-    } else {
-        dual?.regularFraction ?: 0.0
-    }
-    val writtenYearTotal = teams.sumOf { it.assignmentFinalTime.total }.coerceAtLeast(0.0001)
-    val writtenOpgjortTotal = teams.sumOf { it.assignmentCurrentTime.total }.coerceAtLeast(0.0001)
-    val writtenYearAbs = teams.sumOf { it.assignmentFinalTime.current }
-    val writtenOpgjortAbs = teams.sumOf { it.assignmentCurrentTime.current }
-    val writtenYearPct = if (teams.any { it.assignmentFinalTime.total > 0 }) {
-        writtenYearAbs / writtenYearTotal
-    } else {
-        dual?.writtenFraction ?: 0.0
-    }
-    val writtenOpgjortPct = if (teams.any { it.assignmentCurrentTime.total > 0 }) {
-        writtenOpgjortAbs / writtenOpgjortTotal
-    } else {
-        dual?.writtenFraction ?: 0.0
-    }
+    // Use Lectio's own total row. Re-aggregating subject percentages can diverge
+    // because the metrics have different denominators and may include Ej hold.
+    val totals = overview?.totals
+    val regularAssessed = totals?.regular?.assessedPercent ?: dual?.regularFraction
+    val regularPeriod = totals?.regular?.periodPercent
+    val regularYear = totals?.regular?.yearPercent
+    val writtenAssessed = totals?.written?.assessedPercent ?: dual?.writtenFraction
+    val writtenPeriod = totals?.written?.periodPercent
+    val writtenYear = totals?.written?.yearPercent
+    val assessedModules = totals?.regular?.assessedAmount?.current
+    val writtenAssessedAmount = totals?.written?.assessedAmount?.current
+
+    fun percentLabel(value: Double?): String = value?.let { "%.1f%%".format(it * 100) } ?: "—"
+    fun amountLabel(value: Double?, suffix: String): String =
+        value?.let { "%.1f".format(it).trimEnd('0').trimEnd('.') + suffix } ?: "—"
 
     LazyColumn(modifier = modifier) {
         item {
@@ -2626,7 +2612,7 @@ private fun AbsenceOverviewTab(
             ) {
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     AbsenceRing(
-                        fraction = dual?.regularFraction ?: opgjortPct,
+                        fraction = dual?.regularFraction ?: regularAssessed ?: 0.0,
                         size = 80.dp,
                         useSummaryBands = true,
                         oneDecimal = true,
@@ -2640,7 +2626,7 @@ private fun AbsenceOverviewTab(
                 }
                 Column(horizontalAlignment = Alignment.CenterHorizontally) {
                     AbsenceRing(
-                        fraction = dual?.writtenFraction ?: writtenOpgjortPct,
+                        fraction = dual?.writtenFraction ?: writtenAssessed ?: 0.0,
                         size = 80.dp,
                         useSummaryBands = true,
                         oneDecimal = true,
@@ -2696,11 +2682,13 @@ private fun AbsenceOverviewTab(
                     header = stringResource(R.string.absence_regular),
                     rows = listOf(
                         stringResource(R.string.absence_stat_year) to
-                            "%.1f%%".format(yearPct * 100),
+                            percentLabel(regularYear),
+                        stringResource(R.string.absence_period) to
+                            percentLabel(regularPeriod),
                         stringResource(R.string.absence_stat_current) to
-                            "%.1f%%".format(opgjortPct * 100),
+                            percentLabel(regularAssessed),
                         stringResource(R.string.absence_modules) to
-                            stringResource(R.string.absence_modules_count, opgjortModules.roundToInt()),
+                            amountLabel(assessedModules, " moduler"),
                     ),
                     modifier = Modifier.weight(1f),
                 )
@@ -2708,11 +2696,13 @@ private fun AbsenceOverviewTab(
                     header = stringResource(R.string.absence_written),
                     rows = listOf(
                         stringResource(R.string.absence_stat_year) to
-                            "%.1f%%".format(writtenYearPct * 100),
+                            percentLabel(writtenYear),
+                        stringResource(R.string.absence_period) to
+                            percentLabel(writtenPeriod),
                         stringResource(R.string.absence_stat_current) to
-                            "%.1f%%".format(writtenOpgjortPct * 100),
+                            percentLabel(writtenAssessed),
                         stringResource(R.string.absence_modules) to
-                            "${writtenOpgjortAbs.roundToInt()} t",
+                            amountLabel(writtenAssessedAmount, " t"),
                     ),
                     modifier = Modifier.weight(1f),
                 )
@@ -2725,7 +2715,7 @@ private fun AbsenceOverviewTab(
                 AppListRow(
                     leading = {
                         AbsenceRing(
-                            fraction = row.regularCurrentPercent,
+                            fraction = row.regularFinalPercent,
                             size = 44.dp,
                             useSummaryBands = true,
                             oneDecimal = false,
@@ -2735,16 +2725,16 @@ private fun AbsenceOverviewTab(
                     AppListPrimary(row.team, emphasized = true)
                     AppListSecondary(
                         stringResource(
-                            R.string.absence_current_final,
+                            R.string.absence_period_assessed,
                             "%.1f".format(row.regularCurrentPercent * 100),
                             "%.1f".format(row.regularFinalPercent * 100),
                         ),
                     )
-                    if (row.assignmentCurrentPercent > 0) {
+                    if (row.assignmentFinalPercent > 0) {
                         AppListMeta(
                             stringResource(
                                 R.string.absence_assignments_pct,
-                                "%.1f".format(row.assignmentCurrentPercent * 100),
+                                "%.1f".format(row.assignmentFinalPercent * 100),
                             ),
                         )
                     }

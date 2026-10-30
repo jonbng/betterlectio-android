@@ -22,7 +22,7 @@ object AbsenceChartSeries {
             .map { row ->
                 AbsenceChartBar(
                     label = row.team,
-                    fraction = row.regularCurrentPercent.coerceIn(0.0, 1.0),
+                    fraction = row.regularFinalPercent.coerceIn(0.0, 1.0),
                 )
             }
             .sortedByDescending { it.fraction }

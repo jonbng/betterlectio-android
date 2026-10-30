@@ -23,13 +23,14 @@ class AbsenceRepository @Inject constructor(
         val key = "absence_${student.studentId}"
         if (!forceRefresh) {
             cache.get(key)?.let {
-                val (att, written) = AbsenceParser.parseSummaryPercents(it)
+                val totals = AbsenceParser.parseTotals(it)
                 return AppResult.Success(
                     AbsenceOverview(
                         teams = AbsenceParser.parseOverview(it),
                         registrations = emptyList(),
-                        attendanceAbsencePercent = att,
-                        writtenAbsencePercent = written,
+                        attendanceAbsencePercent = totals.regular.assessedPercent,
+                        writtenAbsencePercent = totals.written.assessedPercent,
+                        totals = totals,
                     ),
                 )
             }
@@ -48,14 +49,15 @@ class AbsenceRepository @Inject constructor(
                 is AppResult.Success -> {
                     cache.put(key, res.data.body)
                     val teams = AbsenceParser.parseOverview(res.data.body)
-                    val (att, written) = AbsenceParser.parseSummaryPercents(res.data.body)
+                    val totals = AbsenceParser.parseTotals(res.data.body)
                     val regs = loadRegistrations()
                     return AppResult.Success(
                         AbsenceOverview(
                             teams = teams,
                             registrations = (regs as? AppResult.Success)?.data.orEmpty(),
-                            attendanceAbsencePercent = att,
-                            writtenAbsencePercent = written,
+                            attendanceAbsencePercent = totals.regular.assessedPercent,
+                            writtenAbsencePercent = totals.written.assessedPercent,
+                            totals = totals,
                         ),
                     )
                 }

@@ -20,42 +20,87 @@ object AbsenceParser {
             ?: doc.selectFirst("table[id$=SFTabStudentAbsenceDataTable]")
             ?: doc.selectFirst("table[id*=Absence]")
             ?: return emptyList()
+        val headerText = table.select("th").text()
+        val modern = headerText.contains("Periode", true) && headerText.contains("Opgjort", true)
+        val topHeaders = table.selectFirst("tr")?.select("th").orEmpty()
+        val regularColumns = topHeaders.getOrNull(1)?.attr("colspan")?.toIntOrNull() ?: 0
+        val writtenColumns = topHeaders.getOrNull(2)?.attr("colspan")?.toIntOrNull() ?: 0
         return table.select("tr").mapNotNull { row ->
             if (row.select("th").isNotEmpty()) return@mapNotNull null
             val first = row.selectFirst("td")?.text()?.trim().orEmpty()
             if (first.equals("Samlet", ignoreCase = true) || first.equals("Ej hold", ignoreCase = true)) {
                 return@mapNotNull null
             }
-            parseTeamRow(row)
+            parseTeamRow(row, modern, regularColumns, writtenColumns)
         }
     }
 
     fun parseSummaryPercents(html: String): Pair<Double?, Double?> {
+        val totals = parseTotals(html)
+        return totals.regular.assessedPercent to totals.written.assessedPercent
+    }
+
+    fun parseTotals(html: String): AbsenceTotals {
         val doc = Jsoup.parse(html)
-        fun pct(id: String): Double? {
-            val t = doc.getElementById(id)?.text()
-                ?.replace("%", "")
-                ?.replace(",", ".")
-                ?.trim()
-                .orEmpty()
-            return t.toDoubleOrNull()?.div(100.0)
-        }
-        val legacy = pct("s_m_Content_Content_FremmoedeFravaer") to
-            pct("s_m_Content_Content_SkriftligFravaer")
-        if (legacy.first != null || legacy.second != null) return legacy
+        val legacyRegular = percent(doc.getElementById("s_m_Content_Content_FremmoedeFravaer")?.text())
+        val legacyWritten = percent(doc.getElementById("s_m_Content_Content_SkriftligFravaer")?.text())
 
         val table = doc.selectFirst("table[id$=SFTabStudentAbsenceDataTable]")
             ?: doc.selectFirst("table[id*=Absence]")
-        val totalPercents = table?.select("tr")
-            ?.firstOrNull { it.selectFirst("td")?.text()?.trim()?.equals("Samlet", true) == true }
-            ?.select("td")
-            ?.drop(1)
-            ?.mapNotNull { percent(it.text()) }
-            .orEmpty()
-        return totalPercents.getOrNull(0) to totalPercents.getOrNull(1)
+        var totals = AbsenceTotals(
+            regular = AbsenceMetricTotals(assessedPercent = legacyRegular),
+            written = AbsenceMetricTotals(assessedPercent = legacyWritten),
+        )
+        if (table != null) {
+            val headerText = table.select("th").text()
+            val modern = headerText.contains("Periode", true) && headerText.contains("Opgjort", true)
+            val topHeaders = table.selectFirst("tr")?.select("th").orEmpty()
+            val regularColumns = topHeaders.getOrNull(1)?.attr("colspan")?.toIntOrNull() ?: 0
+            val writtenColumns = topHeaders.getOrNull(2)?.attr("colspan")?.toIntOrNull() ?: 0
+            val totalRow = table.select("tr").firstOrNull {
+                it.selectFirst("td")?.text()?.trim()?.equals("Samlet", true) == true
+            }
+            val row = totalRow?.let { parseTeamRow(it, modern, regularColumns, writtenColumns) }
+            if (row != null) {
+                totals = AbsenceTotals(
+                    regular = AbsenceMetricTotals(
+                        periodPercent = row.regularCurrentPercent,
+                        periodAmount = row.regularCurrentModules,
+                        assessedPercent = row.regularFinalPercent,
+                        assessedAmount = row.regularFinalModules,
+                        yearPercent = row.regularYearPercent,
+                        yearAmount = row.regularYearModules,
+                    ),
+                    written = AbsenceMetricTotals(
+                        periodPercent = row.assignmentCurrentPercent,
+                        periodAmount = row.assignmentCurrentTime,
+                        assessedPercent = row.assignmentFinalPercent,
+                        assessedAmount = row.assignmentFinalTime,
+                        yearPercent = row.assignmentYearPercent,
+                        yearAmount = row.assignmentYearTime,
+                    ),
+                )
+            }
+        }
+
+        // The visible summary island is Lectio's authoritative Opgjort total.
+        val summaryValues = doc.select("[id$=FravaerSamlet_Samletfravaer_pa] .title-large")
+            .mapNotNull { percent(it.text()) }
+        if (summaryValues.size >= 2) {
+            totals = totals.copy(
+                regular = totals.regular.copy(assessedPercent = summaryValues[0]),
+                written = totals.written.copy(assessedPercent = summaryValues[1]),
+            )
+        }
+        return totals
     }
 
-    private fun parseTeamRow(row: Element): AbsenceTeamRow? {
+    private fun parseTeamRow(
+        row: Element,
+        modern: Boolean,
+        regularColumnCount: Int,
+        writtenColumnCount: Int,
+    ): AbsenceTeamRow? {
         val cells = row.select("td")
         if (cells.size < 5) return null
         val teamCell = cells[0]
@@ -80,8 +125,15 @@ object AbsenceParser {
 
         fun fraction(i: Int): AbsenceFraction = fraction(cells.getOrNull(i)?.text())
 
-        fun tooltipMetric(i: Int, label: String): Pair<Double?, AbsenceFraction?> {
-            val title = cells.getOrNull(i)?.selectFirst("[title]")?.attr("title").orEmpty()
+        fun tooltipMetric(groupCells: List<Element>, label: String): Pair<Double?, AbsenceFraction?> {
+            val title = groupCells.firstNotNullOfOrNull { cell ->
+                val own = cell.attr("title")
+                val nested = cell.selectFirst("[title]")?.attr("title").orEmpty()
+                (own.ifBlank { nested }).takeIf {
+                    it.contains("Opgjort:", true) || it.contains("Periode:", true) ||
+                        it.contains("For året:", true)
+                }
+            }.orEmpty()
             val match = Regex(
                 """${Regex.escape(label)}:\s*(\d+(?:[,.]\d+)?)%\s+(\d+(?:[,.]\d+)?/\d+(?:[,.]\d+)?)""",
                 RegexOption.IGNORE_CASE,
@@ -91,13 +143,6 @@ object AbsenceParser {
 
         val values = cells.drop(1).map { it.text().trim() }
         val hasFractions = values.any { it.contains('/') }
-        val percentIndexes = values.mapIndexedNotNull { index, value ->
-            index.takeIf { value.contains('%') }
-        }
-        val fractionIndexes = values.mapIndexedNotNull { index, value ->
-            index.takeIf { value.contains('/') }
-        }
-
         // 24.031: regular fraction, regular %, written fraction, written %.
         // Older layouts contain four percentages, or eight alternating values.
         val regularCurrentPercent: Double
@@ -108,24 +153,47 @@ object AbsenceParser {
         val regularFinalModules: AbsenceFraction
         val assignmentCurrentTime: AbsenceFraction
         val assignmentFinalTime: AbsenceFraction
-        if (hasFractions && values.size <= 4) {
-            val regularFractionIndex = fractionIndexes.getOrNull(0)?.plus(1)
-            val assignmentFractionIndex = fractionIndexes.getOrNull(1)?.plus(1)
-            val regularAssessed = percentIndexes.getOrNull(0)?.let { pct(it + 1) } ?: 0.0
-            val assignmentAssessed = percentIndexes.getOrNull(1)?.let { pct(it + 1) } ?: 0.0
-            val regularPeriod = regularFractionIndex?.let { tooltipMetric(it, "Periode") }
-            val regularOpgjort = regularFractionIndex?.let { tooltipMetric(it, "Opgjort") }
-            val assignmentPeriod = assignmentFractionIndex?.let { tooltipMetric(it, "Periode") }
-            val assignmentOpgjort = assignmentFractionIndex?.let { tooltipMetric(it, "Opgjort") }
+        var regularYearPercent: Double? = null
+        var regularYearModules: AbsenceFraction? = null
+        var assignmentYearPercent: Double? = null
+        var assignmentYearTime: AbsenceFraction? = null
+        if (modern && hasFractions) {
+            val dataCells = cells.drop(1)
+            val regularCount = regularColumnCount.takeIf { it > 0 } ?: dataCells.size / 2
+            val writtenCount = writtenColumnCount.takeIf { it > 0 } ?: dataCells.size - regularCount
+            val regularCells = dataCells.take(regularCount)
+            val assignmentCells = dataCells.drop(regularCount).take(writtenCount)
+            val regularTexts = regularCells.map { it.text().trim() }
+            val assignmentTexts = assignmentCells.map { it.text().trim() }
 
-            regularCurrentPercent = regularPeriod?.first ?: regularAssessed
-            regularFinalPercent = regularAssessed
-            assignmentCurrentPercent = assignmentPeriod?.first ?: assignmentAssessed
-            assignmentFinalPercent = assignmentAssessed
-            regularCurrentModules = regularFractionIndex?.let { fraction(it) } ?: AbsenceFraction()
-            regularFinalModules = regularOpgjort?.second ?: regularCurrentModules
-            assignmentCurrentTime = assignmentFractionIndex?.let { fraction(it) } ?: AbsenceFraction()
-            assignmentFinalTime = assignmentOpgjort?.second ?: assignmentCurrentTime
+            val regularPeriod = tooltipMetric(regularCells, "Periode")
+            val regularOpgjort = tooltipMetric(regularCells, "Opgjort")
+            val regularYear = tooltipMetric(regularCells, "For året")
+            val assignmentPeriod = tooltipMetric(assignmentCells, "Periode")
+            val assignmentOpgjort = tooltipMetric(assignmentCells, "Opgjort")
+            val assignmentYear = tooltipMetric(assignmentCells, "For året")
+
+            fun firstPercent(texts: List<String>) = texts.firstNotNullOfOrNull { percent(it) }
+            fun lastPercent(texts: List<String>) = texts.asReversed().firstNotNullOfOrNull { percent(it) }
+            fun firstFraction(texts: List<String>) = texts.firstNotNullOfOrNull {
+                fraction(it).takeIf { parsed -> parsed.total > 0.0 || it.trim().matches(Regex("""0(?:[,.]0+)?\s*/\s*\d+(?:[,.]\d+)?""")) }
+            }
+            fun lastFraction(texts: List<String>) = texts.asReversed().firstNotNullOfOrNull {
+                fraction(it).takeIf { parsed -> parsed.total > 0.0 || it.trim().matches(Regex("""0(?:[,.]0+)?\s*/\s*\d+(?:[,.]\d+)?""")) }
+            }
+
+            regularCurrentPercent = regularPeriod.first ?: firstPercent(regularTexts) ?: 0.0
+            regularFinalPercent = regularOpgjort.first ?: lastPercent(regularTexts) ?: 0.0
+            assignmentCurrentPercent = assignmentPeriod.first ?: firstPercent(assignmentTexts) ?: 0.0
+            assignmentFinalPercent = assignmentOpgjort.first ?: lastPercent(assignmentTexts) ?: 0.0
+            regularCurrentModules = regularPeriod.second ?: firstFraction(regularTexts) ?: AbsenceFraction()
+            regularFinalModules = regularOpgjort.second ?: lastFraction(regularTexts) ?: regularCurrentModules
+            assignmentCurrentTime = assignmentPeriod.second ?: firstFraction(assignmentTexts) ?: AbsenceFraction()
+            assignmentFinalTime = assignmentOpgjort.second ?: lastFraction(assignmentTexts) ?: assignmentCurrentTime
+            regularYearPercent = regularYear.first
+            regularYearModules = regularYear.second
+            assignmentYearPercent = assignmentYear.first
+            assignmentYearTime = assignmentYear.second
         } else {
             regularCurrentPercent = pct(1)
             regularCurrentModules = fraction(2)
@@ -160,21 +228,33 @@ object AbsenceParser {
             assignmentCurrentTime = assignmentCurrentTime,
             assignmentFinalPercent = assignmentFinalPercent,
             assignmentFinalTime = assignmentFinalTime,
+            regularYearPercent = regularYearPercent,
+            regularYearModules = regularYearModules,
+            assignmentYearPercent = assignmentYearPercent,
+            assignmentYearTime = assignmentYearTime,
         )
     }
 
     fun parseRegistrations(html: String): List<AbsenceRegistration> {
         val doc = Jsoup.parse(html)
-        val out = mutableListOf<AbsenceRegistration>()
-
         val registered = doc.getElementById("s_m_Content_Content_FatabAbsenceFravaerGV")
-        if (registered != null) {
-            out += parseCauseTable(registered, missingCause = false)
-        }
+            ?.let { parseCauseTable(it, missingCause = false) }
+            .orEmpty()
         val missing = doc.getElementById("s_m_Content_Content_FatabMissingAarsagerGV")
-        if (missing != null) {
-            out += parseCauseTable(missing, missingCause = true)
-        }
+            ?.let { parseCauseTable(it, missingCause = true) }
+            .orEmpty()
+
+        // Missing-reason rows are a subset of the full registration table. Merge
+        // their state by stable registration id instead of counting them twice.
+        val missingById = missing.associateBy { it.id }
+        val registeredIds = registered.mapTo(mutableSetOf()) { it.id }
+        val out = registered.map { entry ->
+            if (missingById.containsKey(entry.id)) {
+                entry.copy(cause = "", note = "", missingCause = true)
+            } else {
+                entry
+            }
+        } + missing.filterNot { it.id in registeredIds }
 
         // Fallback for simplified fixtures / alternate layouts
         if (out.isEmpty()) {

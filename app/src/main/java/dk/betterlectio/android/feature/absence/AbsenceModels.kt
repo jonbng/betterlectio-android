@@ -12,14 +12,36 @@ data class AbsenceTeamRow(
     val team: String,
     /** Flutter: `HE` + holdelementid */
     val teamId: String? = null,
+    /** Lectio "Periode" percentage for the selected date range. */
     val regularCurrentPercent: Double,
+    /** Lectio "Opgjort" percentage. */
     val regularFinalPercent: Double,
+    /** Lectio "Periode" percentage for written work. */
     val assignmentCurrentPercent: Double,
+    /** Lectio "Opgjort" percentage for written work. */
     val assignmentFinalPercent: Double,
     val regularCurrentModules: AbsenceFraction = AbsenceFraction(),
     val regularFinalModules: AbsenceFraction = AbsenceFraction(),
     val assignmentCurrentTime: AbsenceFraction = AbsenceFraction(),
     val assignmentFinalTime: AbsenceFraction = AbsenceFraction(),
+    val regularYearPercent: Double? = null,
+    val regularYearModules: AbsenceFraction? = null,
+    val assignmentYearPercent: Double? = null,
+    val assignmentYearTime: AbsenceFraction? = null,
+)
+
+data class AbsenceMetricTotals(
+    val periodPercent: Double? = null,
+    val periodAmount: AbsenceFraction? = null,
+    val assessedPercent: Double? = null,
+    val assessedAmount: AbsenceFraction? = null,
+    val yearPercent: Double? = null,
+    val yearAmount: AbsenceFraction? = null,
+)
+
+data class AbsenceTotals(
+    val regular: AbsenceMetricTotals = AbsenceMetricTotals(),
+    val written: AbsenceMetricTotals = AbsenceMetricTotals(),
 )
 
 /**
@@ -64,6 +86,7 @@ data class AbsenceOverview(
     val registrations: List<AbsenceRegistration> = emptyList(),
     val attendanceAbsencePercent: Double? = null,
     val writtenAbsencePercent: Double? = null,
+    val totals: AbsenceTotals = AbsenceTotals(),
 ) {
     val missingReasons: List<AbsenceRegistration>
         get() = registrations.filter { it.missingCause }
