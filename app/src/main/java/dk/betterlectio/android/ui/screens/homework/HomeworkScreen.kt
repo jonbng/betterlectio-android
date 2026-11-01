@@ -1,14 +1,16 @@
 package dk.betterlectio.android.ui.screens.homework
 
-import androidx.activity.compose.BackHandler
+import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
@@ -17,56 +19,58 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
+import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.filled.Check
 import androidx.compose.material.icons.filled.CheckCircle
-import androidx.compose.material3.Checkbox
+import androidx.compose.material.icons.filled.Close
+import androidx.compose.material.icons.filled.Restore
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.FilledTonalButton
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.IconToggleButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.ModalBottomSheet
+import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.SnackbarHost
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.SwipeToDismissBox
 import androidx.compose.material3.SwipeToDismissBoxValue
+import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
+import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.rememberSwipeToDismissBoxState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextDecoration
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.hilt.navigation.compose.hiltViewModel
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.Lifecycle
 import androidx.lifecycle.compose.LifecycleEventEffect
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.homework.HomeworkDetailLoader
 import dk.betterlectio.android.feature.homework.HomeworkItem
 import dk.betterlectio.android.feature.schedule.LessonDetailParser
-import dk.betterlectio.android.ui.components.AppListDivider
-import dk.betterlectio.android.ui.components.AppListMeta
-import dk.betterlectio.android.ui.components.AppListRow
-import dk.betterlectio.android.ui.components.AppListSecondary
 import dk.betterlectio.android.ui.components.AttachmentRow
 import dk.betterlectio.android.ui.components.DetailSection
 import dk.betterlectio.android.ui.components.EmptyBox
@@ -74,71 +78,40 @@ import dk.betterlectio.android.ui.components.ErrorBox
 import dk.betterlectio.android.ui.components.LectioHtmlBody
 import dk.betterlectio.android.ui.components.LessonContentBlocks
 import dk.betterlectio.android.ui.components.ListSkeleton
-import dk.betterlectio.android.ui.components.SectionHeader
 import dk.betterlectio.android.ui.components.isDueUrgent
 import dk.betterlectio.android.ui.components.relativeDaySectionLabel
 import dk.betterlectio.android.ui.components.relativeDueLabel
 
-private object HwRoutes {
-    const val LIST = "hw_list"
-    const val DETAIL = "hw_detail/{id}"
-    fun detail(id: String) = "hw_detail/$id"
-}
-
+@OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun HomeworkScreen(
     viewModel: HomeworkViewModel = hiltViewModel(),
     scrollToTopToken: Int = 0,
 ) {
     LifecycleEventEffect(Lifecycle.Event.ON_RESUME) { viewModel.onVisible() }
-    val navController = rememberNavController()
     val state by viewModel.state.collectAsStateWithLifecycle()
     @Suppress("UNUSED_VARIABLE")
     val lessonMappings by viewModel.lessonMappings.collectAsStateWithLifecycle()
+    val sheetState = rememberModalBottomSheetState(skipPartiallyExpanded = false)
 
-    LaunchedEffect(state.selected) {
-        if (state.selected == null) {
-            val route = navController.currentBackStackEntry?.destination?.route
-            if (route?.startsWith("hw_detail") == true) {
-                navController.popBackStack(HwRoutes.LIST, inclusive = false)
-            }
-        }
-    }
-
-    NavHost(navController = navController, startDestination = HwRoutes.LIST, modifier = Modifier.fillMaxSize()) {
-        composable(HwRoutes.LIST) {
-            HomeworkListPane(
-                viewModel = viewModel,
-                scrollToTopToken = scrollToTopToken,
-                onOpen = { item ->
-                    viewModel.select(item)
-                    navController.navigate(HwRoutes.detail(item.id))
-                },
-            )
-        }
-        composable(
-            HwRoutes.DETAIL,
-            arguments = listOf(navArgument("id") { type = NavType.StringType }),
+    HomeworkListPane(
+        viewModel = viewModel,
+        scrollToTopToken = scrollToTopToken,
+        onOpen = viewModel::select,
+    )
+    state.selected?.let { item ->
+        ModalBottomSheet(
+            onDismissRequest = { viewModel.select(null) },
+            sheetState = sheetState,
         ) {
-            BackHandler {
-                viewModel.select(null)
-                navController.popBackStack()
-            }
-            val item = state.selected
-            if (item == null) {
-                ListSkeleton()
-            } else {
+            Box(Modifier.fillMaxHeight(0.92f)) {
                 HomeworkDetailPane(
                     item = item,
                     displayTeam = viewModel::displayTeam,
-                    onBack = {
-                        viewModel.select(null)
-                        navController.popBackStack()
-                    },
+                    onBack = { viewModel.select(null) },
                     onToggleDone = {
                         viewModel.toggleDone(item.id)
                         viewModel.select(null)
-                        navController.popBackStack()
                     },
                 )
             }
@@ -185,10 +158,18 @@ private fun HomeworkListPane(
                     description = stringResource(R.string.empty_homework_all_clear_hint),
                     icon = Icons.Default.CheckCircle,
                 )
-                else -> LazyColumn(state = listState, modifier = Modifier.fillMaxSize()) {
+                else -> LazyColumn(
+                    state = listState,
+                    modifier = Modifier.fillMaxSize(),
+                    contentPadding = PaddingValues(top = 4.dp, bottom = 24.dp),
+                ) {
                     state.groups.forEach { group ->
                         item(key = "header-${group.date ?: "none"}-${group.label}") {
-                            SectionHeader(relativeDaySectionLabel(group.date))
+                            HomeworkDayHeader(
+                                title = relativeDaySectionLabel(group.date),
+                                count = group.items.size,
+                                allDone = group.items.all { it.done },
+                            )
                         }
                         items(group.items, key = { it.id }) { item ->
                             SwipeableHomeworkRow(
@@ -200,7 +181,6 @@ private fun HomeworkListPane(
                                     haptics.performHapticFeedback(HapticFeedbackType.LongPress)
                                 },
                             )
-                            AppListDivider()
                         }
                     }
                 }
@@ -218,22 +198,32 @@ private fun SwipeableHomeworkRow(
     onToggleDone: () -> Unit,
 ) {
     val summary = item.note.ifBlank { item.tasks.joinToString("\n") { it.text } }
+    val subjectName = displayTeam(item.team.ifBlank { item.activityTitle })
     val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
+        positionalThreshold = { totalDistance -> totalDistance * 0.4f },
+    )
+
+    LaunchedEffect(dismissState, item.id) {
+        var actionConsumed = false
+        snapshotFlow { dismissState.currentValue }.collect { value ->
             when (value) {
                 SwipeToDismissBoxValue.EndToStart,
                 SwipeToDismissBoxValue.StartToEnd,
-                -> {
+                -> if (!actionConsumed) {
+                    actionConsumed = true
                     onToggleDone()
-                    false
+                    dismissState.reset()
                 }
-                SwipeToDismissBoxValue.Settled -> false
+                SwipeToDismissBoxValue.Settled -> actionConsumed = false
             }
-        },
-    )
+        }
+    }
 
     SwipeToDismissBox(
         state = dismissState,
+        modifier = Modifier
+            .padding(horizontal = 12.dp, vertical = 4.dp)
+            .clip(RoundedCornerShape(16.dp)),
         backgroundContent = {
             val done = item.done
             Box(
@@ -247,14 +237,20 @@ private fun SwipeableHomeworkRow(
                         },
                     )
                     .padding(horizontal = 20.dp),
-                contentAlignment = Alignment.CenterEnd,
+                contentAlignment = if (
+                    dismissState.dismissDirection == SwipeToDismissBoxValue.StartToEnd
+                ) {
+                    Alignment.CenterStart
+                } else {
+                    Alignment.CenterEnd
+                },
             ) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(8.dp),
                 ) {
                     Icon(
-                        Icons.Default.Check,
+                        if (done) Icons.Default.Restore else Icons.Default.Check,
                         contentDescription = null,
                         tint = if (done) {
                             MaterialTheme.colorScheme.onSurfaceVariant
@@ -283,45 +279,164 @@ private fun SwipeableHomeworkRow(
     ) {
         val dueLabel = relativeDueLabel(item.date)
         val urgent = !item.done && isDueUrgent(item.date)
-        AppListRow(
+        Surface(
             onClick = onOpen,
-            modifier = Modifier.background(MaterialTheme.colorScheme.surface),
-            leading = {
-                Checkbox(
+            color = if (item.done) {
+                MaterialTheme.colorScheme.surfaceContainerLow.copy(alpha = 0.72f)
+            } else {
+                MaterialTheme.colorScheme.surfaceContainerLow
+            },
+            shape = RoundedCornerShape(16.dp),
+        ) {
+            Row(
+                modifier = Modifier.padding(horizontal = 12.dp, vertical = 13.dp),
+                verticalAlignment = Alignment.Top,
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                HomeworkCompletionToggle(
                     checked = item.done,
                     onCheckedChange = { onToggleDone() },
                 )
-            },
-            trailing = {
-                if (dueLabel != null) {
-                    AppListMeta(
-                        text = dueLabel,
-                        color = if (urgent) {
-                            MaterialTheme.colorScheme.error
-                        } else {
-                            MaterialTheme.colorScheme.onSurfaceVariant
-                        },
-                    )
+                Column(Modifier.weight(1f)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            subjectName,
+                            style = MaterialTheme.typography.titleMedium,
+                            fontWeight = if (item.done) FontWeight.Normal else FontWeight.SemiBold,
+                            color = if (item.done) {
+                                MaterialTheme.colorScheme.onSurfaceVariant
+                            } else {
+                                MaterialTheme.colorScheme.onSurface
+                            },
+                            textDecoration = if (item.done) TextDecoration.LineThrough else null,
+                            maxLines = 1,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.weight(1f),
+                        )
+                        dueLabel?.let { label ->
+                            Text(
+                                label,
+                                style = MaterialTheme.typography.labelMedium,
+                                color = if (urgent) {
+                                    MaterialTheme.colorScheme.error
+                                } else {
+                                    MaterialTheme.colorScheme.onSurfaceVariant
+                                },
+                                fontWeight = if (urgent) FontWeight.SemiBold else FontWeight.Normal,
+                                modifier = Modifier.padding(start = 8.dp),
+                            )
+                        }
+                    }
+                    if (summary.isNotBlank()) {
+                        Text(
+                            summary,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            maxLines = 2,
+                            overflow = TextOverflow.Ellipsis,
+                            modifier = Modifier.padding(top = 3.dp),
+                        )
+                    }
                 }
+            }
+        }
+    }
+}
+
+@Composable
+private fun HomeworkDayHeader(title: String, count: Int, allDone: Boolean) {
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(start = 18.dp, end = 18.dp, top = 14.dp, bottom = 5.dp),
+        horizontalArrangement = Arrangement.SpaceBetween,
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            title,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (allDone) {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            } else {
+                MaterialTheme.colorScheme.onSurface
+            },
+        )
+        Text(
+            stringResource(R.string.homework_day_count, count),
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+    }
+}
+
+@Composable
+private fun HomeworkDuePill(text: String, urgent: Boolean) {
+    Surface(
+        shape = RoundedCornerShape(8.dp),
+        color = if (urgent) {
+            MaterialTheme.colorScheme.errorContainer
+        } else {
+            MaterialTheme.colorScheme.surfaceContainerHighest
+        },
+    ) {
+        Text(
+            text,
+            style = MaterialTheme.typography.labelSmall,
+            fontWeight = FontWeight.SemiBold,
+            color = if (urgent) {
+                MaterialTheme.colorScheme.onErrorContainer
+            } else {
+                MaterialTheme.colorScheme.onSurfaceVariant
+            },
+            modifier = Modifier.padding(horizontal = 8.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun HomeworkCompletionToggle(
+    checked: Boolean,
+    onCheckedChange: (Boolean) -> Unit,
+    modifier: Modifier = Modifier,
+) {
+    val actionLabel = stringResource(
+        if (checked) R.string.homework_swipe_undo else R.string.homework_mark_done,
+    )
+    IconToggleButton(
+        checked = checked,
+        onCheckedChange = onCheckedChange,
+        modifier = modifier
+            .size(48.dp)
+            .semantics { contentDescription = actionLabel },
+    ) {
+        Surface(
+            modifier = Modifier.size(30.dp),
+            shape = CircleShape,
+            color = if (checked) {
+                MaterialTheme.colorScheme.primary
+            } else {
+                MaterialTheme.colorScheme.surface
+            },
+            border = if (checked) {
+                null
+            } else {
+                BorderStroke(2.dp, MaterialTheme.colorScheme.outline)
             },
         ) {
-            Text(
-                item.activityTitle,
-                style = MaterialTheme.typography.bodyLarge,
-                fontWeight = if (item.done) FontWeight.Normal else FontWeight.Medium,
-                color = if (item.done) {
-                    MaterialTheme.colorScheme.onSurfaceVariant
-                } else {
-                    MaterialTheme.colorScheme.onSurface
-                },
-                textDecoration = if (item.done) TextDecoration.LineThrough else null,
-                maxLines = 2,
-            )
-            if (summary.isNotBlank()) {
-                AppListSecondary(summary, maxLines = 2)
-            }
-            if (item.team.isNotBlank()) {
-                AppListMeta(displayTeam(item.team))
+            Box(contentAlignment = Alignment.Center) {
+                if (checked) {
+                    Icon(
+                        Icons.Default.Check,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.onPrimary,
+                        modifier = Modifier.size(18.dp),
+                    )
+                }
             }
         }
     }
@@ -339,16 +454,53 @@ private fun HomeworkDetailPane(
     val snackbarHostState = remember { SnackbarHostState() }
     val textTasks = item.textTasks
     val linkedTasks = item.linkedTasks
+    val subjectName = displayTeam(item.team.ifBlank { item.activityTitle })
     Scaffold(
         snackbarHost = { SnackbarHost(snackbarHostState) },
+        bottomBar = {
+            Surface(
+                color = MaterialTheme.colorScheme.surface,
+                tonalElevation = 3.dp,
+            ) {
+                if (item.done) {
+                    OutlinedButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleDone()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Default.Restore, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text(stringResource(R.string.homework_swipe_undo))
+                    }
+                } else {
+                    FilledTonalButton(
+                        onClick = {
+                            haptics.performHapticFeedback(HapticFeedbackType.LongPress)
+                            onToggleDone()
+                        },
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .padding(horizontal = 16.dp, vertical = 10.dp),
+                    ) {
+                        Icon(Icons.Default.Check, contentDescription = null)
+                        Spacer(Modifier.size(8.dp))
+                        Text(stringResource(R.string.homework_mark_done))
+                    }
+                }
+            }
+        },
         topBar = {
             TopAppBar(
-                title = { Text(item.activityTitle, maxLines = 1) },
-                navigationIcon = {
+                title = { Text(stringResource(R.string.homework_detail_title)) },
+                actions = {
                     IconButton(onClick = onBack) {
                         Icon(
-                            Icons.AutoMirrored.Filled.ArrowBack,
-                            contentDescription = stringResource(R.string.cd_back),
+                            Icons.Default.Close,
+                            contentDescription = stringResource(R.string.action_close),
                         )
                     }
                 },
@@ -361,22 +513,45 @@ private fun HomeworkDetailPane(
                 .padding(padding)
                 .padding(16.dp),
         ) {
-            relativeDueLabel(item.date)?.let { due ->
-                Text(
-                    due,
-                    style = MaterialTheme.typography.labelLarge,
-                    color = if (isDueUrgent(item.date) && !item.done) {
-                        MaterialTheme.colorScheme.error
-                    } else {
-                        MaterialTheme.colorScheme.primary
-                    },
-                )
-                Spacer(Modifier.height(8.dp))
+            Surface(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(16.dp),
+                color = MaterialTheme.colorScheme.surfaceContainerLow,
+            ) {
+                Column(Modifier.padding(16.dp)) {
+                    Row(
+                        modifier = Modifier.fillMaxWidth(),
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                        verticalAlignment = Alignment.CenterVertically,
+                    ) {
+                        Text(
+                            subjectName,
+                            style = MaterialTheme.typography.headlineSmall,
+                            fontWeight = FontWeight.SemiBold,
+                            color = MaterialTheme.colorScheme.onSurface,
+                            modifier = Modifier.weight(1f),
+                        )
+                        relativeDueLabel(item.date)?.let { due ->
+                            HomeworkDuePill(
+                                text = due,
+                                urgent = isDueUrgent(item.date) && !item.done,
+                            )
+                        }
+                    }
+                    val metadata = listOfNotNull(item.teacher, item.room)
+                        .filter { it.isNotBlank() }
+                        .joinToString(" · ")
+                    if (metadata.isNotBlank()) {
+                        Text(
+                            metadata,
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            modifier = Modifier.padding(top = 6.dp),
+                        )
+                    }
+                }
             }
-            if (item.team.isNotBlank()) {
-                Text(displayTeam(item.team), style = MaterialTheme.typography.bodyMedium)
-                Spacer(Modifier.height(12.dp))
-            }
+            Spacer(Modifier.height(16.dp))
             if (item.note.isNotBlank() || textTasks.isNotEmpty()) {
                 DetailSection(stringResource(R.string.label_homework)) {
                     Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
@@ -428,23 +603,7 @@ private fun HomeworkDetailPane(
                     }
                 }
             }
-            Spacer(Modifier.height(16.dp))
-            Row(verticalAlignment = Alignment.CenterVertically) {
-                Checkbox(
-                    checked = item.done,
-                    onCheckedChange = {
-                        haptics.performHapticFeedback(HapticFeedbackType.LongPress)
-                        onToggleDone()
-                    },
-                )
-                Text(
-                    if (item.done) {
-                        stringResource(R.string.homework_done)
-                    } else {
-                        stringResource(R.string.homework_mark_done)
-                    },
-                )
-            }
+            Spacer(Modifier.height(24.dp))
         }
     }
 }

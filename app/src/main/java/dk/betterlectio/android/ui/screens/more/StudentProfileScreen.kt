@@ -408,20 +408,6 @@ private fun StudentProfileHero(
         )
     }
     var showPhotoPreview by remember { mutableStateOf(false) }
-    // Prefer schedule space; auto-expand once when a rich BL profile loads.
-    var expanded by remember(entity.id) { mutableStateOf(false) }
-    var userCollapsed by remember(entity.id) { mutableStateOf(false) }
-    var collapseDrag by remember { mutableFloatStateOf(0f) }
-
-    val hasRichProfile = hasBetterLectio && (
-        !profile?.description.isNullOrBlank() ||
-            profile?.formattedBirthday() != null ||
-            InstagramHandles.format(profile?.instagram).isNotEmpty()
-        )
-
-    LaunchedEffect(entity.id, hasRichProfile) {
-        if (hasRichProfile && !userCollapsed) expanded = true
-    }
 
     LaunchedEffect(entity.id, customUrl, entity.avatarUrl) {
         val resolved = avatarRepo.resolveUrl(
@@ -439,76 +425,24 @@ private fun StudentProfileHero(
     }
 
     Surface(
-        modifier = modifier
-            .pointerInput(expanded) {
-                if (!expanded) return@pointerInput
-                detectVerticalDragGestures(
-                    onDragEnd = {
-                        if (collapseDrag < -48f) {
-                            userCollapsed = true
-                            expanded = false
-                        }
-                        collapseDrag = 0f
-                    },
-                    onDragCancel = { collapseDrag = 0f },
-                    onVerticalDrag = { _, dragAmount ->
-                        collapseDrag += dragAmount
-                        if (collapseDrag < -72f) {
-                            userCollapsed = true
-                            expanded = false
-                            collapseDrag = 0f
-                        }
-                    },
-                )
-            },
-        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
-        shape = RoundedCornerShape(16.dp),
+        modifier = modifier,
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        shape = RoundedCornerShape(18.dp),
     ) {
-        AnimatedContent(
-            targetState = expanded,
-            transitionSpec = {
-                fadeIn() togetherWith fadeOut() using SizeTransform(clip = true)
-            },
-            label = "student-profile-hero",
-        ) { isExpanded ->
-            if (isExpanded) {
-                ExpandedStudentProfile(
-                    displayName = displayName,
-                    classLabel = classLabel,
-                    hasBetterLectio = hasBetterLectio,
-                    profile = profile,
-                    resolvedUrl = resolvedUrl,
-                    fallbackUrl = lectioUrl,
-                    pinned = pinned,
-                    onWriteMessage = onWriteMessage,
-                    onTogglePin = onTogglePin,
-                    onViewClass = onViewClass,
-                    onCollapse = {
-                        userCollapsed = true
-                        expanded = false
-                    },
-                    onPhotoClick = openPreview,
-                    onPhotoUrlChanged = { resolvedUrl = it },
-                )
-            } else {
-                CollapsedStudentProfile(
-                    displayName = displayName,
-                    classLabel = classLabel,
-                    hasBetterLectio = hasBetterLectio,
-                    resolvedUrl = resolvedUrl,
-                    fallbackUrl = lectioUrl,
-                    pinned = pinned,
-                    onWriteMessage = onWriteMessage,
-                    onTogglePin = onTogglePin,
-                    onExpand = {
-                        userCollapsed = false
-                        expanded = true
-                    },
-                    onPhotoClick = openPreview,
-                    onPhotoUrlChanged = { resolvedUrl = it },
-                )
-            }
-        }
+        ExpandedStudentProfile(
+            displayName = displayName,
+            classLabel = classLabel,
+            hasBetterLectio = hasBetterLectio,
+            profile = profile,
+            resolvedUrl = resolvedUrl,
+            fallbackUrl = lectioUrl,
+            pinned = pinned,
+            onWriteMessage = onWriteMessage,
+            onTogglePin = onTogglePin,
+            onViewClass = onViewClass,
+            onPhotoClick = openPreview,
+            onPhotoUrlChanged = { resolvedUrl = it },
+        )
     }
 
     if (showPhotoPreview) {
@@ -629,7 +563,6 @@ private fun ExpandedStudentProfile(
     onWriteMessage: () -> Unit,
     onTogglePin: () -> Unit,
     onViewClass: () -> Unit,
-    onCollapse: () -> Unit,
     onPhotoClick: () -> Unit,
     onPhotoUrlChanged: (String) -> Unit,
 ) {
@@ -704,40 +637,34 @@ private fun ExpandedStudentProfile(
                 }
             }
 
-            IconButton(
-                onClick = onWriteMessage,
-                modifier = Modifier.size(40.dp),
-            ) {
-                Icon(
-                    Icons.AutoMirrored.Filled.Message,
-                    contentDescription = stringResource(R.string.directory_write_message),
-                    tint = MaterialTheme.colorScheme.primary,
-                )
+        }
+
+        FlowRow(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(4.dp),
+        ) {
+            TextButton(onClick = onWriteMessage) {
+                Icon(Icons.AutoMirrored.Filled.Message, contentDescription = null)
+                Spacer(Modifier.size(6.dp))
+                Text(stringResource(R.string.directory_write_message))
             }
-            IconButton(
-                onClick = onTogglePin,
-                modifier = Modifier.size(40.dp),
-            ) {
+            TextButton(onClick = onTogglePin) {
                 Icon(
                     imageVector = if (pinned) Icons.Filled.PushPin else Icons.Outlined.PushPin,
-                    contentDescription = stringResource(
-                        if (pinned) R.string.directory_unpin else R.string.directory_pin,
-                    ),
-                    tint = if (pinned) {
-                        MaterialTheme.colorScheme.primary
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant
-                    },
+                    contentDescription = null,
+                )
+                Spacer(Modifier.size(6.dp))
+                Text(
+                    stringResource(if (pinned) R.string.directory_unpin else R.string.directory_pin),
                 )
             }
-            IconButton(
-                onClick = onCollapse,
-                modifier = Modifier.size(40.dp),
-            ) {
-                Icon(
-                    Icons.Default.KeyboardArrowUp,
-                    contentDescription = stringResource(R.string.student_profile_collapse_cd),
-                )
+            if (!classLabel.isNullOrBlank()) {
+                TextButton(onClick = onViewClass) {
+                    Icon(Icons.Default.School, contentDescription = null)
+                    Spacer(Modifier.size(6.dp))
+                    Text(stringResource(R.string.directory_view_class))
+                }
             }
         }
 

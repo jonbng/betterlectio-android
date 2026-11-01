@@ -12,6 +12,8 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -46,6 +48,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.draw.shadow
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -82,7 +86,6 @@ import kotlinx.coroutines.delay
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
@@ -128,7 +131,7 @@ fun ScheduleScreen(
         )
     }
 
-    val locale = Locale.getDefault()
+    val locale = LocalConfiguration.current.locales[0]
     val dayName = state.selectedDate.dayOfWeek.getDisplayName(TextStyle.FULL, locale)
         .replaceFirstChar { if (it.isLowerCase()) it.titlecase(locale) else it.toString() }
     val subtitle = stringResource(R.string.schedule_week_subtitle, dayName, state.weekNum)
@@ -138,10 +141,14 @@ fun ScheduleScreen(
     val celebrationName by viewModel.referralCelebrationName.collectAsStateWithLifecycle()
     val snackbarHostState = remember { SnackbarHostState() }
     val context = androidx.compose.ui.platform.LocalContext.current
+    val resources = LocalResources.current
+    val celebrationMessage = celebrationName?.let { name ->
+        stringResource(R.string.referral_celebration, name)
+    }
 
-    LaunchedEffect(celebrationName) {
-        val name = celebrationName ?: return@LaunchedEffect
-        snackbarHostState.showSnackbar(context.getString(R.string.referral_celebration, name))
+    LaunchedEffect(celebrationMessage) {
+        val message = celebrationMessage ?: return@LaunchedEffect
+        snackbarHostState.showSnackbar(message)
         viewModel.consumeReferralCelebration()
     }
 
@@ -462,7 +469,15 @@ fun ScheduleScreen(
 
     if (state.showPrivateEvent) {
         ModalBottomSheet(onDismissRequest = viewModel::closePrivateEventSheet) {
-            Column(Modifier.padding(24.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+            Column(
+                Modifier
+                    .fillMaxWidth()
+                    .verticalScroll(rememberScrollState())
+                    .imePadding()
+                    .navigationBarsPadding()
+                    .padding(24.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
                 Text(
                     if (state.editingPrivateEventId != null) {
                         stringResource(R.string.private_event_edit_title)
@@ -545,13 +560,13 @@ fun ScheduleScreen(
                             type = "text/plain"
                             putExtra(
                                 android.content.Intent.EXTRA_TEXT,
-                                context.getString(R.string.referral_share_text, url),
+                                resources.getString(R.string.referral_share_text, url),
                             )
                         }
                         context.startActivity(
                             android.content.Intent.createChooser(
                                 send,
-                                context.getString(R.string.referral_share_chooser),
+                                resources.getString(R.string.referral_share_chooser),
                             ),
                         )
                         viewModel.onReferralNudgeShared()

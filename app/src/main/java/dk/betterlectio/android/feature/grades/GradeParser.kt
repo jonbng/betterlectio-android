@@ -157,8 +157,13 @@ object GradeParser {
                 ?.trim()
                 .orEmpty()
             val lines = area.selectFirst("table")?.select("tr")?.drop(2).orEmpty()
+                .filterNot { row ->
+                    row.hasClass("OnlyMobile") ||
+                        (row.select("td.OnlyMobile").isNotEmpty() && row.select("td:not(.OnlyMobile)").isEmpty())
+                }
                 .mapNotNull { row ->
-                    val cells = row.select("td")
+                    val desktopCells = row.select("td:not(.OnlyMobile)")
+                    val cells = desktopCells.ifEmpty { row.select("td") }
                     if (cells.size < 7) return@mapNotNull null
                     DiplomaLine(
                         subject = cells[0].text().trim(),
@@ -170,7 +175,11 @@ object GradeParser {
                         examEcts = cells[6].text().trim(),
                     )
                 }
-                .filter { it.subject.isNotBlank() }
+                .filter { line ->
+                    line.subject.isNotBlank() &&
+                        !(line.subject.contains("Karakter:", ignoreCase = true) &&
+                            line.subject.contains("Vægt:", ignoreCase = true))
+                }
 
             val average = if (prefix.isNotEmpty()) {
                 doc.getElementById("${prefix}_GradeAverageLabel")?.wholeText()

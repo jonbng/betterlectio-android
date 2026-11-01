@@ -6,6 +6,7 @@ import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.animation.togetherWith
 import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.consumeWindowInsets
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.text.TextAutoSize
 import androidx.compose.material3.Badge
@@ -255,7 +256,11 @@ private fun AuthenticatedShell(
         NavHost(
             navController = navController,
             startDestination = AppDestination.Schedule.route,
-            modifier = Modifier.padding(innerPadding),
+            modifier = Modifier
+                .padding(innerPadding)
+                // The bottom navigation space is already reserved here. Mark it
+                // consumed so child screens only add the remaining IME inset.
+                .consumeWindowInsets(innerPadding),
             enterTransition = { fadeIn(animationSpec = tween(180)) },
             exitTransition = { fadeOut(animationSpec = tween(140)) },
             popEnterTransition = { fadeIn(animationSpec = tween(180)) },

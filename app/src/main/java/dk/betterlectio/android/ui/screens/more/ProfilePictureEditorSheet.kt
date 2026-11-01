@@ -45,6 +45,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalResources
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
@@ -71,6 +72,7 @@ internal fun ProfilePictureEditorSheet(
     onSubmit: (ByteArray, String) -> Unit,
 ) {
     val context = LocalContext.current
+    val resources = LocalResources.current
     val scope = rememberCoroutineScope()
     var selectedUri by remember { mutableStateOf<Uri?>(null) }
     var selectedBytes by remember { mutableStateOf<ByteArray?>(null) }
@@ -90,7 +92,7 @@ internal fun ProfilePictureEditorSheet(
                 selectedUri = null
                 selectedBytes = null
                 selectedMime = null
-                localError = context.getString(R.string.profile_picture_invalid_file)
+                localError = resources.getString(R.string.profile_picture_invalid_file)
             } else {
                 selectedUri = uri
                 selectedBytes = bytes

@@ -20,6 +20,7 @@ import androidx.compose.foundation.layout.WindowInsetsSides
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.padding
@@ -39,6 +40,7 @@ import androidx.compose.foundation.layout.ExperimentalLayoutApi
 import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
+import androidx.compose.material.icons.automirrored.filled.Send
 import androidx.compose.material.icons.filled.Add
 import androidx.compose.material.icons.filled.AttachFile
 import androidx.compose.material.icons.filled.Close
@@ -57,6 +59,7 @@ import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.FilterChip
+import androidx.compose.material3.FilledIconButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.Icon
@@ -86,8 +89,13 @@ import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
+import androidx.compose.runtime.snapshotFlow
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalConfiguration
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -135,7 +143,6 @@ import java.time.LocalDate
 import java.time.Instant
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.delay
 
@@ -203,7 +210,16 @@ fun MessagesScreen(
             route = MsgRoutes.THREAD,
             arguments = listOf(navArgument("threadId") { type = NavType.StringType }),
         ) {
-            BackHandler { viewModel.closeDetail(); navController.popBackStack() }
+            val focusManager = LocalFocusManager.current
+            val keyboardController = LocalSoftwareKeyboardController.current
+            val closeThread = {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                viewModel.closeDetail()
+                navController.popBackStack()
+                Unit
+            }
+            BackHandler(onBack = closeThread)
             val detail = state.detail
             if (detail == null) {
                 // Loading, or open failed — never leave the user on a blank skeleton forever.
@@ -272,21 +288,26 @@ fun MessagesScreen(
                         navController.popBackStack()
                     },
                     onBack = {
-                        viewModel.closeDetail()
-                        navController.popBackStack()
+                        closeThread()
                     },
                 )
             }
         }
         composable(MsgRoutes.COMPOSE) {
-            BackHandler { viewModel.closeCompose(); navController.popBackStack() }
+            val focusManager = LocalFocusManager.current
+            val keyboardController = LocalSoftwareKeyboardController.current
+            val closeCompose = {
+                focusManager.clearFocus(force = true)
+                keyboardController?.hide()
+                viewModel.closeCompose()
+                navController.popBackStack()
+                Unit
+            }
+            BackHandler(onBack = closeCompose)
             MessageComposePane(
                 state = state,
                 viewModel = viewModel,
-                onBack = {
-                    viewModel.closeCompose()
-                    navController.popBackStack()
-                },
+                onBack = closeCompose,
                 onSent = {
                     navController.popBackStack()
                 },
@@ -305,7 +326,8 @@ private fun MessageListPane(
 ) {
     val state by viewModel.state.collectAsStateWithLifecycle()
     val listState = rememberLazyListState()
-    val timeFmt = DateTimeFormatter.ofPattern("d. MMM", Locale.getDefault())
+    val locale = LocalConfiguration.current.locales[0]
+    val timeFmt = remember(locale) { DateTimeFormatter.ofPattern("d. MMM", locale) }
     val snackbarHostState = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
     val markedReadLabel = stringResource(R.string.message_marked_read_snackbar)
@@ -502,21 +524,31 @@ private fun SwipeableMessageRow(
     onDelete: () -> Unit,
 ) {
     val dismissState = rememberSwipeToDismissBoxState(
-        confirmValueChange = { value ->
+        positionalThreshold = { totalDistance -> totalDistance * 0.4f },
+    )
+
+    LaunchedEffect(dismissState, thread.id) {
+        var actionConsumed = false
+        snapshotFlow { dismissState.currentValue }.collect { value ->
             when (value) {
                 SwipeToDismissBoxValue.StartToEnd -> {
-                    // iOS leading swipe: mark read or unread depending on current state
-                    onToggleRead()
-                    false // keep row; unread state updates in place
+                    if (!actionConsumed) {
+                        actionConsumed = true
+                        onToggleRead()
+                        dismissState.reset()
+                    }
                 }
                 SwipeToDismissBoxValue.EndToStart -> {
-                    onDelete()
-                    true
+                    if (!actionConsumed) {
+                        actionConsumed = true
+                        onDelete()
+                        dismissState.reset()
+                    }
                 }
-                SwipeToDismissBoxValue.Settled -> false
+                SwipeToDismissBoxValue.Settled -> actionConsumed = false
             }
-        },
-    )
+        }
+    }
 
     SwipeToDismissBox(
         state = dismissState,
@@ -636,6 +668,7 @@ private fun MessageThreadPane(
     onBack: () -> Unit,
 ) {
     val snackbarHostState = remember { SnackbarHostState() }
+    val locale = LocalConfiguration.current.locales[0]
     val haptics = LocalHapticFeedback.current
     var pickerEntryId by remember { mutableStateOf<String?>(null) }
     var reactorGroup by remember { mutableStateOf<MessageReactionGroup?>(null) }
@@ -667,8 +700,6 @@ private fun MessageThreadPane(
     LaunchedEffect(editLoading) {
         if (!editLoading) loadingEditEntryId = null
     }
-    // adjustResize already shrinks the window for the keyboard. Do not also apply
-    // IME content insets / imePadding or we get a large empty band above the keyboard.
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing.only(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
@@ -732,13 +763,17 @@ private fun MessageThreadPane(
             )
         },
     ) { padding ->
-        val dateTimeFmt = remember {
-            DateTimeFormatter.ofPattern("d. MMM yyyy · HH:mm", Locale.getDefault())
+        val dateTimeFmt = remember(locale) {
+            DateTimeFormatter.ofPattern("d. MMM yyyy · HH:mm", locale)
         }
         Column(
             Modifier
                 .fillMaxSize()
-                .padding(padding),
+                .padding(padding)
+                // Edge-to-edge keeps the activity at full height even with
+                // adjustResize, so the fixed reply composer must explicitly
+                // stay above the keyboard.
+                .imePadding(),
         ) {
             Column(
                 Modifier
@@ -1076,15 +1111,6 @@ private fun SurfaceReplyBar(
             .padding(horizontal = 12.dp, vertical = 8.dp),
         verticalArrangement = Arrangement.spacedBy(6.dp),
     ) {
-        BbcodeEditor(
-            value = replyText,
-            onValueChange = onReplyChange,
-            placeholder = stringResource(R.string.message_reply_hint),
-            minLines = 2,
-            maxLines = 8,
-            enabled = !isSending,
-            modifier = Modifier.fillMaxWidth(),
-        )
         PendingAttachmentsRow(
             attachments = replyAttachments,
             onRemove = onRemoveAttachment,
@@ -1107,14 +1133,23 @@ private fun SurfaceReplyBar(
         Row(
             Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(8.dp),
-            verticalAlignment = Alignment.CenterVertically,
+            verticalAlignment = Alignment.Bottom,
         ) {
             AttachMenuButton(
                 enabled = !isSending && replyAttachments.size < MessagesViewModel.MAX_ATTACHMENTS,
                 onPicked = onAddAttachments,
             )
-            Spacer(Modifier.weight(1f))
-            Button(
+            BbcodeEditor(
+                value = replyText,
+                onValueChange = onReplyChange,
+                placeholder = stringResource(R.string.message_reply_hint),
+                minLines = 1,
+                maxLines = 5,
+                showToolbar = false,
+                enabled = !isSending,
+                modifier = Modifier.weight(1f),
+            )
+            FilledIconButton(
                 onClick = onSendReply,
                 enabled = replyText.isNotBlank() && !isSending,
             ) {
@@ -1124,7 +1159,10 @@ private fun SurfaceReplyBar(
                         strokeWidth = 2.dp,
                     )
                 } else {
-                    Text(stringResource(R.string.message_send))
+                    Icon(
+                        Icons.AutoMirrored.Filled.Send,
+                        contentDescription = stringResource(R.string.message_send),
+                    )
                 }
             }
         }
@@ -1147,9 +1185,18 @@ private fun MessageComposePane(
         state.selectedRecipients.isNotEmpty() &&
         !state.isSending
     val bodyBringIntoViewRequester = remember { BringIntoViewRequester() }
-    val coroutineScope = rememberCoroutineScope()
+    var bodyFocused by remember { mutableStateOf(false) }
+    val imeBottom = WindowInsets.ime.getBottom(LocalDensity.current)
+
+    // BbcodeEditor is an Android EditText hosted inside Compose, so it does not
+    // reliably participate in Compose's automatic IME relocation. Follow the
+    // real inset throughout the keyboard animation instead of relying on a
+    // fixed delay that can finish too early on some keyboards/devices.
+    LaunchedEffect(bodyFocused, imeBottom) {
+        if (bodyFocused) bodyBringIntoViewRequester.bringIntoView()
+    }
+
     Scaffold(
-        modifier = Modifier.imePadding(),
         contentWindowInsets = WindowInsets.safeDrawing.only(
             WindowInsetsSides.Horizontal + WindowInsetsSides.Top,
         ),
@@ -1186,6 +1233,7 @@ private fun MessageComposePane(
             Modifier
                 .fillMaxSize()
                 .padding(padding)
+                .imePadding()
                 .verticalScroll(rememberScrollState())
                 .padding(16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -1277,16 +1325,7 @@ private fun MessageComposePane(
                 modifier = Modifier
                     .fillMaxWidth()
                     .bringIntoViewRequester(bodyBringIntoViewRequester),
-                onFocusChanged = { focused ->
-                    if (focused) {
-                        coroutineScope.launch {
-                            // Wait for the IME inset animation before calculating the
-                            // final visible viewport, then reveal the editor and caret.
-                            delay(250)
-                            bodyBringIntoViewRequester.bringIntoView()
-                        }
-                    }
-                },
+                onFocusChanged = { bodyFocused = it },
             )
 
             PendingAttachmentsRow(
@@ -1342,7 +1381,7 @@ private fun PendingAttachmentsRow(
         attachments.forEach { att ->
             InputChip(
                 selected = false,
-                onClick = { },
+                onClick = { onRemove(att.uri) },
                 enabled = enabled,
                 label = { Text(att.displayName, maxLines = 1) },
                 leadingIcon = {
@@ -1356,9 +1395,7 @@ private fun PendingAttachmentsRow(
                     Icon(
                         Icons.Default.Close,
                         contentDescription = stringResource(R.string.message_attach_remove),
-                        modifier = Modifier
-                            .size(16.dp)
-                            .clickable(enabled = enabled) { onRemove(att.uri) },
+                        modifier = Modifier.size(18.dp),
                     )
                 },
             )

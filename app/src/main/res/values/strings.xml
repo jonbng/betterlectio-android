@@ -52,6 +52,10 @@
     <string name="empty_homework_all_clear_hint">Du har ingen lektier de næste 14 dage.</string>
     <string name="homework_swipe_done">Færdig</string>
     <string name="homework_swipe_undo">Fortryd</string>
+    <string name="homework_overview_title">De næste 14 dage</string>
+    <string name="homework_progress">%1$d af %2$d færdige</string>
+    <string name="homework_day_count">%1$d lektier</string>
+    <string name="homework_detail_title">Lektie</string>
     <string name="grades_average_label">Gennemsnit %1$s</string>
     <string name="grades_averages_title">Gennemsnit</string>
     <string name="grades_averages_weighted_note">vægtet</string>
@@ -68,6 +72,15 @@
     <string name="grades_diploma_lines">Linjer på bevis</string>
     <string name="grades_diploma_lines_named">Linjer på bevis · %1$s</string>
     <string name="grades_diploma_line">Årskarakter %1$s · Eksamen %2$s</string>
+    <string name="grades_exam_result">Eksamensresultat</string>
+    <string name="grades_year_grade">Årskarakter</string>
+    <string name="grades_exam_grade">Eksamen</string>
+    <string name="grades_ects_label">ECTS %1$s</string>
+    <string name="grades_information">Vigtigt om karakterer</string>
+    <string name="grades_subjects">Fag</string>
+    <string name="grades_distribution">Karakterfordeling</string>
+    <string name="grades_subjects_total">%1$d fag</string>
+    <string name="grades_based_on_current">Baseret på nuværende karakterer</string>
     <string name="grades_protocol_lines">Protokollinjer</string>
     <string name="grades_weight_label">Vægt %1$s</string>
     <string name="grades_subject_header">Fag</string>
@@ -229,6 +242,14 @@
     <string name="label_grading">Bedømmelse</string>
     <string name="assignment_description">Beskrivelse</string>
     <string name="assignment_files">Filer</string>
+    <string name="assignments_overview_title">Dit overblik</string>
+    <string name="assignments_attention_count">%1$d kræver handling</string>
+    <string name="assignments_total_count">%1$d opgaver i alt</string>
+    <string name="assignment_hours_short">%1$s t</string>
+    <string name="assignment_detail_title">Opgave</string>
+    <string name="assignment_grade">Bedømmelse</string>
+    <string name="assignment_submissions">Afleveringer</string>
+    <string name="assignment_no_deadline">Ingen deadline</string>
 
     <string name="plan_detail">Studieplan-detalje</string>
     <string name="room_schedule">Lokaleskema</string>
@@ -347,6 +368,7 @@
     <string name="settings_subject_rename">Visningsnavn</string>
     <string name="settings_subject_rename_save">Gem</string>
     <string name="settings_subject_color">Farve</string>
+    <string name="settings_subject_color_option">Farve %1$d</string>
     <string name="settings_subject_customized">Tilpasset</string>
     <string name="settings_subject_reset">Nulstil</string>
     <string name="settings_subject_reset_all">Nulstil alle tilpasninger</string>
@@ -573,5 +595,23 @@
     <string name="onboarding_next">Næste</string>
     <string name="onboarding_start">Kom i gang</string>
     <string name="onboarding_skip_shake">Fortsæt uden at øve</string>
-    <string name="feedback_my_feedback">Mine</string>
+    <string name="feedback_my_feedback">Min feedback</string>
+    <string name="feedback_new_message">Ny besked</string>
+    <string name="feedback_history">Forløb</string>
+    <string name="feedback_reply_hint">Skriv et svar…</string>
+    <string name="feedback_empty_inbox">Ingen beskeder endnu</string>
+    <string name="feedback_send_feedback">Send feedback</string>
+    <string name="feedback_you">Dig</string>
+    <string name="feedback_load_error">Kunne ikke hente feedback</string>
+    <string name="feedback_load_message_error">Kunne ikke hente beskeden</string>
+    <string name="feedback_awaiting_staff">Venter på BetterLectio</string>
+    <string name="feedback_awaiting_user">Venter på dig</string>
+    <string name="feedback_resolved">Løst</string>
+    <string name="feedback_status_pending">Modtaget</string>
+    <string name="feedback_status_review">Vi undersøger det</string>
+    <string name="feedback_status_planned">Planlagt</string>
+    <string name="feedback_status_in_progress">I gang</string>
+    <string name="feedback_status_completed">Udgivet</string>
+    <string name="feedback_status_declined">Ikke planlagt</string>
+    <string name="feedback_status_duplicate">Knyttet til anden sag</string>
 </resources>

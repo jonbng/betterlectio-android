@@ -101,8 +101,12 @@ Without `key.properties`, `assembleRelease` / `bundleRelease` still build but ar
 
 ```bash
 cd android
-./gradlew :app:bundleRelease
+./scripts/build-release.sh
 ```
+
+The helper checks for `posthog-cli` and securely prompts for
+`POSTHOG_CLI_API_KEY` when it is not already set. The key is passed only to the
+build process and is not written to disk.
 
 Output:
 

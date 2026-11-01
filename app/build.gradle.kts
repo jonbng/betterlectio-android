@@ -96,8 +96,8 @@ android {
         applicationId = "dk.betterlectio.android"
         minSdk = 29
         targetSdk = 36
-        versionCode = 14
-        versionName = "1.0.5"
+        versionCode = 16
+        versionName = "1.0.7"
 
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
 

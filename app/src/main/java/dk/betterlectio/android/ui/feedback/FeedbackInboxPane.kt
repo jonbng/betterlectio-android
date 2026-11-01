@@ -42,9 +42,13 @@ import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalFocusManager
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
+import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import dk.betterlectio.android.R
 import dk.betterlectio.android.feature.feedback.FeedbackInboxItem
 import dk.betterlectio.android.feature.feedback.FeedbackThread
 import kotlinx.coroutines.launch
@@ -64,19 +68,27 @@ fun FeedbackInboxPane(
     var reply by remember { mutableStateOf("") }
     var sending by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
+    val loadError = stringResource(R.string.feedback_load_error)
+    val loadMessageError = stringResource(R.string.feedback_load_message_error)
+    fun dismissKeyboard() {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
+    }
 
     suspend fun loadList() {
         loading = true
         runCatching { onList() }
             .onSuccess { list = it; error = null }
-            .onFailure { error = it.localizedMessage ?: "Kunne ikke hente feedback" }
+            .onFailure { error = it.localizedMessage ?: loadError }
         loading = false
     }
     suspend fun open(item: FeedbackInboxItem) {
         loading = true
         runCatching { onThread(item.id) }
             .onSuccess { thread = it; error = null }
-            .onFailure { error = it.localizedMessage ?: "Kunne ikke hente beskeden" }
+            .onFailure { error = it.localizedMessage ?: loadMessageError }
         loading = false
     }
 
@@ -94,20 +106,39 @@ fun FeedbackInboxPane(
             verticalAlignment = Alignment.CenterVertically,
         ) {
             if (thread != null) {
-                IconButton(onClick = { thread = null; scope.launch { loadList() } }) {
-                    Icon(Icons.AutoMirrored.Rounded.ArrowBack, contentDescription = "Tilbage")
+                IconButton(onClick = {
+                    dismissKeyboard()
+                    thread = null
+                    scope.launch { loadList() }
+                }) {
+                    Icon(
+                        Icons.AutoMirrored.Rounded.ArrowBack,
+                        contentDescription = stringResource(R.string.cd_back),
+                    )
                 }
             }
             Text(
-                thread?.item?.displayTitle ?: "Min feedback",
+                thread?.item?.displayTitle ?: stringResource(R.string.feedback_my_feedback),
                 modifier = Modifier.weight(1f),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.SemiBold,
                 maxLines = 1,
                 overflow = TextOverflow.Ellipsis,
             )
-            if (thread == null) TextButton(onClick = onCompose) { Text("Ny besked") }
-            IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, contentDescription = "Luk") }
+            if (thread == null) {
+                TextButton(onClick = onCompose) {
+                    Text(stringResource(R.string.feedback_new_message))
+                }
+            }
+            IconButton(onClick = {
+                dismissKeyboard()
+                onClose()
+            }) {
+                Icon(
+                    Icons.Outlined.Close,
+                    contentDescription = stringResource(R.string.action_close),
+                )
+            }
         }
         HorizontalDivider()
 
@@ -136,7 +167,7 @@ fun FeedbackInboxPane(
                         item {
                             Surface(shape = RoundedCornerShape(16.dp), color = MaterialTheme.colorScheme.surfaceContainerLow) {
                                 Column(Modifier.padding(14.dp), verticalArrangement = Arrangement.spacedBy(6.dp)) {
-                                    Text("Forløb", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(stringResource(R.string.feedback_history), style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
                                     current.statusEvents.forEach { event -> Text(statusLabel(event.toStatus), style = MaterialTheme.typography.bodySmall, fontWeight = FontWeight.Medium) }
                                 }
                             }
@@ -151,7 +182,7 @@ fun FeedbackInboxPane(
                                 color = if (comment.authorKind == "user") MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surfaceContainerHigh,
                             ) {
                                 Column(Modifier.padding(12.dp)) {
-                                    Text(if (comment.authorKind == "user") "Dig" else "BetterLectio", style = MaterialTheme.typography.labelSmall, color = if (comment.authorKind == "user") MaterialTheme.colorScheme.onPrimary.copy(alpha = .72f) else MaterialTheme.colorScheme.onSurfaceVariant)
+                                    Text(if (comment.authorKind == "user") stringResource(R.string.feedback_you) else "BetterLectio", style = MaterialTheme.typography.labelSmall, color = if (comment.authorKind == "user") MaterialTheme.colorScheme.onPrimary.copy(alpha = .72f) else MaterialTheme.colorScheme.onSurfaceVariant)
                                     Text(comment.body, style = MaterialTheme.typography.bodyMedium, color = if (comment.authorKind == "user") MaterialTheme.colorScheme.onPrimary else MaterialTheme.colorScheme.onSurface)
                                 }
                             }
@@ -160,16 +191,16 @@ fun FeedbackInboxPane(
                     }
                 }
                 Row(Modifier.fillMaxWidth().padding(12.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(8.dp)) {
-                    OutlinedTextField(value = reply, onValueChange = { if (it.length <= 4_000) reply = it }, modifier = Modifier.weight(1f), placeholder = { Text("Skriv et svar…") }, maxLines = 4, shape = RoundedCornerShape(16.dp))
+                    OutlinedTextField(value = reply, onValueChange = { if (it.length <= 4_000) reply = it }, modifier = Modifier.weight(1f), placeholder = { Text(stringResource(R.string.feedback_reply_hint)) }, maxLines = 4, shape = RoundedCornerShape(16.dp))
                     Button(
                         onClick = { scope.launch { sending = true; runCatching { onReply(current.item.id, reply); onThread(current.item.id) }.onSuccess { thread = it; reply = ""; error = null }.onFailure { error = it.localizedMessage }; sending = false } },
                         enabled = reply.isNotBlank() && !sending,
                         modifier = Modifier.height(56.dp),
-                    ) { if (sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = "Send") }
+                    ) { if (sending) CircularProgressIndicator(Modifier.size(20.dp), strokeWidth = 2.dp) else Icon(Icons.AutoMirrored.Rounded.Send, contentDescription = stringResource(R.string.feedback_send)) }
                 }
             }
             list.isEmpty() -> Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Outlined.Inbox, contentDescription = null, Modifier.size(36.dp)); Spacer(Modifier.height(10.dp)); Text("Ingen beskeder endnu"); TextButton(onClick = onCompose) { Text("Send feedback") } }
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { Icon(Icons.Outlined.Inbox, contentDescription = null, Modifier.size(36.dp)); Spacer(Modifier.height(10.dp)); Text(stringResource(R.string.feedback_empty_inbox)); TextButton(onClick = onCompose) { Text(stringResource(R.string.feedback_send_feedback)) } }
             }
             else -> LazyColumn(Modifier.fillMaxSize()) {
                 items(list, key = { it.id }) { item ->
@@ -189,20 +220,22 @@ fun FeedbackInboxPane(
     }
 }
 
+@Composable
 private fun conversationLabel(value: String) = when (value) {
-    "awaiting_staff" -> "Venter på BetterLectio"
-    "awaiting_user" -> "Venter på dig"
-    "resolved" -> "Løst"
+    "awaiting_staff" -> stringResource(R.string.feedback_awaiting_staff)
+    "awaiting_user" -> stringResource(R.string.feedback_awaiting_user)
+    "resolved" -> stringResource(R.string.feedback_resolved)
     else -> value
 }
 
+@Composable
 private fun statusLabel(value: String) = when (value) {
-    "pending" -> "Modtaget"
-    "review" -> "Vi undersøger det"
-    "planned" -> "Planlagt"
-    "in_progress" -> "I gang"
-    "completed" -> "Udgivet"
-    "declined" -> "Ikke planlagt"
-    "duplicate" -> "Knyttet til anden sag"
+    "pending" -> stringResource(R.string.feedback_status_pending)
+    "review" -> stringResource(R.string.feedback_status_review)
+    "planned" -> stringResource(R.string.feedback_status_planned)
+    "in_progress" -> stringResource(R.string.feedback_status_in_progress)
+    "completed" -> stringResource(R.string.feedback_status_completed)
+    "declined" -> stringResource(R.string.feedback_status_declined)
+    "duplicate" -> stringResource(R.string.feedback_status_duplicate)
     else -> value
 }

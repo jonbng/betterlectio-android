@@ -53,6 +53,10 @@
     <string name="empty_homework_all_clear_hint">You have no homework for the next 14 days.</string>
     <string name="homework_swipe_done">Done</string>
     <string name="homework_swipe_undo">Undo</string>
+    <string name="homework_overview_title">The next 14 days</string>
+    <string name="homework_progress">%1$d of %2$d done</string>
+    <string name="homework_day_count">%1$d homework items</string>
+    <string name="homework_detail_title">Homework</string>
     <string name="grades_average_label">Average %1$s</string>
     <string name="grades_averages_title">Averages</string>
     <string name="grades_averages_weighted_note">weighted</string>
@@ -69,6 +73,15 @@
     <string name="grades_diploma_lines">Diploma lines</string>
     <string name="grades_diploma_lines_named">Diploma lines · %1$s</string>
     <string name="grades_diploma_line">Year grade %1$s · Exam %2$s</string>
+    <string name="grades_exam_result">Exam result</string>
+    <string name="grades_year_grade">Year grade</string>
+    <string name="grades_exam_grade">Exam</string>
+    <string name="grades_ects_label">ECTS %1$s</string>
+    <string name="grades_information">Important grade information</string>
+    <string name="grades_subjects">Subjects</string>
+    <string name="grades_distribution">Grade distribution</string>
+    <string name="grades_subjects_total">%1$d subjects</string>
+    <string name="grades_based_on_current">Based on current grades</string>
     <string name="grades_protocol_lines">Protocol lines</string>
     <string name="grades_weight_label">Weight %1$s</string>
     <string name="grades_subject_header">Subject</string>
@@ -230,6 +243,14 @@
     <string name="label_grading">Grading</string>
     <string name="assignment_description">Description</string>
     <string name="assignment_files">Files</string>
+    <string name="assignments_overview_title">Your overview</string>
+    <string name="assignments_attention_count">%1$d need attention</string>
+    <string name="assignments_total_count">%1$d assignments total</string>
+    <string name="assignment_hours_short">%1$s h</string>
+    <string name="assignment_detail_title">Assignment</string>
+    <string name="assignment_grade">Grading</string>
+    <string name="assignment_submissions">Submissions</string>
+    <string name="assignment_no_deadline">No deadline</string>
 
     <string name="plan_detail">Study plan detail</string>
     <string name="room_schedule">Room schedule</string>
@@ -347,6 +368,7 @@
     <string name="settings_subject_colors">Subjects</string>
     <string name="settings_subject_colors_hint">Tap a subject to change its name and color. Synced via Supabase.</string>
     <string name="settings_subject_color">Color</string>
+    <string name="settings_subject_color_option">Color %1$d</string>
     <string name="settings_subject_customized">Customized</string>
     <string name="settings_subject_reset">Reset</string>
     <string name="settings_subject_reset_all">Reset all customizations</string>
@@ -575,5 +597,23 @@
     <string name="onboarding_next">Next</string>
     <string name="onboarding_start">Get started</string>
     <string name="onboarding_skip_shake">Continue without practicing</string>
-    <string name="feedback_my_feedback">Mine</string>
+    <string name="feedback_my_feedback">My feedback</string>
+    <string name="feedback_new_message">New message</string>
+    <string name="feedback_history">History</string>
+    <string name="feedback_reply_hint">Write a reply…</string>
+    <string name="feedback_empty_inbox">No messages yet</string>
+    <string name="feedback_send_feedback">Send feedback</string>
+    <string name="feedback_you">You</string>
+    <string name="feedback_load_error">Couldn’t load feedback</string>
+    <string name="feedback_load_message_error">Couldn’t load the message</string>
+    <string name="feedback_awaiting_staff">Waiting for BetterLectio</string>
+    <string name="feedback_awaiting_user">Waiting for you</string>
+    <string name="feedback_resolved">Resolved</string>
+    <string name="feedback_status_pending">Received</string>
+    <string name="feedback_status_review">Under review</string>
+    <string name="feedback_status_planned">Planned</string>
+    <string name="feedback_status_in_progress">In progress</string>
+    <string name="feedback_status_completed">Released</string>
+    <string name="feedback_status_declined">Not planned</string>
+    <string name="feedback_status_duplicate">Linked to another report</string>
 </resources>

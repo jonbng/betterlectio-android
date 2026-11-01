@@ -2,12 +2,12 @@ package dk.betterlectio.android.ui.components
 
 import androidx.compose.runtime.Composable
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.platform.LocalConfiguration
 import dk.betterlectio.android.R
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.format.DateTimeFormatter
 import java.time.temporal.ChronoUnit
-import java.util.Locale
 
 /**
  * Relative due labels for homework / assignments lists.
@@ -18,6 +18,7 @@ fun relativeDueLabel(
     today: LocalDate = LocalDate.now(),
 ): String? {
     date ?: return null
+    val locale = LocalConfiguration.current.locales[0]
     return when (val days = ChronoUnit.DAYS.between(today, date)) {
         0L -> stringResource(R.string.due_today)
         1L -> stringResource(R.string.due_tomorrow)
@@ -25,7 +26,7 @@ fun relativeDueLabel(
         in Long.MIN_VALUE..-2L -> stringResource(R.string.due_overdue_days, -days)
         in 2L..6L -> stringResource(R.string.due_in_days, days)
         else -> {
-            val fmt = DateTimeFormatter.ofPattern("d. MMM", Locale.getDefault())
+            val fmt = DateTimeFormatter.ofPattern("d. MMM", locale)
             date.format(fmt)
         }
     }
@@ -52,14 +53,15 @@ fun relativeDaySectionLabel(
     today: LocalDate = LocalDate.now(),
 ): String {
     date ?: return stringResource(R.string.due_no_date)
+    val locale = LocalConfiguration.current.locales[0]
     return when (val days = ChronoUnit.DAYS.between(today, date)) {
         0L -> stringResource(R.string.due_today)
         1L -> stringResource(R.string.due_tomorrow)
         -1L -> stringResource(R.string.due_yesterday)
         else -> {
-            val fmt = DateTimeFormatter.ofPattern("EEEE d. MMM", Locale.getDefault())
+            val fmt = DateTimeFormatter.ofPattern("EEEE d. MMM", locale)
             date.format(fmt).replaceFirstChar {
-                if (it.isLowerCase()) it.titlecase(Locale.getDefault()) else it.toString()
+                if (it.isLowerCase()) it.titlecase(locale) else it.toString()
             }
         }
     }

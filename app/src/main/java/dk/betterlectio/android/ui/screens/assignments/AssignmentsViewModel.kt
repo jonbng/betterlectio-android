@@ -38,6 +38,7 @@ class AssignmentsViewModel @Inject constructor(
     private val _state = MutableStateFlow(AssignmentsUiState())
     val state: StateFlow<AssignmentsUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
+    private var detailJob: Job? = null
 
     init {
         refreshIfStale()
@@ -115,8 +116,10 @@ class AssignmentsViewModel @Inject constructor(
             event = "assignment_detail_viewed",
             properties = mapOf("assignment_status" to item.status),
         )
-        viewModelScope.launch {
-            _state.update { it.copy(loading = true) }
+        detailJob?.cancel()
+        detailJob = viewModelScope.launch {
+            // Open immediately with overview data while the richer detail refreshes.
+            _state.update { it.copy(loading = true, detail = AssignmentDetail(item)) }
             when (val res = repository.loadDetail(item)) {
                 is AppResult.Success -> _state.update { it.copy(loading = false, detail = res.data) }
                 is AppResult.Failure -> _state.update {
@@ -127,6 +130,8 @@ class AssignmentsViewModel @Inject constructor(
     }
 
     fun closeDetail() {
-        _state.update { it.copy(detail = null) }
+        detailJob?.cancel()
+        detailJob = null
+        _state.update { it.copy(detail = null, loading = false) }
     }
 }

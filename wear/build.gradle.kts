@@ -23,7 +23,7 @@ val hasReleaseKeystore =
 android {
     namespace = "dk.betterlectio.android.wear"
     compileSdk {
-        version = release(36) {
+        version = release(37) {
             minorApiLevel = 1
         }
     }

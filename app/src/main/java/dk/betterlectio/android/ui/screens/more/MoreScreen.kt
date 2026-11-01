@@ -24,15 +24,19 @@ import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
 import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.selection.selectable
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.automirrored.filled.ArrowBack
 import androidx.compose.material.icons.automirrored.filled.ExitToApp
@@ -105,9 +109,16 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.hapticfeedback.HapticFeedbackType
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalConfiguration
 import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.platform.LocalFocusManager
 import androidx.compose.ui.platform.LocalHapticFeedback
+import androidx.compose.ui.platform.LocalResources
+import androidx.compose.ui.platform.LocalSoftwareKeyboardController
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.semantics.Role
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
@@ -127,6 +138,7 @@ import dk.betterlectio.android.feature.directory.DirectoryEntity
 import dk.betterlectio.android.feature.directory.DirectoryEntityKind
 import dk.betterlectio.android.feature.grades.GradeAverage
 import dk.betterlectio.android.feature.grades.GradeColumn
+import dk.betterlectio.android.feature.grades.DiplomaLine
 import dk.betterlectio.android.feature.grades.GradeNoteEntry
 import dk.betterlectio.android.feature.referral.REFERRAL_UNLOCK_THRESHOLD
 import dk.betterlectio.android.feature.referral.ReferralStats
@@ -161,7 +173,6 @@ import com.google.zxing.MultiFormatWriter
 import dk.betterlectio.android.ui.extension.ExtensionInviteSheet
 import dagger.hilt.android.EntryPointAccessors
 import java.time.format.TextStyle
-import java.util.Locale
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalLayoutApi::class)
 @Composable
@@ -184,6 +195,10 @@ fun MoreScreen(
     val lessonMappings by viewModel.lessonMappings.collectAsStateWithLifecycle()
     val notificationHistory by viewModel.notificationHistory.collectAsStateWithLifecycle()
     val context = LocalContext.current
+    val resources = LocalResources.current
+    val locale = LocalConfiguration.current.locales[0]
+    val focusManager = LocalFocusManager.current
+    val keyboardController = LocalSoftwareKeyboardController.current
     val haptics = LocalHapticFeedback.current
     val listState = rememberLazyListState()
     val scope = rememberCoroutineScope()
@@ -228,11 +243,14 @@ fun MoreScreen(
         state.personEntity != null ||
         state.planDetail != null ||
         state.roomEntity != null
-
-    // System back / gesture: walk up More hierarchy instead of leaving the tab.
-    BackHandler(enabled = showBack) {
+    val navigateBack = {
+        focusManager.clearFocus(force = true)
+        keyboardController?.hide()
         viewModel.back()
     }
+
+    // System back / gesture: walk up More hierarchy instead of leaving the tab.
+    BackHandler(enabled = showBack, onBack = navigateBack)
 
     // Reselecting the More tab (or switching back to it after a sub-page visit)
     // always returns to the top-level menu and scrolls it into view.
@@ -287,7 +305,7 @@ fun MoreScreen(
                 },
                 navigationIcon = {
                     if (showBack) {
-                        IconButton(onClick = viewModel::back) {
+                        IconButton(onClick = navigateBack) {
                             Icon(
                             Icons.AutoMirrored.Filled.ArrowBack,
                             contentDescription = stringResource(R.string.cd_back),
@@ -337,6 +355,7 @@ fun MoreScreen(
                     loading = state.loading,
                     overview = state.absence,
                     causes = viewModel.absenceCauses,
+                    displaySubject = viewModel::displayNameForSubject,
                     onSaveCause = viewModel::updateAbsenceCause,
                     modifier = Modifier.padding(padding),
                 )
@@ -613,7 +632,7 @@ fun MoreScreen(
                                     if (day.events.isEmpty()) return@forEach
                                     item(key = "rday-${day.date}") {
                                         Text(
-                                            day.date.dayOfWeek.getDisplayName(TextStyle.FULL, Locale.getDefault()) +
+                                            day.date.dayOfWeek.getDisplayName(TextStyle.FULL, locale) +
                                                 " ${day.date.dayOfMonth}/${day.date.monthValue}",
                                             style = MaterialTheme.typography.titleSmall,
                                             fontWeight = FontWeight.SemiBold,
@@ -1153,11 +1172,11 @@ fun MoreScreen(
                         type = "text/plain"
                         putExtra(
                             Intent.EXTRA_TEXT,
-                            context.getString(R.string.referral_share_text, url),
+                            resources.getString(R.string.referral_share_text, url),
                         )
                     }
                     context.startActivity(
-                        Intent.createChooser(send, context.getString(R.string.referral_share_chooser)),
+                        Intent.createChooser(send, resources.getString(R.string.referral_share_chooser)),
                     )
                     viewModel.onReferralShared("share_sheet")
                 },
@@ -1408,6 +1427,15 @@ private fun GradesOverviewContent(
     val columnAverages = remember(grades, columns) {
         GradeAverage.columnAverages(grades, columns)
     }
+    val gradeDistribution = remember(grades) {
+        val order = listOf("12", "10", "7", "4", "02", "00", "-3")
+        val counts = grades.mapNotNull { row ->
+            GradeAverage.representativeGrade(row)?.value?.trim()?.let { value ->
+                GradeAverage.gradeToNumber(value)?.let { value to it }
+            }
+        }.groupingBy { it.first }.eachCount()
+        order.mapNotNull { grade -> counts[grade]?.let { grade to it } }
+    }
     val singleAvg = selectedColumnKey?.let { GradeAverage.weightedAverageDisplay(grades, it) }
     val typeLabel = selectedColumnKey?.let { key ->
         columns.find { it.key == key }?.let { GradeAverage.shortLabel(it) }
@@ -1419,51 +1447,23 @@ private fun GradesOverviewContent(
         modifier = modifier.fillMaxSize(),
     ) {
         if (grades.isNotEmpty()) item {
-            FlowRow(
-                modifier = Modifier.padding(horizontal = 12.dp, vertical = 8.dp),
-                horizontalArrangement = Arrangement.spacedBy(6.dp),
+            LazyRow(
+                contentPadding = PaddingValues(horizontal = 16.dp, vertical = 10.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
             ) {
+                item {
                 FilterChip(
                     selected = isAll,
                     onClick = { onSelectColumn(null) },
                     label = { Text(stringResource(R.string.grades_type_all)) },
                 )
-                columns.forEach { col ->
+                }
+                items(columns, key = { it.key }) { col ->
                     FilterChip(
                         selected = selectedColumnKey == col.key,
                         onClick = { onSelectColumn(col.key) },
                         label = { Text(GradeAverage.shortLabel(col)) },
                     )
-                }
-            }
-        }
-
-        if (alerts.isNotEmpty()) {
-            items(alerts) { alert ->
-                Surface(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(horizontal = 16.dp, vertical = 4.dp),
-                    shape = RoundedCornerShape(12.dp),
-                    color = MaterialTheme.colorScheme.errorContainer.copy(alpha = 0.55f),
-                ) {
-                    Row(
-                        Modifier.padding(horizontal = 14.dp, vertical = 12.dp),
-                        verticalAlignment = Alignment.Top,
-                        horizontalArrangement = Arrangement.spacedBy(10.dp),
-                    ) {
-                        Icon(
-                            Icons.Default.Warning,
-                            contentDescription = null,
-                            tint = MaterialTheme.colorScheme.onErrorContainer,
-                            modifier = Modifier.size(18.dp),
-                        )
-                        Text(
-                            alert,
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onErrorContainer,
-                        )
-                    }
                 }
             }
         }
@@ -1474,8 +1474,7 @@ private fun GradesOverviewContent(
                     .fillMaxWidth()
                     .padding(horizontal = 16.dp, vertical = 8.dp),
                 shape = RoundedCornerShape(16.dp),
-                color = MaterialTheme.colorScheme.surfaceContainerLow,
-                tonalElevation = 0.dp,
+                    color = MaterialTheme.colorScheme.primaryContainer,
             ) {
                 if (isAll) {
                     Column(Modifier.padding(20.dp)) {
@@ -1483,7 +1482,7 @@ private fun GradesOverviewContent(
                             stringResource(R.string.grades_averages_title) +
                                 " · " + stringResource(R.string.grades_averages_weighted_note),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(12.dp))
@@ -1504,13 +1503,49 @@ private fun GradesOverviewContent(
                                             avg,
                                             style = MaterialTheme.typography.headlineSmall,
                                             fontWeight = FontWeight.Bold,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                                         )
                                         Text(
                                             GradeAverage.shortLabel(col),
                                             style = MaterialTheme.typography.labelSmall,
-                                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                                         )
                                     }
+                                }
+                            }
+                        }
+                        if (gradeDistribution.isNotEmpty()) {
+                            HorizontalDivider(
+                                modifier = Modifier.padding(vertical = 14.dp),
+                                color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.12f),
+                            )
+                            Row(
+                                modifier = Modifier.fillMaxWidth(),
+                                horizontalArrangement = Arrangement.SpaceBetween,
+                                verticalAlignment = Alignment.CenterVertically,
+                            ) {
+                                Text(
+                                    stringResource(R.string.grades_distribution),
+                                    style = MaterialTheme.typography.labelMedium,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+                                    fontWeight = FontWeight.SemiBold,
+                                )
+                                Text(
+                                    stringResource(
+                                        R.string.grades_subjects_total,
+                                        gradeDistribution.sumOf { it.second },
+                                    ),
+                                    style = MaterialTheme.typography.labelSmall,
+                                    color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.62f),
+                                )
+                            }
+                            FlowRow(
+                                modifier = Modifier.padding(top = 9.dp),
+                                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                                verticalArrangement = Arrangement.spacedBy(8.dp),
+                            ) {
+                                gradeDistribution.forEach { (grade, count) ->
+                                    GradeDistributionPill(grade = grade, count = count)
                                 }
                             }
                         }
@@ -1520,7 +1555,7 @@ private fun GradesOverviewContent(
                         Text(
                             stringResource(R.string.grades_average_label, typeLabel),
                             style = MaterialTheme.typography.labelMedium,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
                             fontWeight = FontWeight.SemiBold,
                         )
                         Spacer(Modifier.height(6.dp))
@@ -1528,7 +1563,7 @@ private fun GradesOverviewContent(
                             singleAvg ?: stringResource(R.string.grades_no_average),
                             style = MaterialTheme.typography.displaySmall,
                             fontWeight = FontWeight.Bold,
-                            color = MaterialTheme.colorScheme.onSurface,
+                            color = MaterialTheme.colorScheme.onPrimaryContainer,
                         )
                     }
                 }
@@ -1546,8 +1581,8 @@ private fun GradesOverviewContent(
                     textAlign = TextAlign.Center,
                 )
             }
-        } else if (isAll) {
-            item { GradeAllHeaderRow(columns) }
+        } else if (grades.isNotEmpty() && isAll) {
+            item { GradeSectionLabel(stringResource(R.string.grades_subjects)) }
             itemsIndexed(
                 visible,
                 key = { index, g ->
@@ -1561,10 +1596,10 @@ private fun GradesOverviewContent(
                     noteCount = GradeAverage.notesForHold(notes, g.team).size,
                     onClick = { onOpenDetail(g) },
                 )
-                AppListDivider()
             }
-        } else {
+        } else if (grades.isNotEmpty()) {
             val colKey = selectedColumnKey!!
+            item { GradeSectionLabel(stringResource(R.string.grades_subjects)) }
             itemsIndexed(
                 visible,
                 key = { index, g ->
@@ -1578,7 +1613,6 @@ private fun GradesOverviewContent(
                     noteCount = GradeAverage.notesForHold(notes, g.team).size,
                     onClick = { onOpenDetail(g) },
                 )
-                AppListDivider()
             }
         }
 
@@ -1594,44 +1628,69 @@ private fun GradesOverviewContent(
         }
 
         diplomaTypes.forEachIndexed { diplomaIndex, diploma ->
-                item(key = "diploma-header-$diplomaIndex") {
-                    SectionHeader(
-                        if (diploma.name.isBlank()) {
-                            stringResource(R.string.grades_diploma_lines)
-                        } else {
-                            stringResource(R.string.grades_diploma_lines_named, diploma.name)
-                        },
-                    )
-                }
                 if (diploma.average.isNotBlank()) {
                     item(key = "diploma-average-$diplomaIndex") {
-                        Text(
-                            diploma.average,
-                            style = MaterialTheme.typography.bodyMedium,
-                            fontWeight = FontWeight.SemiBold,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(horizontal = 16.dp, vertical = 10.dp),
+                        DiplomaAverageCard(
+                            average = diplomaAverageDisplay(diploma.average),
+                            diplomaName = diploma.name,
                         )
                     }
                 }
-                itemsIndexed(
-                    diploma.lines,
-                    key = { lineIndex, line ->
-                        "diploma-$diplomaIndex-${line.subject}-$lineIndex"
-                    },
-                ) { _, line ->
-                    AppListRow {
-                        AppListPrimary(line.subject, emphasized = true)
-                        AppListSecondary(
-                            stringResource(
-                                R.string.grades_diploma_line,
-                                gradeOrDash(line.yearGrade),
-                                gradeOrDash(line.examGrade),
-                            ),
+                if (diploma.lines.isNotEmpty()) {
+                    item(key = "diploma-header-$diplomaIndex") {
+                        GradeSectionLabel(
+                            if (diploma.name.isBlank()) {
+                                stringResource(R.string.grades_diploma_lines)
+                            } else {
+                                stringResource(R.string.grades_diploma_lines_named, diploma.name)
+                            },
                         )
                     }
-                    AppListDivider()
                 }
+                if (diploma.lines.isNotEmpty()) {
+                    item(key = "diploma-lines-$diplomaIndex") {
+                        DiplomaLinesCard(diploma.lines)
+                    }
+                }
+        }
+
+        if (alerts.isNotEmpty()) {
+            item {
+                Surface(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    shape = RoundedCornerShape(16.dp),
+                    color = MaterialTheme.colorScheme.surfaceContainerHigh,
+                ) {
+                    Row(
+                        Modifier.padding(16.dp),
+                        verticalAlignment = Alignment.Top,
+                        horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    ) {
+                        Icon(
+                            Icons.Default.Warning,
+                            contentDescription = null,
+                            tint = MaterialTheme.colorScheme.tertiary,
+                            modifier = Modifier.size(20.dp),
+                        )
+                        Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                            Text(
+                                stringResource(R.string.grades_information),
+                                style = MaterialTheme.typography.titleSmall,
+                                fontWeight = FontWeight.SemiBold,
+                            )
+                            alerts.forEach { alert ->
+                                Text(
+                                    alert,
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                        }
+                    }
+                }
+            }
         }
 
         if (protocolLines.isNotEmpty()) {
@@ -1681,6 +1740,248 @@ private fun GradesOverviewContent(
 private fun gradeOrDash(value: String): String = value.trim()
     .takeUnless { it.isEmpty() || it == "-" || it == "–" || it == "—" }
     ?: "–"
+
+private fun diplomaAverageDisplay(value: String): String =
+    Regex("-?\\d+(?:[,.]\\d+)?")
+        .findAll(value)
+        .lastOrNull()
+        ?.value
+        ?: gradeOrDash(value)
+
+@Composable
+private fun DiplomaAverageCard(
+    average: String,
+    diplomaName: String,
+) {
+    val resultLabel = if (diplomaName.isBlank()) {
+        stringResource(R.string.grades_exam_result)
+    } else {
+        "${stringResource(R.string.grades_exam_result)} · $diplomaName"
+    }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 10.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+        border = BorderStroke(
+            1.dp,
+            MaterialTheme.colorScheme.primary.copy(alpha = 0.3f),
+        ),
+    ) {
+        Row(
+            modifier = Modifier.padding(16.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(14.dp),
+        ) {
+            Surface(
+                shape = RoundedCornerShape(12.dp),
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(48.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
+                    Icon(
+                        Icons.Default.School,
+                        contentDescription = null,
+                        tint = MaterialTheme.colorScheme.primary,
+                        modifier = Modifier.size(24.dp),
+                    )
+                }
+            }
+            Column(Modifier.weight(1f)) {
+                Text(
+                    average,
+                    style = MaterialTheme.typography.headlineLarge,
+                    fontWeight = FontWeight.Black,
+                    color = MaterialTheme.colorScheme.onSurface,
+                )
+                Text(
+                    resultLabel,
+                    style = MaterialTheme.typography.labelMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                Text(
+                    stringResource(R.string.grades_based_on_current),
+                    style = MaterialTheme.typography.labelSmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.75f),
+                    modifier = Modifier.padding(top = 1.dp),
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiplomaLinesCard(lines: List<DiplomaLine>) {
+    val showExam = lines.any { gradeOrDash(it.examGrade) != "–" }
+    Surface(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(horizontal = 16.dp, vertical = 4.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
+    ) {
+        Column {
+            Row(
+                modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+                verticalAlignment = Alignment.CenterVertically,
+            ) {
+                Text(
+                    stringResource(R.string.grades_subject_header),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    modifier = Modifier.weight(1f),
+                )
+                Text(
+                    stringResource(R.string.grades_type_year),
+                    style = MaterialTheme.typography.labelSmall,
+                    fontWeight = FontWeight.SemiBold,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    textAlign = TextAlign.Center,
+                    modifier = Modifier.width(68.dp),
+                )
+                if (showExam) {
+                    Text(
+                        stringResource(R.string.grades_type_exam),
+                        style = MaterialTheme.typography.labelSmall,
+                        fontWeight = FontWeight.SemiBold,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        textAlign = TextAlign.Center,
+                        modifier = Modifier.width(68.dp),
+                    )
+                }
+            }
+            HorizontalDivider(color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.45f))
+            lines.forEachIndexed { index, line ->
+                DiplomaLineRow(line = line, showExam = showExam)
+                if (index < lines.lastIndex) {
+                    HorizontalDivider(
+                        modifier = Modifier.padding(start = 16.dp),
+                        color = MaterialTheme.colorScheme.outlineVariant.copy(alpha = 0.3f),
+                    )
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun DiplomaLineRow(
+    line: DiplomaLine,
+    showExam: Boolean,
+) {
+    Row(
+        modifier = Modifier.padding(horizontal = 16.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            line.subject,
+            style = MaterialTheme.typography.bodyMedium,
+            fontWeight = FontWeight.Medium,
+            maxLines = 2,
+            overflow = TextOverflow.Ellipsis,
+            modifier = Modifier
+                .weight(1f)
+                .padding(end = 8.dp),
+        )
+        CompactGradeColumn(
+            grade = line.yearGrade,
+            weight = line.yearWeight,
+            ects = line.yearEcts,
+        )
+        if (showExam) {
+            CompactGradeColumn(
+                grade = line.examGrade,
+                weight = line.examWeight,
+                ects = line.examEcts,
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactGradeColumn(
+    grade: String,
+    weight: String,
+    ects: String,
+) {
+    Column(
+        modifier = Modifier.width(68.dp),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        CompactGradePill(grade)
+        val metadata = listOfNotNull(
+            weight.trim().takeIf { it.isNotEmpty() && it != "-" }?.let { "×$it" },
+            ects.trim().takeIf { it.isNotEmpty() && it != "-" },
+        )
+            .joinToString(" · ")
+        if (metadata.isNotBlank()) {
+            Text(
+                metadata,
+                style = MaterialTheme.typography.labelSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.72f),
+                maxLines = 1,
+                modifier = Modifier.padding(top = 3.dp),
+            )
+        }
+    }
+}
+
+@Composable
+private fun CompactGradePill(grade: String) {
+    val value = gradeOrDash(grade)
+    if (value == "–") {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f),
+        )
+        return
+    }
+    val gradeColor = gradeSpectrumColor(value)
+    Surface(
+        shape = RoundedCornerShape(7.dp),
+        color = gradeColor.copy(alpha = 0.14f),
+    ) {
+        Text(
+            value,
+            style = MaterialTheme.typography.titleSmall,
+            fontWeight = FontWeight.Bold,
+            color = gradeColor,
+            textAlign = TextAlign.Center,
+            modifier = Modifier.padding(horizontal = 9.dp, vertical = 4.dp),
+        )
+    }
+}
+
+@Composable
+private fun GradeDistributionPill(grade: String, count: Int) {
+    val gradeColor = gradeSpectrumColor(grade)
+    Row(
+        verticalAlignment = Alignment.CenterVertically,
+        horizontalArrangement = Arrangement.spacedBy(4.dp),
+    ) {
+        Surface(
+            shape = RoundedCornerShape(7.dp),
+            color = gradeColor.copy(alpha = 0.16f),
+        ) {
+            Text(
+                grade,
+                style = MaterialTheme.typography.labelLarge,
+                fontWeight = FontWeight.Bold,
+                color = gradeColor,
+                modifier = Modifier.padding(horizontal = 7.dp, vertical = 3.dp),
+            )
+        }
+        Text(
+            "×$count",
+            style = MaterialTheme.typography.labelSmall,
+            color = MaterialTheme.colorScheme.onPrimaryContainer.copy(alpha = 0.72f),
+        )
+    }
+}
 
 private fun formatModuleNumber(value: Double?): String = value
     ?.toString()
@@ -1772,33 +2073,14 @@ private fun GradesDetailContent(
 }
 
 @Composable
-private fun GradeAllHeaderRow(columns: List<GradeColumn>) {
-    Row(
-        Modifier
-            .fillMaxWidth()
-            .padding(horizontal = 16.dp, vertical = 8.dp),
-        verticalAlignment = Alignment.CenterVertically,
-    ) {
-        Text(
-            stringResource(R.string.grades_subject_header),
-            style = MaterialTheme.typography.labelSmall,
-            fontWeight = FontWeight.SemiBold,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            modifier = Modifier.weight(1f),
-        )
-        columns.forEach { col ->
-            Text(
-                GradeAverage.shortLabel(col),
-                style = MaterialTheme.typography.labelSmall,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.Center,
-                maxLines = 1,
-                overflow = TextOverflow.Clip,
-                modifier = Modifier.width(36.dp),
-            )
-        }
-    }
+private fun GradeSectionLabel(label: String) {
+    Text(
+        label,
+        style = MaterialTheme.typography.titleSmall,
+        fontWeight = FontWeight.SemiBold,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+        modifier = Modifier.padding(start = 20.dp, end = 20.dp, top = 16.dp, bottom = 8.dp),
+    )
 }
 
 @Composable
@@ -1808,52 +2090,74 @@ private fun GradeAllSubjectRow(
     noteCount: Int,
     onClick: () -> Unit,
 ) {
-    Column(
-        Modifier
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 10.dp),
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
-        Row(verticalAlignment = Alignment.CenterVertically) {
-            Column(Modifier.weight(1f).padding(end = 8.dp)) {
+        Column(Modifier.padding(16.dp)) {
+            Text(
+                GradeAverage.displaySubject(row.subject),
+                style = MaterialTheme.typography.titleMedium,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 2,
+                overflow = TextOverflow.Ellipsis,
+            )
+            if (row.team.isNotBlank() || noteCount > 0) {
                 Text(
-                    GradeAverage.displaySubject(row.subject),
-                    style = MaterialTheme.typography.bodyLarge,
+                    listOfNotNull(
+                        row.team.takeIf { it.isNotBlank() },
+                        stringResource(R.string.grades_notes_count, noteCount).takeIf { noteCount > 0 },
+                    ).joinToString(" · "),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
+                    modifier = Modifier.padding(top = 2.dp),
                 )
-                if (row.team.isNotBlank()) {
-                    Text(
-                        row.team,
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        maxLines = 1,
-                        overflow = TextOverflow.Ellipsis,
-                    )
+            }
+            FlowRow(
+                modifier = Modifier.padding(top = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(8.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp),
+            ) {
+                columns.forEach { col ->
+                    row.cell(col.key)?.let { cell ->
+                        GradeValueChip(
+                            label = GradeAverage.shortLabel(col),
+                            value = cell.value,
+                        )
+                    }
                 }
             }
-            columns.forEach { col ->
-                val value = row.cell(col.key)?.value
-                Text(
-                    value ?: "–",
-                    style = MaterialTheme.typography.bodyMedium,
-                    fontWeight = if (value != null) FontWeight.SemiBold else FontWeight.Normal,
-                    color = if (value != null) {
-                        gradeSpectrumColor(value)
-                    } else {
-                        MaterialTheme.colorScheme.onSurfaceVariant.copy(alpha = 0.45f)
-                    },
-                    textAlign = TextAlign.Center,
-                    modifier = Modifier.width(36.dp),
-                )
-            }
         }
-        if (noteCount > 0) {
+    }
+}
+
+@Composable
+private fun GradeValueChip(label: String, value: String) {
+    Surface(
+        shape = RoundedCornerShape(10.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerHighest,
+    ) {
+        Row(
+            modifier = Modifier.padding(horizontal = 10.dp, vertical = 7.dp),
+            verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(7.dp),
+        ) {
             Text(
-                stringResource(R.string.grades_notes_count, noteCount),
+                label,
                 style = MaterialTheme.typography.labelSmall,
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
-                modifier = Modifier.padding(top = 2.dp),
+            )
+            Text(
+                value,
+                style = MaterialTheme.typography.titleSmall,
+                fontWeight = FontWeight.Bold,
+                color = gradeSpectrumColor(value),
             )
         }
     }
@@ -1868,68 +2172,52 @@ private fun GradeSingleTypeRow(
 ) {
     val cell = row.cell(columnKey)
     val gradeValue = cell?.value ?: "—"
-    val progress = GradeAverage.progressForGrade(cell?.value) ?: 0f
-    val track = MaterialTheme.colorScheme.surfaceVariant
-    val fill = MaterialTheme.colorScheme.primary
-
-    Column(
-        Modifier
+    Surface(
+        onClick = onClick,
+        modifier = Modifier
             .fillMaxWidth()
-            .clickable(onClick = onClick)
-            .padding(horizontal = 16.dp, vertical = 12.dp),
+            .padding(horizontal = 16.dp, vertical = 5.dp),
+        shape = RoundedCornerShape(16.dp),
+        color = MaterialTheme.colorScheme.surfaceContainerLow,
     ) {
         Row(
+            modifier = Modifier.padding(16.dp),
             verticalAlignment = Alignment.CenterVertically,
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
+            horizontalArrangement = Arrangement.spacedBy(16.dp),
         ) {
-            Text(
-                GradeAverage.displaySubject(row.subject),
-                style = MaterialTheme.typography.bodyLarge,
-                maxLines = 1,
-                overflow = TextOverflow.Ellipsis,
-                modifier = Modifier.width(120.dp),
-            )
-            Box(
-                Modifier
-                    .weight(1f)
-                    .height(6.dp)
-                    .clip(RoundedCornerShape(3.dp))
-                    .background(track),
-            ) {
-                Box(
-                    Modifier
-                        .fillMaxWidth(progress.coerceIn(0f, 1f))
-                        .height(6.dp)
-                        .clip(RoundedCornerShape(3.dp))
-                        .background(fill),
+            Column(Modifier.weight(1f)) {
+                Text(
+                    GradeAverage.displaySubject(row.subject),
+                    style = MaterialTheme.typography.titleMedium,
+                    fontWeight = FontWeight.SemiBold,
+                    maxLines = 2,
+                    overflow = TextOverflow.Ellipsis,
                 )
-            }
-            Text(
-                gradeValue,
-                style = MaterialTheme.typography.titleMedium,
-                fontWeight = FontWeight.SemiBold,
-                color = MaterialTheme.colorScheme.onSurfaceVariant,
-                textAlign = TextAlign.End,
-                modifier = Modifier.width(32.dp),
-            )
-        }
-        if (row.team.isNotBlank() || noteCount > 0) {
-            Row(
-                Modifier.padding(top = 2.dp),
-                horizontalArrangement = Arrangement.spacedBy(8.dp),
-            ) {
-                if (row.team.isNotBlank()) {
+                if (row.team.isNotBlank() || noteCount > 0) {
                     Text(
-                        row.team,
+                        listOfNotNull(
+                            row.team.takeIf { it.isNotBlank() },
+                            stringResource(R.string.grades_notes_count, noteCount)
+                                .takeIf { noteCount > 0 },
+                        ).joinToString(" · "),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis,
                     )
                 }
-                if (noteCount > 0) {
+            }
+            Surface(
+                shape = CircleShape,
+                color = MaterialTheme.colorScheme.primaryContainer,
+                modifier = Modifier.size(52.dp),
+            ) {
+                Box(contentAlignment = Alignment.Center) {
                     Text(
-                        stringResource(R.string.grades_notes_count, noteCount),
-                        style = MaterialTheme.typography.labelSmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        gradeValue,
+                        style = MaterialTheme.typography.titleLarge,
+                        fontWeight = FontWeight.Bold,
+                        color = gradeSpectrumColor(cell?.value),
                     )
                 }
             }
@@ -2517,6 +2805,7 @@ private fun AbsenceScreenContent(
     loading: Boolean,
     overview: AbsenceOverview?,
     causes: List<String>,
+    displaySubject: (String) -> String,
     onSaveCause: (id: String, cause: String, note: String) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2551,9 +2840,14 @@ private fun AbsenceScreenContent(
             )
         }
         when (tab) {
-            0 -> AbsenceOverviewTab(overview = overview, modifier = Modifier.fillMaxSize())
+            0 -> AbsenceOverviewTab(
+                overview = overview,
+                displaySubject = displaySubject,
+                modifier = Modifier.fillMaxSize(),
+            )
             else -> AbsenceRegistrationsTab(
                 overview = overview,
+                displaySubject = displaySubject,
                 onEdit = { editing = it },
                 modifier = Modifier.fillMaxSize(),
             )
@@ -2565,6 +2859,7 @@ private fun AbsenceScreenContent(
         EditAbsenceSheet(
             reg = sheetReg,
             causes = causes,
+            displaySubject = displaySubject,
             onDismiss = { editing = null },
             onSave = { cause, note ->
                 onSaveCause(sheetReg.id, cause, note)
@@ -2577,11 +2872,14 @@ private fun AbsenceScreenContent(
 @Composable
 private fun AbsenceOverviewTab(
     overview: AbsenceOverview?,
+    displaySubject: (String) -> String,
     modifier: Modifier = Modifier,
 ) {
     val dual = overview?.let { AbsenceSummary.dual(it) }
     val warning = overview?.let { AbsencePresentation.warningFromOverview(it) }
-    val bars = AbsenceChartSeries.fromTeams(overview?.teams.orEmpty())
+    val bars = AbsenceChartSeries.fromTeams(overview?.teams.orEmpty()).map { bar ->
+        bar.copy(label = displaySubject(bar.label))
+    }
     val teams = overview?.teams.orEmpty()
     val regs = overview?.registrations.orEmpty()
 
@@ -2722,7 +3020,7 @@ private fun AbsenceOverviewTab(
                         )
                     },
                 ) {
-                    AppListPrimary(row.team, emphasized = true)
+                    AppListPrimary(displaySubject(row.team), emphasized = true)
                     AppListSecondary(
                         stringResource(
                             R.string.absence_period_assessed,
@@ -2810,6 +3108,7 @@ private fun AbsenceStatCard(
 @Composable
 private fun AbsenceRegistrationsTab(
     overview: AbsenceOverview?,
+    displaySubject: (String) -> String,
     onEdit: (AbsenceRegistration) -> Unit,
     modifier: Modifier = Modifier,
 ) {
@@ -2839,7 +3138,11 @@ private fun AbsenceRegistrationsTab(
                 )
             }
             items(missing, key = { "miss-${it.id}" }) { reg ->
-                AbsenceRegistrationRow(reg = reg, onClick = { onEdit(reg) })
+                AbsenceRegistrationRow(
+                    reg = reg,
+                    displaySubject = displaySubject,
+                    onClick = { onEdit(reg) },
+                )
                 AppListDivider()
             }
         }
@@ -2850,7 +3153,11 @@ private fun AbsenceRegistrationsTab(
                 )
             }
             items(filled, key = { "reg-${it.id}" }) { reg ->
-                AbsenceRegistrationRow(reg = reg, onClick = { onEdit(reg) })
+                AbsenceRegistrationRow(
+                    reg = reg,
+                    displaySubject = displaySubject,
+                    onClick = { onEdit(reg) },
+                )
                 AppListDivider()
             }
         }
@@ -2861,9 +3168,11 @@ private fun AbsenceRegistrationsTab(
 @Composable
 private fun AbsenceRegistrationRow(
     reg: AbsenceRegistration,
+    displaySubject: (String) -> String,
     onClick: () -> Unit,
 ) {
     val hold = reg.team.ifBlank { reg.activityTitle }
+    val subjectName = displaySubject(hold)
     val fraction = reg.percent ?: 0.0
     val missingLabel = stringResource(R.string.absence_missing_label)
     val causeLine = buildString {
@@ -2901,7 +3210,7 @@ private fun AbsenceRegistrationRow(
             )
         },
     ) {
-        AppListPrimary(hold.ifBlank { "—" }, emphasized = true)
+        AppListPrimary(subjectName.ifBlank { "—" }, emphasized = true)
         if (dateLabel.isNotBlank() || reg.week.isNotBlank()) {
             val meta = listOfNotNull(
                 dateLabel.takeIf { it.isNotBlank() },
@@ -2926,6 +3235,7 @@ private fun AbsenceRegistrationRow(
 private fun EditAbsenceSheet(
     reg: AbsenceRegistration,
     causes: List<String>,
+    displaySubject: (String) -> String,
     onDismiss: () -> Unit,
     onSave: (cause: String, note: String) -> Unit,
 ) {
@@ -2952,6 +3262,9 @@ private fun EditAbsenceSheet(
         Column(
             Modifier
                 .fillMaxWidth()
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .navigationBarsPadding()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp),
@@ -2964,7 +3277,7 @@ private fun EditAbsenceSheet(
 
             val hold = reg.team.ifBlank { reg.activityTitle }
             Text(
-                hold,
+                displaySubject(hold),
                 style = MaterialTheme.typography.titleMedium,
                 fontWeight = FontWeight.Medium,
             )
@@ -3536,7 +3849,9 @@ private fun SubjectEditSheet(
                 .fillMaxWidth()
                 .padding(horizontal = 20.dp)
                 .padding(bottom = 32.dp)
-                .verticalScroll(rememberScrollState()),
+                .verticalScroll(rememberScrollState())
+                .imePadding()
+                .navigationBarsPadding(),
             horizontalAlignment = Alignment.CenterHorizontally,
         ) {
             Box(
@@ -3586,27 +3901,39 @@ private fun SubjectEditSheet(
                 verticalArrangement = Arrangement.spacedBy(8.dp),
                 modifier = Modifier.fillMaxWidth(),
             ) {
-                curatedHues.forEach { hue ->
+                curatedHues.forEachIndexed { index, hue ->
                     val argb = dk.betterlectio.android.feature.supabase.SupabaseSubjectService.hueToArgb(hue)
                     val selected = selectedHue == hue
+                    val colorLabel = stringResource(R.string.settings_subject_color_option, index + 1)
                     Box(
                         Modifier
-                            .size(28.dp)
-                            .clip(CircleShape)
-                            .background(Color(argb))
-                            .then(
-                                if (selected) {
-                                    Modifier.border(
-                                        2.dp,
-                                        MaterialTheme.colorScheme.onSurface,
-                                        CircleShape,
-                                    )
-                                } else {
-                                    Modifier
-                                },
+                            .size(48.dp)
+                            .selectable(
+                                selected = selected,
+                                role = Role.RadioButton,
+                                onClick = { selectedHue = hue },
                             )
-                            .clickable { selectedHue = hue },
-                    )
+                            .semantics { contentDescription = colorLabel },
+                        contentAlignment = Alignment.Center,
+                    ) {
+                        Box(
+                            Modifier
+                                .size(28.dp)
+                                .clip(CircleShape)
+                                .background(Color(argb))
+                                .then(
+                                    if (selected) {
+                                        Modifier.border(
+                                            2.dp,
+                                            MaterialTheme.colorScheme.onSurface,
+                                            CircleShape,
+                                        )
+                                    } else {
+                                        Modifier
+                                    },
+                                ),
+                        )
+                    }
                 }
             }
             Spacer(Modifier.height(20.dp))

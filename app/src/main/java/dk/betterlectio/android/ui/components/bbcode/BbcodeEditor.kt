@@ -2,15 +2,18 @@ package dk.betterlectio.android.ui.components.bbcode
 
 import android.graphics.Color as AndroidColor
 import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.text.Editable
 import android.text.Spanned
 import android.text.TextWatcher
+import android.text.method.ArrowKeyMovementMethod
 import android.text.style.StyleSpan
 import android.text.style.UnderlineSpan
 import android.util.TypedValue
 import android.view.Gravity
 import android.view.View
 import android.widget.EditText
+import androidx.appcompat.widget.AppCompatEditText
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
 import androidx.compose.foundation.horizontalScroll
@@ -73,6 +76,7 @@ fun BbcodeEditor(
     placeholder: String? = null,
     minLines: Int = 6,
     maxLines: Int = 16,
+    showToolbar: Boolean = true,
     enabled: Boolean = true,
     onFocusChanged: (Boolean) -> Unit = {},
 ) {
@@ -81,6 +85,7 @@ fun BbcodeEditor(
     val hintColor = MaterialTheme.colorScheme.onSurfaceVariant.toArgb()
     val density = LocalDensity.current
     val minHeightPx = with(density) { (minLines * 24).dp.roundToPx() }
+    val cursorWidthPx = with(density) { 2.dp.roundToPx() }
     val currentOnFocusChanged by rememberUpdatedState(onFocusChanged)
 
     var editTextRef by remember { mutableStateOf<EditText?>(null) }
@@ -180,31 +185,38 @@ fun BbcodeEditor(
                 color = MaterialTheme.colorScheme.onSurfaceVariant,
             )
         }
-        BbcodeToolbar(
-            enabled = enabled,
-            boldActive = boldActive,
-            italicActive = italicActive,
-            underlineActive = underlineActive,
-            onBold = { toggleOrPending(StyleKind.Bold) },
-            onItalic = { toggleOrPending(StyleKind.Italic) },
-            onUnderline = { toggleOrPending(StyleKind.Underline) },
-            onLink = {
-                linkUrl = ""
-                showLinkDialog = true
-            },
-            onBulletList = {
-                withEdit { BbcodeSpannable.insertListPrefix(it, ordered = false) }
-            },
-            onNumberedList = {
-                withEdit { BbcodeSpannable.insertListPrefix(it, ordered = true) }
-            },
-        )
+        if (showToolbar) {
+            BbcodeToolbar(
+                enabled = enabled,
+                boldActive = boldActive,
+                italicActive = italicActive,
+                underlineActive = underlineActive,
+                onBold = { toggleOrPending(StyleKind.Bold) },
+                onItalic = { toggleOrPending(StyleKind.Italic) },
+                onUnderline = { toggleOrPending(StyleKind.Underline) },
+                onLink = {
+                    linkUrl = ""
+                    showLinkDialog = true
+                },
+                onBulletList = {
+                    withEdit { BbcodeSpannable.insertListPrefix(it, ordered = false) }
+                },
+                onNumberedList = {
+                    withEdit { BbcodeSpannable.insertListPrefix(it, ordered = true) }
+                },
+            )
+        }
 
-        val shape = RoundedCornerShape(12.dp)
+        val shape = RoundedCornerShape(if (showToolbar) 12.dp else 22.dp)
         val borderColor = MaterialTheme.colorScheme.outline
+        val editorMinHeight = if (showToolbar) {
+            maxOf(120.dp, (minLines * 24).dp)
+        } else {
+            maxOf(48.dp, (minLines * 24).dp)
+        }
         AndroidView(
             factory = { context ->
-                object : EditText(context) {
+                object : AppCompatEditText(context) {
                     override fun onSelectionChanged(selStart: Int, selEnd: Int) {
                         super.onSelectionChanged(selStart, selEnd)
                         // Called during construction before fully ready — guard.
@@ -223,8 +235,15 @@ fun BbcodeEditor(
                     val padV = (12 * resources.displayMetrics.density).toInt()
                     setPadding(pad, padV, pad, padV)
                     setTextSize(TypedValue.COMPLEX_UNIT_SP, 16f)
-                    // Avoid LinkMovementMethod stealing selection / opening URLs while editing
-                    movementMethod = null
+                    // Keep normal EditText selection/caret behavior. BBCode links are spans,
+                    // not clickable URL spans, so LinkMovementMethod is not needed here.
+                    movementMethod = ArrowKeyMovementMethod.getInstance()
+                    isCursorVisible = true
+                    textCursorDrawable = GradientDrawable().apply {
+                        setShape(GradientDrawable.RECTANGLE)
+                        setColor(linkColor)
+                        setSize(cursorWidthPx, 0)
+                    }
                     isEnabled = enabled
                     isVerticalScrollBarEnabled = true
                     overScrollMode = View.OVER_SCROLL_IF_CONTENT_SCROLLS
@@ -269,11 +288,17 @@ fun BbcodeEditor(
                 edit.setTextColor(textColor)
                 edit.setHintTextColor(hintColor)
                 edit.hint = placeholder
+                edit.isCursorVisible = true
+                edit.textCursorDrawable = GradientDrawable().apply {
+                    setShape(GradientDrawable.RECTANGLE)
+                    setColor(linkColor)
+                    setSize(cursorWidthPx, 0)
+                }
                 if (editTextRef !== edit) editTextRef = edit
             },
             modifier = Modifier
                 .fillMaxWidth()
-                .heightIn(min = 120.dp, max = (maxLines * 24).dp)
+                .heightIn(min = editorMinHeight, max = (maxLines * 24).dp)
                 .clip(shape)
                 .border(1.dp, borderColor, shape)
                 .background(MaterialTheme.colorScheme.surface, shape),

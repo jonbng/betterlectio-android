@@ -5,7 +5,7 @@ import org.junit.Assert.assertNotNull
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
 import org.junit.Test
-import java.io.File
+import kotlin.io.path.createTempDirectory
 
 class AttachmentCacheTest {
 
@@ -21,7 +21,7 @@ class AttachmentCacheTest {
 
     @Test
     fun putFindClearAndEvict() {
-        val dir = createTempDir(prefix = "att-cache")
+        val dir = createTempDirectory(prefix = "att-cache").toFile()
         try {
             val cache = AttachmentCache(dir)
             val url = "https://www.lectio.dk/lectio/1/GetFile.aspx?documentid=1"
@@ -44,7 +44,7 @@ class AttachmentCacheTest {
 
     @Test
     fun putReplacesSameUrlDifferentName() {
-        val dir = createTempDir(prefix = "att-cache2")
+        val dir = createTempDirectory(prefix = "att-cache2").toFile()
         try {
             val cache = AttachmentCache(dir)
             val url = "https://www.lectio.dk/file"

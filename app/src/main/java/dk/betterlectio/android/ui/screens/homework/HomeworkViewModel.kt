@@ -43,6 +43,7 @@ class HomeworkViewModel @Inject constructor(
     private val _state = MutableStateFlow(HomeworkUiState())
     val state: StateFlow<HomeworkUiState> = _state.asStateFlow()
     private var refreshJob: Job? = null
+    private var detailJob: Job? = null
 
     val lessonMappings = settings.lessonMappings
         .stateIn(viewModelScope, SharingStarted.WhileSubscribed(5_000), settings.lessonMappings.value)
@@ -119,20 +120,36 @@ class HomeworkViewModel @Inject constructor(
     fun toggleDone(id: String) {
         val entry = _state.value.items.firstOrNull { it.id == id }
         val wasDone = entry?.done ?: repository.isDone(id)
+        val isDone = !wasDone
+        if (entry != null) {
+            _state.update { current ->
+                val items = current.items.map { item ->
+                    if (item.id == id) item.copy(done = isDone) else item
+                }
+                current.copy(
+                    items = items,
+                    groups = items.groupedByDate(),
+                    selected = current.selected?.let { selected ->
+                        if (selected.id == id) selected.copy(done = isDone) else selected
+                    },
+                )
+            }
+        }
         repository.toggleDone(id, entry)
         if (!wasDone) {
             reviewPromptCoordinator.maybePrompt(ReviewTrigger.HomeworkDone)
         }
-        refresh()
     }
 
     fun select(item: HomeworkItem?) {
+        detailJob?.cancel()
+        detailJob = null
         if (item == null) {
             _state.update { it.copy(selected = null) }
             return
         }
         _state.update { it.copy(selected = item) }
-        viewModelScope.launch {
+        detailJob = viewModelScope.launch {
             when (val res = repository.loadDetail(item)) {
                 is AppResult.Success -> _state.update { it.copy(selected = res.data) }
                 is AppResult.Failure -> Unit
