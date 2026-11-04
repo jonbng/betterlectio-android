@@ -34,6 +34,24 @@ class SupabaseSessionGateTest {
         gate.complete(SupabaseSessionState.Ready)
         assertEquals(SupabaseSessionState.Ready, gate.await(timeoutMs = 1))
     }
+
+    @Test
+    fun ready_gate_without_a_current_session_is_unavailable() = runTest {
+        assertEquals(
+            SupabaseSessionState.Unavailable(SupabaseUnavailableReason.AUTHENTICATION_FAILED),
+            resolveReadySessionState(
+                result = SupabaseSessionState.Ready,
+                hasCurrentSession = false,
+            ),
+        )
+        assertEquals(
+            SupabaseSessionState.Ready,
+            resolveReadySessionState(
+                result = SupabaseSessionState.Ready,
+                hasCurrentSession = true,
+            ),
+        )
+    }
 }
 
 class SupabaseScheduleRpcPayloadTest {

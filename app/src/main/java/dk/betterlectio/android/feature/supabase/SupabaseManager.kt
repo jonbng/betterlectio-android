@@ -2,6 +2,7 @@ package dk.betterlectio.android.feature.supabase
 
 import io.github.jan.supabase.SupabaseClient
 import io.github.jan.supabase.auth.Auth
+import io.github.jan.supabase.auth.auth
 import io.github.jan.supabase.createSupabaseClient
 import io.github.jan.supabase.functions.Functions
 import io.github.jan.supabase.postgrest.Postgrest
@@ -66,13 +67,30 @@ class SupabaseManager @Inject constructor(
         if (result == SupabaseSessionState.Unavailable(SupabaseUnavailableReason.TIMEOUT)) {
             Timber.w("Supabase session gate: timed out after %dms", timeoutMs)
         }
-        return result
+        val resolved = resolveReadySessionState(
+            result = result,
+            hasCurrentSession = client?.auth?.currentSessionOrNull() != null,
+        )
+        if (result is SupabaseSessionState.Ready && resolved !is SupabaseSessionState.Ready) {
+            Timber.w("Supabase session gate was ready, but no current session exists")
+        }
+        return resolved
     }
 
     companion object {
         const val SESSION_READY_TIMEOUT_MS = 15_000L
     }
 }
+
+internal fun resolveReadySessionState(
+    result: SupabaseSessionState,
+    hasCurrentSession: Boolean,
+): SupabaseSessionState =
+    if (result is SupabaseSessionState.Ready && !hasCurrentSession) {
+        SupabaseSessionState.Unavailable(SupabaseUnavailableReason.AUTHENTICATION_FAILED)
+    } else {
+        result
+    }
 
 internal class SupabaseSessionGate(
     private val enabled: Boolean,
